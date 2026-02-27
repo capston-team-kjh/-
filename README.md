@@ -33,8 +33,8 @@ source venv/bin/activate  # (Windows: venv\Scripts\activate)
 # 2. 필수 라이브러리 일괄 설치
 pip install -r requirements.txt
 
-# 3. 서버 실행 (자동으로 테이블이 생성됩니다)
-python app.py
+# 3. 서버 실행 (자동으로 테이블이 생성)
+flask run --debug ( 테스트 용으로 현재 사용 중 )
 ```
 ### 2. 프론트엔드 (React & Vite)
 ```terminal
