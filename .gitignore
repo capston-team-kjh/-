@@ -1,0 +1,17 @@
+# Prerequisites
+node_modules/
+.env
+dist/
+
+# Python
+__pycache__/
+venv/
+*.pyc
+
+# IDEs
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
