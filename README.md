@@ -34,3 +34,6 @@ pip install fastapi uvicorn sqlalchemy pymysql passlib "bcrypt<4.0.0"
 
 # 3. 서버 실행 (자동으로 데이터베이스 테이블이 생성됩니다)
 uvicorn main:app --reload
+
+-> 준영이 스타일로 하나 만들었음다
+ 
