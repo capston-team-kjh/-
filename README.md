@@ -14,6 +14,7 @@
      CREATE DATABASE focus_db;
      ```
    - *이 단계를 건너뛰면 Flask 서버 실행 시 'Database not found' 에러가 발생.*
+   - *root 비번이 다르면 /backend/app.py에 line 8 비번 바꿔서 사용.*
 
 2. **환경 설정 (Environment)**
    - Node.js 버전: 18.x 이상 권장
@@ -21,7 +22,9 @@
 
 ---
 
-## 🛠️ 설치 및 실행 방법
+## 설치 및 실행 방법
+
+*둘 다 동시에 실행되어야 함으로 'split terminal' 아니면 terminal 두 개 열어서 실행*
 
 ### 1. 백엔드 (Flask & MySQL)
 ```terminal
