@@ -17,21 +17,19 @@ ORM & Security: SQLAlchemy, PyMySQL, Passlib(Bcrypt)
 🚀 시작 가이드 (Getting Started)
 백엔드 설정 (Backend Setup)
 
-프로젝트 폴더(예: joljak4)로 이동합니다.
+1. 프로젝트 폴더(예: joljak4)로 이동합니다.
 
-가상환경을 활성화합니다: .\venv\Scripts\activate (Windows PowerShell 기준).
+2. 가상환경을 활성화합니다: .\venv\Scripts\activate (Windows PowerShell 기준).
 
-필수 라이브러리를 설치합니다:
+3. 필수 라이브러리를 설치합니다:
+ -> pip install fastapi uvicorn sqlalchemy pymysql passlib "bcrypt<4.0.0"
 
-Bash
-pip install fastapi uvicorn sqlalchemy pymysql passlib "bcrypt<4.0.0"
-데이터베이스 환경 세팅: MySQL 서버가 3306 포트에서 실행 중이어야 하며, joljak_db라는 이름의 데이터베이스가 미리 생성되어 있어야 합니다. (테이블은 서버 실행 시 SQLAlchemy가 자동으로 생성합니다.)
+4. 데이터베이스 환경 세팅: MySQL 서버가 3306 포트에서 실행 중이어야 하며, joljak_db라는 이름의 데이터베이스가 미리 생성되어 있어야 합니다. (테이블은 서버 실행 시 SQLAlchemy가 자동으로 생성합니다.)
 
-서버를 실행합니다:
+5. 서버를 실행합니다:
+ -> uvicorn main:app --reload
 
-Bash
-uvicorn main:app --reload
-웹 브라우저에서 http://127.0.0.1:8000/docs로 접속하면 Swagger UI를 통해 모든 API를 즉시 테스트할 수 있습니다.
+6. 웹 브라우저에서 http://127.0.0.1:8000/docs로 접속하면 Swagger UI를 통해 모든 API를 즉시 테스트할 수 있습니다.
 
 🗄️ 데이터베이스 모델 (Database Models)
 users: 사용자 인증(이메일, 암호화된 비밀번호) 및 기본 프로필(이름, 가입일) 정보 저장.
