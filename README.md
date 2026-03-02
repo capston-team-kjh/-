@@ -1,31 +1,49 @@
-이 모듈은 핵심 인증 루프, 사용자 설정, 그리고 학습 세션 추적을 위한 데이터베이스 스키마를 포함하고 있습니다.
+#  집중도 학습 시스템 (Focus Study System)
+**학생용 UI 및 인증 시스템 모듈**
 
-## 주요 기능
-- 인증 루프 (Full Auth Loop): Flask 및 MySQL과 연동된 로그인, 회원가입, 로그아웃 기능 구현.
-- 세션 유지 (Session Persistence): `localStorage`를 사용하여 새로고침 시에도 로그인 상태와 현재 페이지 위치를 유지.
-- 보안 설정 (Secure Settings): Bcrypt 해싱을 이용한 프로필 조회 및 비밀번호 변경 기능.
-- 데이터베이스 스키마: 집중도 추적을 위한 `STUDY_SESSION` 및 `ANALYSIS_RESULT` 테이블 구현. ( Work in Progress )
+프로젝트의 핵심 인증 시스템, 사용자 설정, 그리고 학습 데이터 관리를 위한 백엔드 기반을 포함
 
-## 기술 스택
-- Frontend: React, TypeScript, Tailwind CSS.
-- Backend: Flask, Flask-SQLAlchemy, Bcrypt.
-- Database: MySQL.
+---
 
-## 시작 가이드
+##  시작 전 필수 체크사항 (Pre-requisites)
+서버를 실행하기 전에 반드시 아래 설정을 완료해야 함
 
-### 백엔드 설정 (Backend Setup)
-1. `/backend` 폴더로 이동
-2. 가상환경을 활성화: `source venv/bin/activate` (Windows의 경우 `venv\Scripts\activate`).
-3. 필요한 라이브러리를 설치: `pip install flask flask-sqlalchemy pymysql bcrypt`.
-4. 서버를 실행: `python app.py`.
-   * *참고: MySQL 서버가 3306 포트에서 실행 중이어야 함함.*
+1. **MySQL 데이터베이스 생성**
+   - MySQL Workbench를 열고 아래 명령어를 실행:
+     ```sql
+     CREATE DATABASE focus_db;
+     ```
+   - *이 단계를 건너뛰면 Flask 서버 실행 시 'Database not found' 에러가 발생.*
+   - *root 비번이 다르면 /backend/app.py에 line 8 비번 바꿔서 사용.*
 
-### 프론트엔드 설정 (Frontend Setup)
-1. `/frontend` 폴더로 이동합니다.
-2. 종속성 라이브러리를 설치합니다: `npm install`.
-3. 개발 서버를 실행합니다: `npm run dev`.
+2. **환경 설정 (Environment)**
+   - Node.js 버전: 18.x 이상 권장
+   - Python 버전: 3.8 이상 권장
 
-##  데이터베이스 모델 (Database Models) ## WIP (Work in Progress) ##
-- `USER`: 사용자 인증 및 프로필 정보 저장.
-- `STUDY_SESSION`: 학습 시작/종료 시간 및 기기 메타데이터 추적.
-- `ANALYSIS_RESULT`: 세션과 연결된 집중도 점수(0-100) 저장.
+---
+
+## 설치 및 실행 방법
+
+*둘 다 동시에 실행되어야 함으로 'split terminal' 아니면 terminal 두 개 열어서 실행*
+
+### 1. 백엔드 (Flask & MySQL)
+```terminal
+cd backend
+# 1. 가상환경 생성 및 활성화
+python -m venv venv
+source venv/bin/activate  # (Windows: venv\Scripts\activate)
+
+# 2. 필수 라이브러리 일괄 설치
+pip install -r requirements.txt
+
+# 3. 서버 실행 (자동으로 테이블이 생성)
+flask run --debug ( 테스트 용으로 현재 사용 중 )
+```
+### 2. 프론트엔드 (React & Vite)
+```terminal
+cd frontend
+# 1. 패키지 설치
+npm install
+
+# 2. 실행
+npm run dev
