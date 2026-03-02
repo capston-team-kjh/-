@@ -11,21 +11,60 @@ type LearningStatus = 'idle' | 'learning' | 'uploading' | 'analyzing' | 'complet
 
 export function Learning({ onNavigate, onLogout, onViewResult }: LearningProps) {
   const [status, setStatus] = useState<LearningStatus>('idle');
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
 
-  const handleStart = () => {
-    setStatus('learning');
+  // Session start
+  const handleStart = async () => {
+    try {
+      // Get userId from your existing Auth context or localStorage
+      const userId = localStorage.getItem('userId'); 
+
+      const response = await fetch('http://localhost:5000/api/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          user_id: userId,
+          device: 'WEB', 
+          camera_mode: 'front+top' // Dual camera setup
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setCurrentSessionId(data.session_id); // 서버에서 받은 UUID 저장
+        setStatus('learning'); // UI 상태를 '학습 중'으로 변경
+      }
+    } catch (error) {
+      console.error("Start Session Error:", error);
+      setStatus('error');
+    }
   };
 
-  const handleStop = () => {
-    setStatus('uploading');
+  const handleStop = async () => {
+    if (!currentSessionId) return;
+
+    setStatus('uploading'); // 시각적 피드백 시작
     
-    // Simulate upload and analysis
-    setTimeout(() => {
-      setStatus('analyzing');
-      setTimeout(() => {
-        setStatus('completed');
-      }, 2000);
-    }, 2000);
+    try {
+      const response = await fetch(`http://localhost:5000/api/sessions/${currentSessionId}/stop`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ auto_request_analysis: true }), // 분석 요청
+      });
+
+      if (response.ok) {
+        setStatus('analyzing');
+        
+        // Even though the backend generates mock data instantly, 
+        // we can keep a small delay to simulate the "AI analysis" process for the UI
+        setTimeout(() => {
+          setStatus('completed');
+        }, 2000);
+      }
+    } catch (error) {
+      console.error("Stop Session Error:", error);
+      setStatus('error');
+    }
   };
 
   const handleRetry = () => {

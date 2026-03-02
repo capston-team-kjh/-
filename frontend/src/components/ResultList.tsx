@@ -1,4 +1,5 @@
 import { Navigation } from './Navigation';
+import { useEffect, useState } from 'react';
 
 interface ResultListProps {
   onNavigate: (page: 'home' | 'login' | 'signup' | 'dashboard' | 'learning' | 'result-list' | 'result-detail' | 'settings') => void;
@@ -7,15 +8,28 @@ interface ResultListProps {
 }
 
 export function ResultList({ onNavigate, onLogout, onViewResult }: ResultListProps) {
-  const mockResults = [
-    { id: '1', date: '2025-12-17', time: '14:30', duration: '2h 15m', score: 85, status: '완료' },
-    { id: '2', date: '2025-12-16', time: '10:00', duration: '1h 45m', score: 78, status: '완료' },
-    { id: '3', date: '2025-12-15', time: '15:20', duration: '3h 00m', score: 92, status: '완료' },
-    { id: '4', date: '2025-12-14', time: '09:15', duration: '2h 30m', score: 88, status: '완료' },
-    { id: '5', date: '2025-12-13', time: '16:00', duration: '1h 20m', score: 73, status: '완료' },
-    { id: '6', date: '2025-12-12', time: '11:30', duration: '2h 45m', score: 90, status: '완료' },
-    { id: '7', date: '2025-12-11', time: '14:00', duration: '3h 15m', score: 95, status: '완료' },
-  ];
+  const [results, setResults] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchResults = async () => {
+      const token = localStorage.getItem('accessToken');
+      try {
+        const response = await fetch('http://localhost:5000/api/results?page=1&size=10', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setResults(data.items); // Use 'items' from teammate's spec
+        }
+      } catch (error) {
+        console.error("List Fetch Error:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchResults();
+  }, []);
 
   return (
     <div className="min-h-screen border-2 border-gray-800">
@@ -45,26 +59,24 @@ export function ResultList({ onNavigate, onLogout, onViewResult }: ResultListPro
 
           {/* Table Rows */}
           <div className="space-y-3">
-            {mockResults.map((result) => (
-              <div 
-                key={result.id}
-                className="grid grid-cols-6 gap-4 p-4 border-2 border-gray-400 hover:bg-gray-50 items-center"
-              >
-                <div className="text-gray-800">{result.date}</div>
-                <div className="text-gray-800">{result.time}</div>
-                <div className="text-gray-800">{result.duration}</div>
-                <div className="text-gray-800">{result.score}점</div>
-                <div className="text-gray-800">{result.status}</div>
-                <div>
-                  <button 
-                    onClick={() => onViewResult(result.id)}
-                    className="px-4 py-2 border-2 border-gray-600 hover:bg-gray-100"
-                  >
-                    상세보기
-                  </button>
+            {loading ? <p className="text-center">로딩 중...</p> : 
+              results.map((result) => (
+                <div key={result.result_id} className="grid grid-cols-6 gap-4 p-4 border-2 border-gray-400 hover:bg-gray-50 items-center">
+                  <div className="text-gray-800">{result.date}</div>
+                  <div className="text-gray-800">{result.time}</div>
+                  <div className="text-gray-800">{result.duration}</div>
+                  <div className="text-gray-800">{result.score}점</div>
+                  <div className="text-gray-800">{result.status}</div>
+                  <div>
+                    <button 
+                      onClick={() => onViewResult(result.result_id)} // UUID 전달
+                      className="px-4 py-2 border-2 border-gray-600 hover:bg-gray-100"
+                    >
+                      상세보기
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
           </div>
         </div>
       </main>
