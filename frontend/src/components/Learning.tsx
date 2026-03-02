@@ -12,6 +12,7 @@ type LearningStatus = 'idle' | 'learning' | 'uploading' | 'analyzing' | 'complet
 export function Learning({ onNavigate, onLogout, onViewResult }: LearningProps) {
   const [status, setStatus] = useState<LearningStatus>('idle');
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [generatedResultId, setGeneratedResultId] = useState<string | null>(null); 
 
   // Session start
   const handleStart = async () => {
@@ -53,6 +54,8 @@ export function Learning({ onNavigate, onLogout, onViewResult }: LearningProps) 
       });
 
       if (response.ok) {
+        const data = await response.json();
+        setGeneratedResultId(data.result_id); // 서버에서 받은 result_id 저장
         setStatus('analyzing');
         
         // Even though the backend generates mock data instantly, 
@@ -78,7 +81,9 @@ export function Learning({ onNavigate, onLogout, onViewResult }: LearningProps) 
   };
 
   const handleViewResult = () => {
-    onViewResult('new-result');
+    if (generatedResultId) {
+      onViewResult(generatedResultId); // 생성된 ID로 상세 페이지 이동
+    }
   };
 
   return (

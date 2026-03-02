@@ -195,6 +195,7 @@ def stop_session(session_id):
     
     return jsonify({
         "session_id": session_id,
+        "result_id": mock_result.result_id,
         "status": session.status,
         "end_time": session.end_time.isoformat()
     }), 200
