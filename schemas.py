@@ -1,0 +1,73 @@
+from pydantic import BaseModel, EmailStr
+from datetime import datetime
+from typing import Optional, List
+
+# ==========================================
+# 1. User (회원) 스키마
+# ==========================================
+
+# 클라이언트 -> 서버: 로그인 요청 시 사용하는 데이터
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str
+
+# 클라이언트 -> 서버: 회원가입 요청 시 사용하는 데이터
+class UserCreate(BaseModel):
+    email: EmailStr  # EmailStr을 사용하면 이메일 형식이 맞는지 자동으로 검사해 줍니다.
+    password: str
+    name: str
+
+# 서버 -> 클라이언트: 정보 조회 응답 시 사용하는 데이터 (비밀번호 제외)
+class UserResponse(BaseModel):
+    id: int
+    email: EmailStr
+    name: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True  # SQLAlchemy ORM 객체를 Pydantic 모델로 변환할 수 있게 해줍니다.
+
+# ==========================================
+# 2. FocusSession (집중 세션) 스키마
+# ==========================================
+
+# 세션 시작 요청
+class SessionCreate(BaseModel):
+    user_id: int
+
+# 세션 종료/업데이트 요청
+class SessionUpdate(BaseModel):
+    end_time: datetime
+    status: str
+
+# 세션 정보 응답
+class SessionResponse(BaseModel):
+    id: int
+    user_id: int
+    start_time: datetime
+    end_time: Optional[datetime] = None  # 아직 종료되지 않은 세션은 None일 수 있음
+    status: str
+
+    class Config:
+        from_attributes = True
+
+# ==========================================
+# 3. FocusLog (실시간 집중도 로그) 스키마
+# ==========================================
+
+# 실시간 로그 데이터 기록 요청
+class LogCreate(BaseModel):
+    session_id: int
+    focus_score: float
+    state: str
+
+# 로그 데이터 응답
+class LogResponse(BaseModel):
+    id: int
+    session_id: int
+    timestamp: datetime
+    focus_score: float
+    state: str
+
+    class Config:
+        from_attributes = True
