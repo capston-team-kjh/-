@@ -2,11 +2,22 @@ from __future__ import annotations
 
 import os
 import time
+import tempfile
+import shutil
 from dataclasses import dataclass
 from typing import Any, Dict, List
 
 import cv2
 import mediapipe as mp
+
+# mediapipe 0.10.x (py3.12)에서 mp.solutions가 __init__에 노출되지 않는 경우 대응
+if not hasattr(mp, "solutions"):
+    try:
+        from mediapipe.python import solutions as mp_solutions  # type: ignore
+        mp.solutions = mp_solutions
+    except Exception:
+        # tasks만 노출되는 빌드/환경일 수도 있음
+        mp.solutions = None
 
 
 @dataclass
@@ -137,7 +148,7 @@ def _mark_absent_segments(
         start = t
         while t < duration_sec and (not face_seen_by_sec[t]):
             t += 1
-        end = t  # end는 초 단위에서 "끝 다음 초"(exclusive)
+        end = t  # end는 "끝 다음 초"(exclusive)
 
         if (end - start) >= absent_threshold_sec:
             for k in range(start, end):
@@ -194,21 +205,105 @@ def analyze_absent(
     fps: float = meta["video_fps"]
     duration_sec: int = meta["duration_sec"]
 
+    warnings: List[str] = []
+    if config.sampling_fps > fps:
+        warnings.append("SAMPLING_FPS_GT_VIDEO_FPS")
+
     face_seen_by_sec = [False] * max(duration_sec, 0)
 
     cap = cv2.VideoCapture(video_path)
     step = max(int(round(fps / max(config.sampling_fps, 1))), 1)
     processed_frames = 0
-    warnings: List[str] = []
 
-    if config.sampling_fps > fps:
-        warnings.append("SAMPLING_FPS_GT_VIDEO_FPS")
+    # 1) mediapipe solutions가 있으면 face_detection 사용
+    can_use_mp = False
+    try:
+        can_use_mp = (mp.solutions is not None) and hasattr(mp.solutions, "face_detection")
+    except Exception:
+        can_use_mp = False
 
-    mp_fd = mp.solutions.face_detection
-    with mp_fd.FaceDetection(
-        model_selection=0,
-        min_detection_confidence=float(config.min_face_confidence),
-    ) as fd:
+    if can_use_mp:
+        mp_fd = mp.solutions.face_detection
+        with mp_fd.FaceDetection(
+            model_selection=0,
+            min_detection_confidence=float(config.min_face_confidence),
+        ) as fd:
+            frame_idx = 0
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+
+                if frame_idx % step == 0:
+                    processed_frames += 1
+                    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    res = fd.process(rgb)
+
+                    sec = int(frame_idx / fps) if fps > 0 else 0
+                    if 0 <= sec < duration_sec and res.detections:
+                        face_seen_by_sec[sec] = True
+
+                frame_idx += 1
+
+    # 2) 아니면 OpenCV Haar cascade로 fallback (한글 경로 문제 회피를 위해 TEMP로 복사해서 로드)
+    else:
+        warnings.append("USING_OPENCV_HAAR_FALLBACK")
+
+        src = os.path.join(cv2.data.haarcascades, "haarcascade_frontalface_default.xml")
+        # TEMP는 보통 영문 경로라서 OpenCV가 잘 연다
+        dst = os.path.join(tempfile.gettempdir(), "haarcascade_frontalface_default.xml")
+
+        try:
+            # dst가 없거나, src가 더 최신이면 복사
+            if (not os.path.exists(dst)) or (os.path.getmtime(src) > os.path.getmtime(dst)):
+                shutil.copyfile(src, dst)
+        except Exception:
+            cap.release()
+            return {
+                "session_id": session_id,
+                "status": "failed",
+                "meta": {
+                    "camera_type": camera_type,
+                    "sampling_fps": config.sampling_fps,
+                    "video_fps": fps,
+                    "duration_sec": duration_sec,
+                    "processed_frames": processed_frames,
+                    "processing_time_sec": int(time.time() - started),
+                    "version": config.version,
+                    "warnings": warnings + ["HAAR_CASCADE_COPY_FAIL"],
+                    "fail_reason": "HAAR_CASCADE_COPY_FAIL",
+                },
+                "summary": {},
+                "timeline": [],
+                "events": [],
+            }
+
+        cascade_path = os.path.abspath(dst).replace("\\", "/")
+
+        face_cascade = cv2.CascadeClassifier()
+        ok = face_cascade.load(cascade_path)
+
+        if (not ok) or face_cascade.empty():
+            cap.release()
+            return {
+                "session_id": session_id,
+                "status": "failed",
+                "meta": {
+                    "camera_type": camera_type,
+                    "sampling_fps": config.sampling_fps,
+                    "video_fps": fps,
+                    "duration_sec": duration_sec,
+                    "processed_frames": processed_frames,
+                    "processing_time_sec": int(time.time() - started),
+                    "version": config.version,
+                    "warnings": warnings + ["HAAR_CASCADE_LOAD_FAIL"],
+                    "fail_reason": "HAAR_CASCADE_LOAD_FAIL",
+                },
+                "summary": {},
+                "timeline": [],
+                "events": [],
+            }
+
         frame_idx = 0
         while True:
             ret, frame = cap.read()
@@ -217,13 +312,17 @@ def analyze_absent(
 
             if frame_idx % step == 0:
                 processed_frames += 1
-                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                res = fd.process(rgb)
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                faces = face_cascade.detectMultiScale(
+                    gray,
+                    scaleFactor=1.1,
+                    minNeighbors=5,
+                    minSize=(30, 30),
+                )
 
                 sec = int(frame_idx / fps) if fps > 0 else 0
-                if 0 <= sec < duration_sec:
-                    if res.detections:
-                        face_seen_by_sec[sec] = True
+                if 0 <= sec < duration_sec and len(faces) > 0:
+                    face_seen_by_sec[sec] = True
 
             frame_idx += 1
 
