@@ -1,0 +1,4 @@
+sampling_fps: 5
+absent_threshold_sec: 5
+min_face_confidence: 0.5
+version: "ai-0.2.0"
