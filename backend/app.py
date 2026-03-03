@@ -298,37 +298,45 @@ def get_range_summary():
         "active_days": stats.active_days or 0 # 실제 학습한 일수
     }), 200
 
-@app.route('/api/results/<result_id>', methods=['GET'])
-def get_result_detail(result_id):
-    # Authorization check
+@app.route('/api/results/<result_id>', methods=['GET', 'DELETE'])
+def handle_result_detail(result_id):
+    # 1. Authorization Check (공통 로직)
     auth_header = request.headers.get('Authorization')
     if not auth_header or not auth_header.startswith('Bearer '):
         return jsonify({"error": "Unauthorized"}), 401
     
     token = auth_header.split(" ")[1]
     user_uuid = tokens.get(token)
-    
-    # Query specific result and summary linked by result_id
+
+    # 2. DELETE 요청 처리
+    if request.method == 'DELETE':
+        # MetricSummary 먼저 삭제 (Foreign Key 제약 조건 때문)
+        MetricSummary.query.filter_by(result_id=result_id).delete()
+        
+        analysis = AnalysisResult.query.get(result_id)
+        if analysis:
+            db.session.delete(analysis)
+            db.session.commit()
+            return jsonify({"deleted": True}), 200
+        return jsonify({"message": "결과를 찾을 수 없습니다."}), 404
+
+    # 3. GET 요청 처리 (기존 상세 조회 로직)
     result = db.session.query(AnalysisResult, MetricSummary).\
         join(MetricSummary, AnalysisResult.result_id == MetricSummary.result_id).\
         filter(AnalysisResult.result_id == result_id).first()
 
     if not result:
-        return jsonify({"message": "결과를 찾을 수 없습니다."}), 404 # Result not found
+        return jsonify({"message": "결과를 찾을 수 없습니다."}), 404
 
     analysis, summary = result
-
-    # Return structure matching teammate's documentation
     return jsonify({
         "summary": {
-            "total_time_min": int(summary.total_time_sec / 60), # 전체 학습 시간(분)
-            "focus_ratio": int(summary.focus_ratio * 100), # 집중도 비율(%)
-            "focus_time_min": int(summary.focus_time_sec / 60), # 집중 시간(분)
-            "non_focus_time_min": int(summary.non_focus_time_sec / 60) # 비집중 시간(분)
+            "total_time_min": int(summary.total_time_sec / 60),
+            "focus_ratio": int(summary.focus_ratio * 100),
+            "focus_time_min": int(summary.focus_time_sec / 60),
+            "non_focus_time_min": int(summary.non_focus_time_sec / 60)
         },
-        "timeline": [
-            {"time": "14:30", "score": 80}, {"time": "15:00", "score": 90} # 가짜 타임라인 데이터
-        ],
+        "timeline": [{"time": "14:30", "score": 80}, {"time": "15:00", "score": 90}],
         "habit_events": [
             {"type": "posture", "count": 12, "desc": "평균보다 적음 (양호)"},
             {"type": "gaze", "count": 8, "desc": "평균 수준"}

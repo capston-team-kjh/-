@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Navigation } from './Navigation';
 
 interface LearningProps {
-  onNavigate: (page: 'home' | 'login' | 'signup' | 'dashboard' | 'learning' | 'result-list' | 'result-detail' | 'settings') => void;
+  onNavigate: (page: 'home' | 'login' | 'signup' | 'dashboard' | 'learning' | 'result-list' | 'result-detail' | 'settings' | 'history-delete') => void;
   onLogout: () => void;
   onViewResult: (resultId: string) => void;
 }

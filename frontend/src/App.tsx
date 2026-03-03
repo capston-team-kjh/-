@@ -7,8 +7,9 @@ import { Learning } from './components/Learning';
 import { ResultList } from './components/ResultList';
 import { ResultDetail } from './components/ResultDetail';
 import { Settings } from './components/Settings';
+import { HistoryDelete } from './components/HistoryDelete';
 
-type Page = 'home' | 'login' | 'signup' | 'dashboard' | 'learning' | 'result-list' | 'result-detail' | 'settings';
+type Page = 'home' | 'login' | 'signup' | 'dashboard' | 'learning' | 'result-list' | 'result-detail' | 'settings' | 'history-delete';
 
 export default function App() {
   const [currentPage, setCurrentPage] = useState<Page>(()=> {
@@ -71,6 +72,7 @@ export default function App() {
       {currentPage === 'result-list' && <ResultList onNavigate={navigate} onLogout={handleLogout} onViewResult={handleViewResult} />}
       {currentPage === 'result-detail' && <ResultDetail onNavigate={navigate} onLogout={handleLogout} resultId={selectedResultId} />}
       {currentPage === 'settings' && <Settings userId={userId} onNavigate={navigate} onLogout={handleLogout} accessToken={accessToken}/>}
+      {currentPage === 'history-delete' && <HistoryDelete onNavigate={navigate} onLogout={handleLogout} />}
     </div>
   );
 }

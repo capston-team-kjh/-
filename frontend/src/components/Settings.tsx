@@ -2,7 +2,7 @@ import { Navigation } from './Navigation';
 import { useState } from 'react';
 
 interface SettingsProps {
-  onNavigate: (page: 'home' | 'login' | 'signup' | 'dashboard' | 'learning' | 'result-list' | 'result-detail' | 'settings') => void;
+  onNavigate: (page: 'home' | 'login' | 'signup' | 'dashboard' | 'learning' | 'result-list' | 'result-detail' | 'settings' | 'history-delete') => void;
   onLogout: () => void;
   userId: string | null;
   accessToken: string | null;
@@ -116,8 +116,15 @@ export function Settings({ onNavigate, onLogout, userId, accessToken}: SettingsP
                 <h2 className="mb-4 pb-2 border-b border-gray-400">데이터 관리</h2>
                 <div className="space-y-4">
                   <div className="border-2 border-gray-400 p-4">
-                    <div className="text-gray-700 mb-2">학습 기록 삭제</div>
-                    <div className="text-gray-600 text-sm">전체 또는 선택 기록 삭제</div>
+                  <div className="border-2 border-gray-400 p-4 hover:bg-gray-50 cursor-pointer">
+                    <button 
+                      onClick={() => onNavigate('history-delete' as any)} 
+                      className="w-full text-left"
+                    >
+                      <div className="text-gray-700 mb-2 font-bold">학습 기록 삭제</div>
+                      <div className="text-gray-600 text-sm">전체 또는 개별 기록 삭제 페이지로 이동</div>
+                    </button>
+                  </div>
                   </div>
                   <div className="border-2 border-gray-400 p-4">
                     <div className="text-gray-700 mb-2">기록 보관/내보내기</div>

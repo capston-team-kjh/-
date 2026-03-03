@@ -2,7 +2,7 @@ import { Navigation } from './Navigation';
 import { useEffect, useState} from 'react';
 
 interface DashboardProps {
-  onNavigate: (page: 'home' | 'login' | 'signup' | 'dashboard' | 'learning' | 'result-list' | 'result-detail' | 'settings') => void;
+  onNavigate: (page: 'home' | 'login' | 'signup' | 'dashboard' | 'learning' | 'result-list' | 'result-detail' | 'settings' | 'history-delete') => void;
   userId: string | null;
   onLogout: () => void;
   onViewResult: (resultId: string) => void;
@@ -71,40 +71,56 @@ export function Dashboard({ onNavigate, userId, onLogout, onViewResult }: Dashbo
 
       {/* Main Content */}
       <main className="p-8">
-        {/* Summary Cards */}
+        {/* Dashboard.tsx - Boxed Summary Section */}
         <div className="grid grid-cols-2 gap-6 mb-8">
-          {/* Daily Summary */}
-          <div className="flex justify-between border-b border-gray-300 pb-2">
-            <span className="text-gray-700">오늘 학습 시간</span>
-            <span className="text-gray-700">{dailyData ? formatDuration(dailyData.total_study_min) : '0m'}</span>
-          </div>
-          <div className="flex justify-between border-b border-gray-300 pb-2">
-            <span className="text-gray-700">평균 집중도</span>
-            <span className="text-gray-700">{dailyData?.avg_focus_score || 0}%</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-gray-700">집중 세션</span>
-            <span className="text-gray-700">{dailyData?.session_count || 0}회</span>
+          {/* Left Box: Daily Summary */}
+          <div className="border-2 border-gray-600 p-6 bg-white">
+            <h2 className="mb-4 pb-2 border-b border-gray-400 font-bold text-gray-800">오늘의 요약</h2>
+            <div className="space-y-3">
+              <div className="flex justify-between border-b border-gray-200 pb-2">
+                <span className="text-gray-600">오늘 학습 시간</span>
+                <span className="text-gray-800 font-medium">
+                  {dailyData ? formatDuration(dailyData.total_study_min) : '0m'}
+                </span>
+              </div>
+              <div className="flex justify-between border-b border-gray-200 pb-2">
+                <span className="text-gray-600">평균 집중도</span>
+                <span className="text-gray-800 font-medium">
+                  {dailyData?.avg_focus_score || 0}%
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">집중 세션</span>
+                <span className="text-gray-800 font-medium">
+                  {dailyData?.session_count || 0}회
+                </span>
+              </div>
+            </div>
           </div>
 
-          {/* Weekly/Monthly Summary */}
-          <div className="flex justify-between border-b border-gray-300 pb-2">
-            <span className="text-gray-700">주간 학습 시간</span>
-            <span className="text-gray-700">
-              {summaryData ? formatDuration(summaryData.total_study_min) : '0m'}
-            </span>
-          </div>
-          <div className="flex justify-between border-b border-gray-300 pb-2">
-            <span className="text-gray-700">주간 평균 집중도</span>
-            <span className="text-gray-700">
-              {summaryData?.avg_focus_score || 0}%
-            </span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-gray-700">월간 학습 일수</span>
-            <span className="text-gray-700">
-              {summaryData?.active_days || 0}일
-            </span>
+          {/* Right Box: Weekly/Monthly Summary */}
+          <div className="border-2 border-gray-600 p-6 bg-white">
+            <h2 className="mb-4 pb-2 border-b border-gray-400 font-bold text-gray-800">누적 통계</h2>
+            <div className="space-y-3">
+              <div className="flex justify-between border-b border-gray-200 pb-2">
+                <span className="text-gray-600">주간 학습 시간</span>
+                <span className="text-gray-800 font-medium">
+                  {summaryData ? formatDuration(summaryData.total_study_min) : '0m'}
+                </span>
+              </div>
+              <div className="flex justify-between border-b border-gray-200 pb-2">
+                <span className="text-gray-600">주간 평균 집중도</span>
+                <span className="text-gray-800 font-medium">
+                  {summaryData?.avg_focus_score || 0}%
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">월간 학습 일수</span>
+                <span className="text-gray-800 font-medium">
+                  {summaryData?.active_days || 0}일
+                </span>
+              </div>
+            </div>
           </div>
         </div>
 

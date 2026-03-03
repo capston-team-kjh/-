@@ -1,7 +1,7 @@
 import { useState } from 'react'; // Add this import
 
 interface LoginProps {
-  onNavigate: (page: 'home' | 'login' | 'signup' | 'dashboard' | 'learning' | 'result-list' | 'result-detail' | 'settings') => void;
+  onNavigate: (page: 'home' | 'login' | 'signup' | 'dashboard' | 'learning' | 'result-list' | 'result-detail' | 'settings' | 'history-delete') => void;
   onLogin: (userData: { user_id: string, access_token: string }) => void;
 }
 
