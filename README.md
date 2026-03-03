@@ -24,7 +24,14 @@
 
 ## 설치 및 실행 방법
 
-*둘 다 동시에 실행되어야 함으로 'split terminal' 아니면 terminal 두 개 열어서 실행*
+### 빠르게 ui-login 브랜치만 pull 해서 확인하고 싶을 때:
+
+```terminal
+git init
+
+git clone --branch ui-login --single-branch https://github.com/capston-team-kjh/-.git
+```
+*브랜치를 pull하고자 하는 폴더 생성 후, git 초기화 및 복제
 
 ### 1. 백엔드 (Flask & MySQL)
 ```terminal
