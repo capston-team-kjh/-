@@ -1,7 +1,7 @@
 import { Navigation } from './Navigation';
 
 interface DashboardProps {
-  onNavigate: (page: 'home' | 'login' | 'signup' | 'dashboard' | 'learning' | 'result-list' | 'result-detail') => void;
+  onNavigate: (page: 'home' | 'login' | 'signup' | 'dashboard' | 'learning' | 'result-list' | 'result-detail' | 'settings') => void;
   onLogout: () => void;
   onViewResult: (resultId: string) => void;
 }
