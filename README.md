@@ -35,6 +35,19 @@ pip install fastapi uvicorn sqlalchemy pymysql passlib "bcrypt<4.0.0"
 
 # 3. 서버 실행 (자동으로 데이터베이스 테이블이 생성됩니다)
 uvicorn main:app --reload
+```
+
+### 2. 프론트엔드 ( React + Vite )
+```terminal
+# 1. 새로운 터미널에서 포론트엔드 다이렉토리로 이동 ( 여기서는 가상 환경 활성화 안함 )
+cd frontend
+
+# 2. 노드 패캐지 설치
+npm install
+
+# 3. 개발 환경 시작
+npm run dev
+```
 
 
  
