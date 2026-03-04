@@ -1,6 +1,9 @@
 from fastapi import FastAPI
 import uvicorn
 
+# CORS 설정
+from fastapi.middleware.cors import CORSMiddleware
+
 # 작성한 models와 database 불러오기
 import models
 from database import engine
@@ -17,6 +20,15 @@ app = FastAPI(
     title="FocusAI API",
     description="실시간 집중도 측정 및 로그 관리를 위한 백엔드 서버",
     version="1.0.0"
+)
+
+# CORS 설정
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # 🌟 2. FastAPI 앱에 라우터 등록하기
