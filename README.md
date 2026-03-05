@@ -18,7 +18,7 @@
 
 2. **환경 설정 (Environment)**
    - Python 버전: 3.9 이상 권장
-   - Node.js 버전: 18.x 이상 권장 (프론트엔드 연동 시)
+   - Node.js 버전: v24.x 이상 (LTS) -> Long-Term Support 버전이 제일 안정적인 버전들이라고 함
 
 ---
 
@@ -38,6 +38,22 @@ uvicorn main:app --reload
 ```
 
 ### 2. 프론트엔드 ( React + Vite )
+
+---
+### 노드 패기지를 터미널로 설치하기 전에 node.js (v24.x LTS) 설치
+
+1. **노드 페이지 방문하고 'Pre-built node.js'로 내려가서 운영체제 선택 이후 installer 설치.**
+   - *필수 참고 사항: 설치할때 'Add to PATH' 옵션이 체크되어 있는지 확인하고 설치 실행할 것*
+   - https://nodejs.org/en/download
+
+2. **설치 이후, 터미널에서 node와 npm 버전 확인**
+   ```terminal
+   node -v  # v24.x 확인
+
+   npm -v  # v11.x 확인
+   ```
+---
+### 노드 패키지 설치
 ```terminal
 # 1. 새로운 터미널에서 포론트엔드 다이렉토리로 이동 ( 여기서는 가상 환경 활성화 안함 )
 cd frontend
