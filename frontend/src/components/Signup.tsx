@@ -1,41 +1,52 @@
 import { useState } from 'react';
 
 interface SignupProps {
-  onNavigate: (page: 'home' | 'login' | 'signup' | 'dashboard' | 'learning' | 'result-list' | 'result-detail') => void;
+  onNavigate: (page: 'home' | 'login' | 'signup' | 'dashboard' | 'learning' | 'result-list' | 'result-detail' | 'settings') => void;
 }
 
 export function Signup({ onNavigate }: SignupProps) {
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [password_confirm, setPasswordConfirm] = useState('');
-  const [name, setName] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
 
-  const handleSignup = async () => {
-    if (!email || !password || !name) {
-      alert("모든 필드를 입력해주세요.");
+  const handleSignupSubmit = async () => {
+    // 1. Check for empty fields (New addition!)
+    if (!email.trim() || !password.trim()) {
+      alert("이메일과 비밀번호를 모두 입력해주세요.");
       return;
-    } 
-    if (password !== password_confirm) {
-      alert("비밀번호가 서로 같지 않습니다.");
+    }
+
+    // 2. Check for minimum length (Recommended for your demo)
+    if (password.length < 8) {
+      alert("비밀번호는 최소 8자 이상이어야 합니다.");
+      return;
+    }
+    
+    // 1. Validation check
+    if (password !== confirmPassword) {
+      alert("비밀번호가 일치하지 않습니다.");
       return;
     }
 
     try {
-      const response = await fetch('http://localhost:8000/api/v1/users/register', {
+      const response = await fetch('/api/auth/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, name }),
-      }); 
+        body: JSON.stringify({ email, password }),
+      });
+
+      const data = await response.json();
 
       if (response.ok) {
         alert("회원가입이 완료되었습니다! 로그인해주세요.");
-        onNavigate('login');  
+        onNavigate('login'); // Redirect to login page
       } else {
-        const error = await response.json();
-        alert(error.detail || '회원가입 실패');
+        alert(data.error || "회원가입에 실패했습니다.");
       }
     } catch (error) {
-      alert('서버와 연결 실패했습니다.');
+      console.error("Signup error:", error);
+      alert("서버 통신 오류가 발생했습니다.");
     }
   };
 
@@ -50,24 +61,10 @@ export function Signup({ onNavigate }: SignupProps) {
       <div className="flex-1 flex items-center justify-center p-8">
         <div className="w-full max-w-md border-2 border-gray-600 p-8">
           <div className="space-y-6">
-
-            {/* 이름 */}
-            <div>
-              <label className="block mb-2 text-gray-700">이름</label>
-              <input 
-                type="text" 
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="w-full p-3 border-2 border-gray-400 bg-white"
-                placeholder="홍길동"
-              />
-            </div>
-
-            {/* 아이디(이메일) */}
             <div>
               <label className="block mb-2 text-gray-700">아이디(이메일)</label>
               <input 
-                type="email" 
+                type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full p-3 border-2 border-gray-400 bg-white"
@@ -75,32 +72,30 @@ export function Signup({ onNavigate }: SignupProps) {
               />
             </div>
 
-            {/* 비밀번호 */}
             <div>
               <label className="block mb-2 text-gray-700">비밀번호</label>
               <input 
-                type="password"
+                type="password" 
                 value={password}
-                onChange={(e) => setPassword(e.target.value)} 
+                onChange={(e) => setPassword(e.target.value)}
                 className="w-full p-3 border-2 border-gray-400 bg-white"
                 placeholder="••••••••"
               />
             </div>
 
-            {/* 비밀번호 확인 */}
             <div>
               <label className="block mb-2 text-gray-700">비밀번호 확인</label>
               <input 
                 type="password" 
-                value={password_confirm}
-                onChange={(e) => setPasswordConfirm(e.target.value)}
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
                 className="w-full p-3 border-2 border-gray-400 bg-white"
                 placeholder="••••••••"
               />
             </div>
 
             <button 
-              onClick={handleSignup}
+              onClick={handleSignupSubmit}
               className="w-full p-3 border-2 border-gray-800 hover:bg-gray-100"
             >
               회원가입

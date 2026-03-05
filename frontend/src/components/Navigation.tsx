@@ -1,6 +1,6 @@
 interface NavigationProps {
   currentPage: string;
-  onNavigate: (page: 'dashboard' | 'learning' | 'result-list' | 'settings') => void;
+  onNavigate: (page: 'home' | 'login' | 'signup' | 'dashboard' | 'learning' | 'result-list' | 'result-detail' | 'settings' | 'history-delete') => void;
   onLogout: () => void;
 }
 
