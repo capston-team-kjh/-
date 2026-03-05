@@ -24,14 +24,14 @@
 
 ## 🛠️ 설치 및 실행 방법
 
-### 1. 백엔드 (FastAPI & MySQL)
+### 1. 백엔드 (FastAPI / Flask / MySQL)
 ```terminal
 # 1. 가상환경 생성 및 활성화
 python -m venv venv
 .\venv\Scripts\activate  # (Mac/Linux: source venv/bin/activate)
 
 # 2. 필수 라이브러리 설치 (bcrypt 버전 충돌 방지 포함)
-pip install fastapi uvicorn sqlalchemy pymysql passlib "bcrypt<4.0.0"
+pip install -r requirements.txt
 
 # 3. 서버 실행 (자동으로 데이터베이스 테이블이 생성됩니다)
 uvicorn main:app --reload
