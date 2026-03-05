@@ -1,12 +1,43 @@
 import { Navigation } from './Navigation';
+import { useEffect, useState } from 'react';
 
 interface ResultDetailProps {
-  onNavigate: (page: 'home' | 'login' | 'signup' | 'dashboard' | 'learning' | 'result-list' | 'result-detail' | 'settings') => void;
+  onNavigate: (page: 'home' | 'login' | 'signup' | 'dashboard' | 'learning' | 'result-list' | 'result-detail' | 'settings' | 'history-delete') => void;
   onLogout: () => void;
   resultId: string | null;
 }
 
 export function ResultDetail({ onNavigate, onLogout, resultId }: ResultDetailProps) {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchDetail = async () => {
+      const token = localStorage.getItem('accessToken');
+      
+      try {
+        // Fetch from the standardized /api route
+        const response = await fetch(`http://localhost:5000/api/results/${resultId}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (response.ok) {
+          const json = await response.json();
+          setData(json);
+        }
+      } catch (error) {
+        console.error("Result Detail Fetch Error:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (resultId) fetchDetail();
+  }, [resultId]);
+
+  if (loading) return <div className="p-10 text-center">데이터 분석 결과를 불러오는 중...</div>;
+  if (!data) return <div className="p-10 text-center">데이터가 없습니다.</div>;
+
   return (
     <div className="min-h-screen border-2 border-gray-800">
       <Navigation 
@@ -29,11 +60,11 @@ export function ResultDetail({ onNavigate, onLogout, resultId }: ResultDetailPro
             <div className="grid grid-cols-4 gap-4">
               <div className="border-2 border-gray-400 p-4">
                 <div className="text-gray-600 text-sm mb-2">총 학습시간</div>
-                <div className="text-gray-800">2h 15m</div>
+                <div className="text-gray-800">{data.summary.total_time_min}m</div>
               </div>
               <div className="border-2 border-gray-400 p-4">
                 <div className="text-gray-600 text-sm mb-2">집중 비율</div>
-                <div className="text-gray-800">85%</div>
+                <div className="text-gray-800">{data.summary.focus_ratio}%</div>
               </div>
               <div className="border-2 border-gray-400 p-4">
                 <div className="text-gray-600 text-sm mb-2">집중 시간</div>
