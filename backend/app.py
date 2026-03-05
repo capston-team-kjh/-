@@ -7,7 +7,6 @@ from database import SessionLocal, engine
 from datetime import datetime
 import uuid
 import random
-import bcrypt
 
 app = Flask(__name__)
 CORS(app)
@@ -196,7 +195,7 @@ def get_all_results():
      .group_by(FocusSession.id)\
      .order_by(FocusSession.start_time.desc())
 
-    # Manual pagination calculation since we aren't using Flask-SQLAlchemy's helper
+    # Manual pagination calculation
     total = query.count()
     sessions = query.offset((page - 1) * size).limit(size).all()
 

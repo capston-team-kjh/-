@@ -2,7 +2,7 @@ import { useState } from 'react'; // Add this import
 
 interface LoginProps {
   onNavigate: (page: 'home' | 'login' | 'signup' | 'dashboard' | 'learning' | 'result-list' | 'result-detail' | 'settings' | 'history-delete') => void;
-  onLogin: (userData: { user_id: string, access_token: string }) => void;
+  onLogin: (userData: { user_id: string }) => void;
 }
 
 export function Login({ onNavigate, onLogin }: LoginProps) {
@@ -13,28 +13,23 @@ export function Login({ onNavigate, onLogin }: LoginProps) {
   // 2. The function that talks to your Flask server
   const handleLoginSubmit = async () => {
     try {
-      // Using the /api/auth prefix we discussed to trigger the Vite proxy
-      const response = await fetch('/api/auth/login', {
+      const response = await fetch('/api/v1/users/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password }), 
       });
-
+  
       const data = await response.json();
-
+  
       if (response.ok) {
-        // Success! data.user contains the UUID and email from your MySQL table
-        console.log('Login Success:', data);
-        onLogin({ 
-          user_id: data.user.user_id,
-          access_token: data.access_token
-       }); // This triggers handleLogin in App.tsx to switch states
+        // We only pass what the FastAPI response actually provides
+        onLogin({ user_id: data.user_id }); 
+        onNavigate('dashboard');
       } else {
-        alert(data.error || '로그인 실패. 정보를 확인해주세요.');
+        alert(data.detail || '로그인 실패');
       }
     } catch (error) {
-      console.error('Login error:', error);
-      alert('서버와 통신 중 오류가 발생했습니다.');
+      alert('서버 연결 실패');
     }
   };
 

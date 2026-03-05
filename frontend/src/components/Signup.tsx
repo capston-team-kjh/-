@@ -6,6 +6,7 @@ interface SignupProps {
 
 export function Signup({ onNavigate }: SignupProps) {
 
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -30,10 +31,10 @@ export function Signup({ onNavigate }: SignupProps) {
     }
 
     try {
-      const response = await fetch('/api/auth/signup', {
+      const response = await fetch('/api/v1/users/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ name, email, password }),
       });
 
       const data = await response.json();
@@ -61,6 +62,18 @@ export function Signup({ onNavigate }: SignupProps) {
       <div className="flex-1 flex items-center justify-center p-8">
         <div className="w-full max-w-md border-2 border-gray-600 p-8">
           <div className="space-y-6">
+
+          <div>
+              <label className="block mb-2 text-gray-700">이름</label>
+              <input 
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="w-full p-3 border-2 border-gray-400 bg-white"
+                placeholder="홍길동"
+              />
+            </div>
+
             <div>
               <label className="block mb-2 text-gray-700">아이디(이메일)</label>
               <input 
