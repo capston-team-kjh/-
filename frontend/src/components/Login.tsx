@@ -1,6 +1,10 @@
 import { useState } from 'react';
 
 interface LoginProps {
+<<<<<<< HEAD
+  onNavigate: (page: 'home' | 'login' | 'signup' | 'dashboard' | 'learning' | 'result-list' | 'result-detail' | 'settings' | 'history-delete') => void;
+  onLogin: (userData: { user_id: string }) => void;
+=======
   onNavigate: (
     page:
       | 'home'
@@ -14,6 +18,7 @@ interface LoginProps {
       | 'history-delete'
   ) => void;
   onLogin: (userData: { user_id: string; access_token: string }) => void;
+>>>>>>> 26e1731a691a7a3fd555ed95cde625a62e122ce2
 }
 
 type AnyObj = Record<string, any>;
@@ -32,8 +37,19 @@ export function Login({ onNavigate, onLogin }: LoginProps) {
       const response = await fetch('/api/v1/users/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password }), 
       });
+<<<<<<< HEAD
+  
+      const data = await response.json();
+  
+      if (response.ok) {
+        // We only pass what the FastAPI response actually provides
+        onLogin({ user_id: data.user_id }); 
+        onNavigate('dashboard');
+      } else {
+        alert(data.detail || '로그인 실패');
+=======
 
       const data = await response.json().catch(() => ({} as AnyObj));
 
@@ -51,10 +67,10 @@ export function Login({ onNavigate, onLogin }: LoginProps) {
         onNavigate('dashboard');
       } else {
         alert(data.detail || data.error || '로그인 실패. 정보를 확인해주세요.');
+>>>>>>> 26e1731a691a7a3fd555ed95cde625a62e122ce2
       }
     } catch (error) {
-      console.error('Login error:', error);
-      alert('서버와 통신 중 오류가 발생했습니다.');
+      alert('서버 연결 실패');
     }
   };
 
