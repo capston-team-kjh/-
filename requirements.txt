@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+flask
+a2wsgi
+sqlalchemy
+pymysql
+passlib
+pydantic[email]
