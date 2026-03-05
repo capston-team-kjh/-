@@ -13,8 +13,7 @@ def main():
     parser.add_argument("--video", required=True)
     parser.add_argument("--camera-type", choices=["front", "overhead"], default="front")
     parser.add_argument("--mode", choices=["dummy", "absent"], default="absent")
-    base_dir = os.path.dirname(__file__)
-    parser.add_argument("--config", default=os.path.join(base_dir, "config", "default.yaml"))
+    parser.add_argument("--config", default=os.path.join("config", "default.yaml"))
     parser.add_argument("--out", default="output.json")
     args = parser.parse_args()
 
