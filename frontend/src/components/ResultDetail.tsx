@@ -2,9 +2,47 @@ import { Navigation } from './Navigation';
 import { useEffect, useState } from 'react';
 
 interface ResultDetailProps {
-  onNavigate: (page: 'home' | 'login' | 'signup' | 'dashboard' | 'learning' | 'result-list' | 'result-detail' | 'settings' | 'history-delete') => void;
+  onNavigate: (
+    page:
+      | 'home'
+      | 'login'
+      | 'signup'
+      | 'dashboard'
+      | 'learning'
+      | 'result-list'
+      | 'result-detail'
+      | 'settings'
+      | 'history-delete'
+  ) => void;
   onLogout: () => void;
   resultId: string | null;
+}
+
+type AnyObj = Record<string, any>;
+
+async function safeJson(res: Response) {
+  return res.json().catch(() => ({} as AnyObj));
+}
+
+async function fetchWithFallback(urls: string[], init?: RequestInit) {
+  let lastRes: Response | null = null;
+
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, init);
+      lastRes = res;
+      if (res.status === 404) continue;
+      return res;
+    } catch {
+      continue;
+    }
+  }
+  return lastRes;
+}
+
+function num(v: any, fallback = 0) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
 }
 
 export function ResultDetail({ onNavigate, onLogout, resultId }: ResultDetailProps) {
@@ -13,75 +51,79 @@ export function ResultDetail({ onNavigate, onLogout, resultId }: ResultDetailPro
 
   useEffect(() => {
     const fetchDetail = async () => {
-      const token = localStorage.getItem('accessToken');
-      
-      try {
-        // Fetch from the standardized /api route
-        const response = await fetch(`http://localhost:5000/api/results/${resultId}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
+      const token = localStorage.getItem('accessToken') || '';
+      const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
 
-        if (response.ok) {
-          const json = await response.json();
+      setLoading(true);
+
+      try {
+        const urls = [`/api/v1/results/${resultId}`, `/api/results/${resultId}`];
+        const response = await fetchWithFallback(urls, { headers });
+
+        if (response && response.ok) {
+          const json = await safeJson(response);
           setData(json);
+        } else {
+          setData(null);
         }
       } catch (error) {
-        console.error("Result Detail Fetch Error:", error);
+        console.error('Result Detail Fetch Error:', error);
+        setData(null);
       } finally {
         setLoading(false);
       }
     };
 
     if (resultId) fetchDetail();
+    else {
+      setLoading(false);
+      setData(null);
+    }
   }, [resultId]);
 
   if (loading) return <div className="p-10 text-center">데이터 분석 결과를 불러오는 중...</div>;
   if (!data) return <div className="p-10 text-center">데이터가 없습니다.</div>;
 
+  // 백엔드마다 summary 키가 다를 수 있어서 안전 처리
+  const summary = data.summary ?? data.data?.summary ?? data;
+  const totalTimeMin = num(summary?.total_time_min ?? summary?.totalTimeMin ?? summary?.duration_min, 0);
+  const focusRatio = num(summary?.focus_ratio ?? summary?.focusRatio ?? summary?.avg_focus_score, 0);
+
   return (
     <div className="min-h-screen border-2 border-gray-800">
-      <Navigation 
-        currentPage="result-detail" 
-        onNavigate={onNavigate}
-        onLogout={onLogout}
-      />
+      <Navigation currentPage="result-detail" onNavigate={onNavigate} onLogout={onLogout} />
 
-      {/* Page Title */}
       <div className="border-b-2 border-gray-800 p-6">
         <h1 className="text-center">결과 상세</h1>
       </div>
 
-      {/* Main Content */}
       <main className="p-8">
         <div className="max-w-5xl mx-auto space-y-6">
-          {/* Summary Metrics */}
           <div className="border-2 border-gray-600 p-6">
             <h2 className="mb-4 pb-2 border-b border-gray-400">요약 지표</h2>
             <div className="grid grid-cols-4 gap-4">
               <div className="border-2 border-gray-400 p-4">
                 <div className="text-gray-600 text-sm mb-2">총 학습시간</div>
-                <div className="text-gray-800">{data.summary.total_time_min}m</div>
+                <div className="text-gray-800">{totalTimeMin}m</div>
               </div>
               <div className="border-2 border-gray-400 p-4">
                 <div className="text-gray-600 text-sm mb-2">집중 비율</div>
-                <div className="text-gray-800">{data.summary.focus_ratio}%</div>
+                <div className="text-gray-800">{focusRatio}%</div>
               </div>
               <div className="border-2 border-gray-400 p-4">
                 <div className="text-gray-600 text-sm mb-2">집중 시간</div>
-                <div className="text-gray-800">1h 55m</div>
+                <div className="text-gray-800">-</div>
               </div>
               <div className="border-2 border-gray-400 p-4">
                 <div className="text-gray-600 text-sm mb-2">비집중 시간</div>
-                <div className="text-gray-800">20m</div>
+                <div className="text-gray-800">-</div>
               </div>
             </div>
           </div>
 
-          {/* Focus Graph */}
           <div className="border-2 border-gray-600 p-6">
             <h2 className="mb-4 pb-2 border-b border-gray-400">집중도 그래프 (타임라인)</h2>
             <div className="border-2 border-gray-400 p-8 bg-gray-50">
-              {/* Y-axis label */}
               <div className="flex gap-4">
                 <div className="flex flex-col justify-between text-gray-600 text-sm" style={{ height: '240px' }}>
                   <div>100%</div>
@@ -90,18 +132,15 @@ export function ResultDetail({ onNavigate, onLogout, resultId }: ResultDetailPro
                   <div>25%</div>
                   <div>0%</div>
                 </div>
-                
-                {/* Graph area */}
+
                 <div className="flex-1 border-2 border-gray-600 relative" style={{ height: '240px' }}>
-                  {/* Grid lines */}
                   <div className="absolute inset-0">
                     <div className="h-1/4 border-b border-gray-300"></div>
                     <div className="h-1/4 border-b border-gray-300"></div>
                     <div className="h-1/4 border-b border-gray-300"></div>
                     <div className="h-1/4 border-b border-gray-300"></div>
                   </div>
-                  
-                  {/* Mock line graph representation */}
+
                   <div className="absolute inset-0 flex items-end px-4 pb-4">
                     <div className="flex-1 flex items-end justify-around">
                       <div className="w-2 bg-gray-800" style={{ height: '70%' }}></div>
@@ -118,47 +157,44 @@ export function ResultDetail({ onNavigate, onLogout, resultId }: ResultDetailPro
                   </div>
                 </div>
               </div>
-              
-              {/* X-axis label */}
+
               <div className="ml-12 mt-2 flex justify-between text-gray-600 text-sm">
-                <div>14:30</div>
-                <div>15:00</div>
-                <div>15:30</div>
-                <div>16:00</div>
-                <div>16:45</div>
+                <div>-</div>
+                <div>-</div>
+                <div>-</div>
+                <div>-</div>
+                <div>-</div>
               </div>
             </div>
           </div>
 
-          {/* Behavior Summary */}
           <div className="border-2 border-gray-600 p-6">
             <h2 className="mb-4 pb-2 border-b border-gray-400">습관 행동 요약</h2>
             <div className="space-y-3">
               <div className="border-2 border-gray-400 p-4">
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-gray-700">자세 변화 횟수</span>
-                  <span className="text-gray-800">12회</span>
+                  <span className="text-gray-800">-</span>
                 </div>
-                <div className="text-gray-600 text-sm">평균보다 적음 (양호)</div>
+                <div className="text-gray-600 text-sm">-</div>
               </div>
               <div className="border-2 border-gray-400 p-4">
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-gray-700">시선 이탈 횟수</span>
-                  <span className="text-gray-800">8회</span>
+                  <span className="text-gray-800">-</span>
                 </div>
-                <div className="text-gray-600 text-sm">평균 수준</div>
+                <div className="text-gray-600 text-sm">-</div>
               </div>
               <div className="border-2 border-gray-400 p-4">
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-gray-700">휴식 시간</span>
-                  <span className="text-gray-800">15분</span>
+                  <span className="text-gray-800">-</span>
                 </div>
-                <div className="text-gray-600 text-sm">적절한 휴식을 취했습니다</div>
+                <div className="text-gray-600 text-sm">-</div>
               </div>
             </div>
           </div>
 
-          {/* Back Button */}
           <div className="text-center pt-4">
             <button
               onClick={() => onNavigate('result-list')}

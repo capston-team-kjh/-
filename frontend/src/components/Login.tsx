@@ -1,23 +1,45 @@
-import { useState } from 'react'; // Add this import
+import { useState } from 'react';
 
 interface LoginProps {
+<<<<<<< HEAD
   onNavigate: (page: 'home' | 'login' | 'signup' | 'dashboard' | 'learning' | 'result-list' | 'result-detail' | 'settings' | 'history-delete') => void;
   onLogin: (userData: { user_id: string }) => void;
+=======
+  onNavigate: (
+    page:
+      | 'home'
+      | 'login'
+      | 'signup'
+      | 'dashboard'
+      | 'learning'
+      | 'result-list'
+      | 'result-detail'
+      | 'settings'
+      | 'history-delete'
+  ) => void;
+  onLogin: (userData: { user_id: string; access_token: string }) => void;
+>>>>>>> 26e1731a691a7a3fd555ed95cde625a62e122ce2
 }
 
+type AnyObj = Record<string, any>;
+
 export function Login({ onNavigate, onLogin }: LoginProps) {
-  // 1. Create states for the inputs
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
-  // 2. The function that talks to your Flask server
   const handleLoginSubmit = async () => {
+    if (!email.trim() || !password.trim()) {
+      alert('이메일과 비밀번호를 모두 입력해주세요.');
+      return;
+    }
+
     try {
       const response = await fetch('/api/v1/users/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }), 
       });
+<<<<<<< HEAD
   
       const data = await response.json();
   
@@ -27,6 +49,25 @@ export function Login({ onNavigate, onLogin }: LoginProps) {
         onNavigate('dashboard');
       } else {
         alert(data.detail || '로그인 실패');
+=======
+
+      const data = await response.json().catch(() => ({} as AnyObj));
+
+      if (response.ok) {
+        const userId = String(data.user_id ?? data.userId ?? data.user?.user_id ?? '');
+        const accessToken = String(
+          data.access_token ?? data.accessToken ?? data.token ?? data.access_token_value ?? ''
+        );
+
+        // 다른 화면들이 localStorage를 보니까 여기서도 저장해두면 안정적임
+        if (userId) localStorage.setItem('userId', userId);
+        if (accessToken) localStorage.setItem('accessToken', accessToken);
+
+        onLogin({ user_id: userId, access_token: accessToken });
+        onNavigate('dashboard');
+      } else {
+        alert(data.detail || data.error || '로그인 실패. 정보를 확인해주세요.');
+>>>>>>> 26e1731a691a7a3fd555ed95cde625a62e122ce2
       }
     } catch (error) {
       alert('서버 연결 실패');
@@ -44,10 +85,10 @@ export function Login({ onNavigate, onLogin }: LoginProps) {
           <div className="space-y-6">
             <div>
               <label className="block mb-2 text-gray-700">아이디(이메일)</label>
-              <input 
-                type="email" 
+              <input
+                type="email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)} // Update state on type
+                onChange={(e) => setEmail(e.target.value)}
                 className="w-full p-3 border-2 border-gray-400 bg-white"
                 placeholder="example@email.com"
               />
@@ -55,27 +96,24 @@ export function Login({ onNavigate, onLogin }: LoginProps) {
 
             <div>
               <label className="block mb-2 text-gray-700">비밀번호</label>
-              <input 
-                type="password" 
+              <input
+                type="password"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)} // Update state on type
+                onChange={(e) => setPassword(e.target.value)}
                 className="w-full p-3 border-2 border-gray-400 bg-white"
                 placeholder="••••••••"
               />
             </div>
 
-            <button 
-              onClick={handleLoginSubmit} // Trigger the API call
+            <button
+              onClick={handleLoginSubmit}
               className="w-full p-3 border-2 border-gray-800 hover:bg-gray-100"
             >
               로그인
             </button>
 
             <div className="text-center">
-              <button 
-                onClick={() => onNavigate('signup')}
-                className="text-gray-600 hover:underline"
-              >
+              <button onClick={() => onNavigate('signup')} className="text-gray-600 hover:underline">
                 회원가입으로 이동
               </button>
             </div>

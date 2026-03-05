@@ -2,41 +2,94 @@ import { useState } from 'react';
 import { Navigation } from './Navigation';
 
 interface LearningProps {
-  onNavigate: (page: 'home' | 'login' | 'signup' | 'dashboard' | 'learning' | 'result-list' | 'result-detail' | 'settings' | 'history-delete') => void;
+  onNavigate: (
+    page:
+      | 'home'
+      | 'login'
+      | 'signup'
+      | 'dashboard'
+      | 'learning'
+      | 'result-list'
+      | 'result-detail'
+      | 'settings'
+      | 'history-delete'
+  ) => void;
   onLogout: () => void;
   onViewResult: (resultId: string) => void;
 }
 
 type LearningStatus = 'idle' | 'learning' | 'uploading' | 'analyzing' | 'completed' | 'error';
+type AnyObj = Record<string, any>;
+
+async function safeJson(res: Response) {
+  return res.json().catch(() => ({} as AnyObj));
+}
+
+async function fetchWithFallback(urls: string[], init?: RequestInit) {
+  let lastRes: Response | null = null;
+
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, init);
+      lastRes = res;
+      if (res.status === 404) continue;
+      return res;
+    } catch {
+      continue;
+    }
+  }
+
+  return lastRes;
+}
 
 export function Learning({ onNavigate, onLogout, onViewResult }: LearningProps) {
   const [status, setStatus] = useState<LearningStatus>('idle');
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
-  const [generatedResultId, setGeneratedResultId] = useState<string | null>(null); 
+  const [generatedResultId, setGeneratedResultId] = useState<string | null>(null);
 
-  // Session start
   const handleStart = async () => {
     try {
-      // Get userId from your existing Auth context or localStorage
-      const userId = localStorage.getItem('userId'); 
+      const userId = localStorage.getItem('userId');
+      const token = localStorage.getItem('accessToken') || '';
 
-      const response = await fetch('http://localhost:5000/api/sessions', {
+      if (!userId) {
+        alert('userId가 없습니다. 로그인 다시 해봐.');
+        return;
+      }
+
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (token) headers.Authorization = `Bearer ${token}`;
+
+      const urls = ['/api/v1/sessions', '/api/sessions'];
+      const response = await fetchWithFallback(urls, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
+        headers,
+        body: JSON.stringify({
           user_id: userId,
-          device: 'WEB', 
-          camera_mode: 'front+top' // Dual camera setup
+          device: 'WEB',
+          camera_mode: 'front+top',
         }),
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        setCurrentSessionId(data.session_id); // 서버에서 받은 UUID 저장
-        setStatus('learning'); // UI 상태를 '학습 중'으로 변경
+      if (response && response.ok) {
+        const data = await safeJson(response);
+        const sid = data.session_id ?? data.id ?? data.sessionId;
+        if (!sid) {
+          alert('세션 ID를 못 받았어. 백엔드 응답 확인 필요');
+          setStatus('error');
+          return;
+        }
+        setCurrentSessionId(String(sid));
+        setStatus('learning');
+      } else {
+        const err = response ? await safeJson(response) : {};
+        alert(err.detail || err.error || '세션 시작 실패');
+        setStatus('error');
       }
     } catch (error) {
-      console.error("Start Session Error:", error);
+      console.error('Start Session Error:', error);
       setStatus('error');
     }
   };
@@ -44,28 +97,40 @@ export function Learning({ onNavigate, onLogout, onViewResult }: LearningProps) 
   const handleStop = async () => {
     if (!currentSessionId) return;
 
-    setStatus('uploading'); // 시각적 피드백 시작
-    
+    setStatus('uploading');
+
     try {
-      const response = await fetch(`http://localhost:5000/api/sessions/${currentSessionId}/stop`, {
+      const token = localStorage.getItem('accessToken') || '';
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (token) headers.Authorization = `Bearer ${token}`;
+
+      const urls = [
+        `/api/v1/sessions/${currentSessionId}/stop`,
+        `/api/sessions/${currentSessionId}/stop`,
+      ];
+
+      const response = await fetchWithFallback(urls, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ auto_request_analysis: true }), // 분석 요청
+        headers,
+        body: JSON.stringify({ auto_request_analysis: true }),
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        setGeneratedResultId(data.result_id); // 서버에서 받은 result_id 저장
+      if (response && response.ok) {
+        const data = await safeJson(response);
+        const rid = data.result_id ?? data.resultId ?? data.id;
+        if (rid) setGeneratedResultId(String(rid));
+
         setStatus('analyzing');
-        
-        // Even though the backend generates mock data instantly, 
-        // we can keep a small delay to simulate the "AI analysis" process for the UI
-        setTimeout(() => {
-          setStatus('completed');
-        }, 2000);
+        setTimeout(() => setStatus('completed'), 1200);
+      } else {
+        const err = response ? await safeJson(response) : {};
+        alert(err.detail || err.error || '세션 종료/분석 요청 실패');
+        setStatus('error');
       }
     } catch (error) {
-      console.error("Stop Session Error:", error);
+      console.error('Stop Session Error:', error);
       setStatus('error');
     }
   };
@@ -74,35 +139,25 @@ export function Learning({ onNavigate, onLogout, onViewResult }: LearningProps) 
     setStatus('uploading');
     setTimeout(() => {
       setStatus('analyzing');
-      setTimeout(() => {
-        setStatus('completed');
-      }, 2000);
-    }, 2000);
+      setTimeout(() => setStatus('completed'), 1200);
+    }, 800);
   };
 
   const handleViewResult = () => {
-    if (generatedResultId) {
-      onViewResult(generatedResultId); // 생성된 ID로 상세 페이지 이동
-    }
+    if (generatedResultId) onViewResult(generatedResultId);
+    else alert('result_id가 없습니다. 결과 생성 API 응답 확인 필요');
   };
 
   return (
     <div className="min-h-screen border-2 border-gray-800">
-      <Navigation 
-        currentPage="learning" 
-        onNavigate={onNavigate}
-        onLogout={onLogout}
-      />
+      <Navigation currentPage="learning" onNavigate={onNavigate} onLogout={onLogout} />
 
-      {/* Page Title */}
       <div className="border-b-2 border-gray-800 p-6">
         <h1 className="text-center">학습하기</h1>
       </div>
 
-      {/* Main Content */}
       <main className="p-8">
         <div className="max-w-2xl mx-auto">
-          {/* Control Buttons */}
           <div className="border-2 border-gray-600 p-8 mb-6">
             <h2 className="mb-6 pb-2 border-b border-gray-400">학습 진행 제어</h2>
             <div className="flex gap-4 justify-center">
@@ -131,10 +186,9 @@ export function Learning({ onNavigate, onLogout, onViewResult }: LearningProps) 
             </div>
           </div>
 
-          {/* Status Display */}
           <div className="border-2 border-gray-600 p-8">
             <h2 className="mb-6 pb-2 border-b border-gray-400">상태</h2>
-            
+
             {status === 'idle' && (
               <div className="text-center p-8 border-2 border-gray-400">
                 <p className="text-gray-600">학습을 시작하려면 "학습 시작" 버튼을 클릭하세요</p>
@@ -147,7 +201,9 @@ export function Learning({ onNavigate, onLogout, onViewResult }: LearningProps) 
                   <div className="w-16 h-16 border-4 border-gray-800 mx-auto mb-4"></div>
                   <p className="text-gray-800">학습 중...</p>
                 </div>
-                <p className="text-gray-600 text-sm">집중하여 학습하세요. 완료 후 "학습 종료"를 클릭하세요.</p>
+                <p className="text-gray-600 text-sm">
+                  집중하여 학습하세요. 완료 후 "학습 종료"를 클릭하세요.
+                </p>
               </div>
             )}
 
@@ -235,12 +291,6 @@ export function Learning({ onNavigate, onLogout, onViewResult }: LearningProps) 
                     <p className="text-gray-800">완료</p>
                   </div>
                 </div>
-                <div className="p-4 border-2 border-gray-400">
-                  <div className="flex items-center gap-4">
-                    <div className="w-8 h-8 border-2 border-gray-400"></div>
-                    <p className="text-gray-400">실패(재시도)</p>
-                  </div>
-                </div>
                 <div className="text-center pt-4">
                   <button
                     onClick={handleViewResult}
@@ -254,24 +304,6 @@ export function Learning({ onNavigate, onLogout, onViewResult }: LearningProps) 
 
             {status === 'error' && (
               <div className="space-y-4">
-                <div className="p-4 border-2 border-gray-400">
-                  <div className="flex items-center gap-4">
-                    <div className="w-8 h-8 border-2 border-gray-600 bg-gray-200"></div>
-                    <p className="text-gray-600">업로드 완료</p>
-                  </div>
-                </div>
-                <div className="p-4 border-2 border-gray-400">
-                  <div className="flex items-center gap-4">
-                    <div className="w-8 h-8 border-2 border-gray-600 bg-gray-200"></div>
-                    <p className="text-gray-600">분석 완료</p>
-                  </div>
-                </div>
-                <div className="p-4 border-2 border-gray-400">
-                  <div className="flex items-center gap-4">
-                    <div className="w-8 h-8 border-2 border-gray-600 bg-gray-200"></div>
-                    <p className="text-gray-600">완료</p>
-                  </div>
-                </div>
                 <div className="p-4 border-2 border-gray-800 bg-gray-100">
                   <div className="flex items-center gap-4">
                     <div className="w-8 h-8 border-2 border-gray-800"></div>
