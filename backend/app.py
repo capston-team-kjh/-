@@ -1,7 +1,8 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from sqlalchemy import func
-from models import db, User, StudySession, AnalysisResult, MetricSummary
+from sqlalchemy.orm import Session
+from models import User, FocusSession, FocusLog
+from database import SessionLocal, engine 
 from datetime import datetime
 import uuid
 import random
@@ -9,78 +10,14 @@ import bcrypt
 
 app = Flask(__name__)
 CORS(app)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:1234@localhost/focus_db'
 
-# Connect the db object to your specific app
-db.init_app(app)
+def get_db():
+    db = SessionLocal()
+    try:
+        return db
+    finally:
+        db.close()
 
-with app.app_context():
-    db.create_all() # This creates the tables based on models.py
-
-tokens = {
-    "demo-token": "b3e2a1..." # Maps token to the User UUID in MySQL
-}
-
-@app.route('/api/auth/login', methods=['POST'])
-def login():
-    data = request.json
-    email = data.get('email')
-    password = data.get('password')
-
-    # 1. Look up the user by email in MySQL
-    user = User.query.filter_by(email=email).first()
-
-    # 2. Verify existence and check the hashed password
-    if user and bcrypt.checkpw(password.encode('utf-8'), user.password_hash.encode('utf-8')):
-        # For your graduation demo, we'll return a simple success response
-        # In a real app, 'access_token' would be a generated JWT
-        generated_token = "demo-token" 
-        tokens[generated_token] = user.user_id # Map it in memory
-
-        return jsonify({
-            "access_token": generated_token, 
-            "user": {
-                "user_id": user.user_id, # This is the UUID
-                "email": user.email
-            }
-        }), 200
-
-    # 3. Fail if user doesn't exist or password is wrong
-    return jsonify({"error": "이메일 또는 비밀번호가 올바르지 않습니다."}), 401
-
-@app.route('/api/auth/signup', methods=['POST'])
-def signup():
-    data = request.json
-    email = data.get('email')
-    password = data.get('password')
-
-    # 1. Check if email is already taken (UK constraint)
-    if User.query.filter_by(email=email).first():
-        return jsonify({"error": "이미 등록된 이메일입니다."}), 400
-
-    # 2. Hash the password for security
-    hashed_pw = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
-
-    # 3. Create user (user_id UUID is auto-generated in models.py)
-    new_user = User(
-        email=email,
-        password_hash=hashed_pw.decode('utf-8')
-    )
-
-    db.session.add(new_user)
-    db.session.commit()
-
-    return jsonify({
-        "user_id": new_user.user_id,
-        "email": new_user.email,
-        "message": "User created successfully"
-    }), 201
-
-@app.route('/api/auth/logout', methods=['POST'])
-def logout():
-    # In a full production system, you would 'blacklist' the token here.
-    # For your graduation demo, returning a success is sufficient.
-    return jsonify({"result": "ok"}), 200
 
 @app.route('/api/users/me', methods=['GET'])
 def get_user_profile():
@@ -134,71 +71,6 @@ def update_password():
     db.session.commit()
 
     return jsonify({"result": "ok"}), 200
-
-@app.route('/api/sessions', methods=['POST'])
-def start_session():
-    data = request.json
-    user_id = data.get('user_id')
-    
-    # 카메라 모드 설정: 'front+top' (Dual)
-    camera_setting = data.get('camera_mode', 'front+top') 
-    
-    new_session = StudySession(
-        session_id=str(uuid.uuid4()),
-        user_id=user_id,
-        start_time=datetime.utcnow(),
-        status='RUNNING', # 세션 시작 시 상태를 RUNNING으로 설정
-        device=data.get('device', 'WEB'), # 접속 기기 (기본값: WEB)
-        camera_mode=camera_setting # 선택된 카메라 모드 저장
-    )
-    
-    db.session.add(new_session)
-    db.session.commit()
-    
-    return jsonify({
-        "session_id": new_session.session_id,
-        "status": new_session.status,
-        "start_time": new_session.start_time.isoformat()
-    }), 201
-
-@app.route('/api/sessions/<session_id>/stop', methods=['POST'])
-def stop_session(session_id):
-    session = StudySession.query.get(session_id)
-    if not session:
-        return jsonify({"message": "세션을 찾을 수 없습니다."}), 404 # Session not found
-    
-    session.end_time = datetime.utcnow()
-    session.status = 'DONE' # 분석 중 상태로 변경
-    
-    random_score = random.randint(65, 98)
-    # AI 분석 결과 테이블에 가짜 데이터 삽입 (테스트용)
-    mock_result = AnalysisResult(
-        result_id=str(uuid.uuid4()),
-        session_id=session_id,
-        focus_score=random_score # 임시 집중도 점수
-    )
-    
-    # 학습 시간 및 집중 비율 계산
-    duration = (session.end_time - session.start_time).total_seconds()
-    
-    mock_summary = MetricSummary(
-        result_id=mock_result.result_id,
-        total_time_sec=int(duration), # 전체 학습 시간(초)
-        focus_time_sec=int(duration * 0.88), # 집중 시간 계산
-        non_focus_time_sec=int(duration * 0.12), # 비집중 시간 계산
-        focus_ratio=0.88 # 집중 비율 (0~1)
-    )
-    
-    db.session.add(mock_result)
-    db.session.add(mock_summary)
-    db.session.commit()
-    
-    return jsonify({
-        "session_id": session_id,
-        "result_id": mock_result.result_id,
-        "status": session.status,
-        "end_time": session.end_time.isoformat()
-    }), 200
 
 @app.route('/api/results/recent', methods=['GET'])
 def get_recent_results():
