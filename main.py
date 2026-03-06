@@ -1,5 +1,10 @@
 from fastapi import FastAPI
+from a2wsgi import WSGIMiddleware
+from backend.app import app as flask_app
 import uvicorn
+
+# CORS 설정
+from fastapi.middleware.cors import CORSMiddleware
 
 # 작성한 models와 database 불러오기
 import models
@@ -19,6 +24,15 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# CORS 설정
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # 🌟 2. FastAPI 앱에 라우터 등록하기
 app.include_router(users.router)
 app.include_router(sessions.router) # 🌟 세션 라우터 등록 추가
@@ -33,6 +47,9 @@ def read_root():
 @app.get("/api/health")
 def health_check():
     return {"status": "ok", "db_connected": "True (Tables created or verified)"}
+
+# /backend로 시작하는 리퀘스트는 Flask로 이동동
+app.mount("/backend", WSGIMiddleware(flask_app))
 
 # 파이썬 스크립트 직접 실행 시 Uvicorn 서버 구동
 if __name__ == "__main__":

@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+flask
+flask_cors
+a2wsgi
+sqlalchemy
+pymysql
+passlib
+pydantic[email]
+bcrypt<4.0.0
