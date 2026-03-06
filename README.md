@@ -65,7 +65,4 @@ npm install
 npm run dev
 ```
 
-
-#### SQL
-[Uploading Dump20260306.sql…]()
  
