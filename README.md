@@ -1,4 +1,4 @@
-# 🎯 FocusAI 실시간 집중도 측정 시스템 (FocusAI System)(준영이 스타일로 하나 만들었음)
+[Dump20260306.sql](https://github.com/user-attachments/files/25785833/Dump20260306.sql)# 🎯 FocusAI 실시간 집중도 측정 시스템 (FocusAI System)(준영이 스타일로 하나 만들었음)
 
 **백엔드 API 및 인증 시스템 모듈**
 
@@ -64,6 +64,5 @@ npm install
 # 3. 개발 환경 시작
 npm run dev
 ```
-
 
  
