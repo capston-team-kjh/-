@@ -16,6 +16,10 @@ class AnalyzeConfig:
     sampling_fps: int = 5
     absent_threshold_sec: int = 5
     min_face_confidence: float = 0.5
+    away_ratio_threshold: float = 0.35
+    enable_bad_posture: bool = True
+    posture_shoulder_threshold: float = 0.12
+    posture_tilt_threshold: float = 0.18
     version: str = "ai-0.2.1"
 
 
@@ -121,6 +125,25 @@ def analyze_dummy(
         "events": [],
     }
 
+def _is_away_from_landmarks(landmarks: List[Any], away_ratio_threshold:float) -> bool:
+    # MediaPipe face mesh의 대표 인덱스를 사용하는 간단 휴리스틱
+    # nose tip: 1, left eye outer: 33, right eye outer: 263
+    if len(landmarks) < 264:
+        return False
+    
+    nose = landmarks[1]
+    left_eye = landmarks[33]
+    right_eye = landmarks[263]
+
+    eye_width = abs(right_eye.x - left_eye.x)
+    if eye_width < 1e-6:
+        return False
+    
+    eye_mid_x = (left_eye.x + right_eye.x) / 2.0
+    nose_offset_ratio = abs(nose.x - eye_mid_x) / eye_width
+
+    return nose_offset_ratio >= away_ratio_threshold
+
 
 def _mark_absent_segments(
     face_seen_by_sec: List[bool],
@@ -165,28 +188,70 @@ def _mark_absent_segments(
 
 
 def _resolve_model_path() -> str:
-    # analyze.py는 ai/focus_ai/ 안에 있으니, ai/models/detector.tflite를 안전하게 찾는다
     ai_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    return os.path.join(ai_root, "models", "detector.tflite")
+    return os.path.join(ai_root, "models", "face_landmarker.task")
 
+def _resolve_pose_model_path() -> str:
+    ai_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    return os.path.join(ai_root, "models", "pose_landmarker.task")
 
-def _create_face_detector(model_path: str, min_conf: float) -> vision.FaceDetector:
-    # 한글/특수문자 경로에서 네이티브가 path open 실패하는 경우가 있어서 buffer 로딩을 우선 시도
+def _create_pose_landmarker(model_path: str) -> vision.PoseLandmarker:
     with open(model_path, "rb") as f:
         model_bytes = f.read()
 
     try:
         base_options = python.BaseOptions(model_asset_buffer=model_bytes)
     except TypeError:
-        # 혹시 mediapipe 버전에서 buffer 인자가 없으면 path fallback
         base_options = python.BaseOptions(model_asset_path=model_path)
-
-    options = vision.FaceDetectorOptions(
+    options = vision.PoseLandmarkerOptions(
         base_options=base_options,
-        min_detection_confidence=float(min_conf),
+        running_mode=vision.RunningMode.VIDEO,
+        num_poses=1,
+        min_pose_detection_confidence=0.5,
+        min_pose_presence_confidence=0.5,
+        min_tracking_confidence=0.5,
+        output_segmentation_masks=False,
     )
-    return vision.FaceDetector.create_from_options(options)
+    return vision.PoseLandmarker.create_from_options(options)
 
+def _create_face_landmarker(model_path: str, min_conf: float)->vision.FaceLandmarker:
+    with open(model_path, "rb") as f:
+        model_bytes = f.read()
+    try:
+        base_options = python.BaseOptions(model_asset_buffer=model_bytes)
+    except TypeError:
+        base_options = python.BaseOptions(model_asset_path = model_path)
+    options = vision.FaceLandmarkerOptions(
+        base_options=base_options,
+        running_mode=vision.RunningMode.VIDEO,
+        num_faces=1,
+        min_face_detection_confidence=float(min_conf),
+        min_face_presence_confidence=float(min_conf),
+        min_tracking_confidence=0.5,
+        output_face_blendshapes=False,
+        output_facial_transformation_matrixes=False,
+    )
+    return vision.FaceLandmarker.create_from_options(options)
+
+def _is_bad_posture_from_pose(landmarks:List[Any], shoulder_threshold: float, tilt_threshold:float) -> bool:
+     # pose landmark index
+    # 11: left shoulder, 12: right shoulder, 0: nose
+    if len(landmarks) < 13:
+        return False
+    
+    nose = landmarks[0]
+    left_shoulder = landmarks[11]
+    right_shoulder = landmarks[12]
+
+    shoulder_width = abs(right_shoulder.x - left_shoulder.x)
+    if shoulder_width < 1e-6:
+        return False
+    
+    shoulder_slope = abs(left_shoulder.y - right_shoulder.y)
+    shoulder_mid_x = (left_shoulder.x + right_shoulder.x) / 2.0
+    head_tilt = abs(nose.x - shoulder_mid_x) / shoulder_width
+
+    return shoulder_slope >= shoulder_threshold or head_tilt >= tilt_threshold
 
 def analyze_absent(
     session_id: str,
@@ -220,6 +285,8 @@ def analyze_absent(
     fps: float = meta["video_fps"]
     duration_sec: int = meta["duration_sec"]
     face_seen_by_sec = [False] * max(duration_sec, 0)
+    away_seen_by_sec = [False] * max(duration_sec, 0)
+    bad_posture_seen_by_sec = [False] * max(duration_sec, 0)
 
     model_path = _resolve_model_path()
     if not os.path.exists(model_path):
@@ -270,10 +337,18 @@ def analyze_absent(
     if config.sampling_fps > fps:
         warnings.append("SAMPLING_FPS_GT_VIDEO_FPS")
 
-    detector: Optional[vision.FaceDetector] = None
+    face_detector: Optional[vision.FaceLandmarker] = None
+    pose_detector: Optional[vision.PoseLandmarker] = None
 
     try:
-        detector = _create_face_detector(model_path, config.min_face_confidence)
+        face_detector = _create_face_landmarker(model_path, config.min_face_confidence)
+
+        pose_model_path = _resolve_pose_model_path()
+        if config.enable_bad_posture and os.path.exists(pose_model_path):
+            pose_detector = _create_pose_landmarker(pose_model_path)
+        else:
+            if config.enable_bad_posture:
+                warnings.append("POSE_MODEL_NOT_FOUND")
 
         frame_idx = 0
         while True:
@@ -295,9 +370,24 @@ def analyze_absent(
                     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                     mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
 
-                    detection_result = detector.detect(mp_image)
-                    if detection_result.detections:
+                    timestamp_ms = int((frame_idx/fps)*1000) if fps > 0 else 0
+                    detection_result = face_detector.detect_for_video(mp_image, timestamp_ms)
+                    if detection_result.face_landmarks:
                         face_seen_by_sec[sec] = True
+
+                        landmarks = detection_result.face_landmarks[0]
+                        if _is_away_from_landmarks(landmarks, config.away_ratio_threshold):
+                            away_seen_by_sec[sec] = True
+                    if pose_detector is not None:
+                        pose_result = pose_detector.detect_for_video(mp_image, timestamp_ms)
+                        if pose_result.pose_landmarks:
+                            pose_landmarks = pose_result.pose_landmarks[0]
+                            if _is_bad_posture_from_pose(
+                                pose_landmarks,
+                                config.posture_shoulder_threshold,
+                                config.posture_tilt_threshold,
+                            ):
+                                bad_posture_seen_by_sec[sec] = True
 
             frame_idx += 1
 
@@ -326,8 +416,10 @@ def analyze_absent(
 
     finally:
         cap.release()
-        if detector is not None:
-            detector.close()
+        if face_detector is not None:
+            face_detector.close()
+        if pose_detector is not None:
+            pose_detector.close()
 
     seg = _mark_absent_segments(face_seen_by_sec, int(config.absent_threshold_sec))
     states = seg["states"]
@@ -335,11 +427,57 @@ def analyze_absent(
     absent_total_sec = seg["absent_total_sec"]
     absent_count = seg["absent_count"]
 
+    away_count = 0
+    away_total_sec =0
+    in_away=False
+    away_start =0
+
+    for t in range(duration_sec):
+        if states[t] != "absent" and away_seen_by_sec[t]:
+            states[t] = "away"
+            away_total_sec +=1
+            if not in_away:
+                in_away= True
+                away_start = t
+        else:
+            if in_away:
+                events.append(
+                    {
+                        "type": "away",
+                        "start_sec": away_start,
+                        "end_sec": t,
+                        "score": 0.7
+                    }
+                )
+                away_count +=1
+                in_away = False
+    if in_away:
+        events.append(
+            {
+                "type": "away",
+                "start_sec": away_start,
+                "end_sec": duration_sec,
+                "score":0.7
+            }
+        )
+        away_count +=1
+    bad_posture_total_sec = 0
+
+    for t in range(duration_sec):
+        if states[t] == "focus" and bad_posture_seen_by_sec[t]:
+            states[t] = "bad_posture"
+            bad_posture_total_sec += 1
+
+    bad_posture_ratio = 0.0
+    if duration_sec > 0:
+        bad_posture_ratio = bad_posture_total_sec/duration_sec
+
     timeline = [{"t": t, "state": states[t]} for t in range(duration_sec)]
 
     focus_ratio = 1.0
     if duration_sec > 0:
-        focus_ratio = max(0.0, 1.0 - (absent_total_sec / duration_sec))
+        distracted_total_sec = absent_total_sec + away_total_sec
+        focus_ratio = max(0.0, 1.0 - (distracted_total_sec/duration_sec))
 
     return {
         "session_id": session_id,
@@ -357,12 +495,20 @@ def analyze_absent(
         },
         "summary": {
             "focus_ratio": float(focus_ratio),
-            "away_count": 0,
-            "away_total_sec": 0,
+            "away_count": int(away_count),
+            "away_total_sec": int(away_total_sec),
             "absent_count": int(absent_count),
             "absent_total_sec": int(absent_total_sec),
-            "bad_posture_ratio": 0.0,
+            "bad_posture_ratio": float(bad_posture_ratio),
         },
         "timeline": timeline,
         "events": events,
     }
+if __name__ == "__main__":
+    result = analyze_absent(
+        "S001",
+        "C:/Users/wkdgu/Videos/Captures/testaway.mp4",
+        "front",
+        AnalyzeConfig()
+        )
+    print(result)
