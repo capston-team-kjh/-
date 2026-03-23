@@ -1,6 +1,7 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, BigInteger
+from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, BigInteger, Boolean
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
+from datetime import datetime
 from database import Base
 
 class User(Base):
@@ -41,3 +42,14 @@ class FocusLog(Base):
 
     # 관계 설정
     session = relationship("FocusSession", back_populates="logs")
+
+ # 눈동자, 안면인식, 몸 움직임, 자리이탈
+class FocusAnalysis(Base):
+    __tablename__ = "focus_analysis"
+
+    id = Column(Integer, primary_key=True, index=True)
+    eye_score = Column(Float, nullable=False)
+    head_score = Column(Float, nullable=False)
+    body_score = Column(Float, nullable=False)
+    is_absent = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)

@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware # 🌟 1. CORS 도구를 불러옵니다.
 import uvicorn
 
 # 작성한 models와 database 불러오기
@@ -6,7 +7,7 @@ import models
 from database import engine
 
 # 🌟 1. 우리가 만든 라우터 불러오기
-from routers import users, sessions, logs # 🌟 sessions,logs 추가
+from routers import users, sessions, logs, analysis # 🌟 sessions,logs 추가
 
 # 🌟 핵심: 서버가 켜질 때 모델을 확인하고 데이터베이스에 테이블을 생성합니다.
 # (이미 테이블이 존재하면 건너뛰고, 없으면 새로 만듭니다.)
@@ -19,10 +20,20 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# 🌟 2. 경비원(CORS)에게 문을 열어달라고 지시하는 코드를 추가합니다.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # 모든 주소(*)에서 오는 요청을 허락합니다. (실무에서는 실제 프론트엔드 주소만 넣습니다)
+    allow_credentials=True,
+    allow_methods=["*"],  # GET, POST 등 모든 방식의 요청을 허락합니다.
+    allow_headers=["*"],  # 모든 형태의 데이터 전송을 허락합니다.
+)
+
 # 🌟 2. FastAPI 앱에 라우터 등록하기
 app.include_router(users.router)
 app.include_router(sessions.router) # 🌟 세션 라우터 등록 추가
 app.include_router(logs.router) # logs 라우터 추가
+app.include_router(analysis.router) # 집중도 분석 라우터 추가
 
 # 기본 루트 엔드포인트 (서버 접속 테스트용)
 @app.get("/")
