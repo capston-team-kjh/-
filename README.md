@@ -64,5 +64,11 @@ npm install
 # 3. 개발 환경 시작
 npm run dev
 ```
+---
+### 집중도 분석에 관련된 조건 api 제작
+```terminal
+# 1. 기존 코드에서 routers 파일 안에 analysis.py로 집중도 분석 이후 나올 값들을 api로 제작했음다
 
+# 2. models.py 46줄 이후와 schemas.py의 75줄 이후의 코드가 추가되었고, main.py에서도 관련된 코드 수정되었습니당
+```
  
