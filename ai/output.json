@@ -1,0 +1,18 @@
+{
+  "session_id": "S002",
+  "status": "failed",
+  "meta": {
+    "camera_type": "front",
+    "sampling_fps": 5,
+    "video_fps": null,
+    "duration_sec": null,
+    "processed_frames": 0,
+    "processing_time_sec": 0,
+    "version": "ai-0.2.0",
+    "warnings": [],
+    "fail_reason": "VIDEO_NOT_FOUND"
+  },
+  "summary": {},
+  "timeline": [],
+  "events": []
+}
