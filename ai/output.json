@@ -1,18 +1,901 @@
 {
   "session_id": "S002",
-  "status": "failed",
+  "status": "success",
   "meta": {
     "camera_type": "front",
-    "sampling_fps": 5,
-    "video_fps": null,
-    "duration_sec": null,
-    "processed_frames": 0,
-    "processing_time_sec": 0,
+    "sampling_fps": 1,
+    "video_fps": 30.0,
+    "duration_sec": 217,
+    "processed_frames": 218,
+    "processing_time_sec": 9,
     "version": "ai-0.2.0",
     "warnings": [],
-    "fail_reason": "VIDEO_NOT_FOUND"
+    "model_path": "C:\\Projects\\졸작우승기원\\-\\ai\\models\\detector.tflite"
   },
-  "summary": {},
-  "timeline": [],
-  "events": []
+  "summary": {
+    "focus_ratio": 0.9723502304147466,
+    "away_count": 0,
+    "away_total_sec": 0,
+    "absent_count": 1,
+    "absent_total_sec": 6,
+    "bad_posture_ratio": 0.0
+  },
+  "timeline": [
+    {
+      "t": 0,
+      "state": "focus"
+    },
+    {
+      "t": 1,
+      "state": "focus"
+    },
+    {
+      "t": 2,
+      "state": "focus"
+    },
+    {
+      "t": 3,
+      "state": "focus"
+    },
+    {
+      "t": 4,
+      "state": "focus"
+    },
+    {
+      "t": 5,
+      "state": "focus"
+    },
+    {
+      "t": 6,
+      "state": "focus"
+    },
+    {
+      "t": 7,
+      "state": "focus"
+    },
+    {
+      "t": 8,
+      "state": "focus"
+    },
+    {
+      "t": 9,
+      "state": "focus"
+    },
+    {
+      "t": 10,
+      "state": "focus"
+    },
+    {
+      "t": 11,
+      "state": "focus"
+    },
+    {
+      "t": 12,
+      "state": "focus"
+    },
+    {
+      "t": 13,
+      "state": "focus"
+    },
+    {
+      "t": 14,
+      "state": "focus"
+    },
+    {
+      "t": 15,
+      "state": "focus"
+    },
+    {
+      "t": 16,
+      "state": "focus"
+    },
+    {
+      "t": 17,
+      "state": "focus"
+    },
+    {
+      "t": 18,
+      "state": "focus"
+    },
+    {
+      "t": 19,
+      "state": "focus"
+    },
+    {
+      "t": 20,
+      "state": "focus"
+    },
+    {
+      "t": 21,
+      "state": "focus"
+    },
+    {
+      "t": 22,
+      "state": "focus"
+    },
+    {
+      "t": 23,
+      "state": "focus"
+    },
+    {
+      "t": 24,
+      "state": "focus"
+    },
+    {
+      "t": 25,
+      "state": "focus"
+    },
+    {
+      "t": 26,
+      "state": "focus"
+    },
+    {
+      "t": 27,
+      "state": "focus"
+    },
+    {
+      "t": 28,
+      "state": "focus"
+    },
+    {
+      "t": 29,
+      "state": "focus"
+    },
+    {
+      "t": 30,
+      "state": "focus"
+    },
+    {
+      "t": 31,
+      "state": "focus"
+    },
+    {
+      "t": 32,
+      "state": "focus"
+    },
+    {
+      "t": 33,
+      "state": "focus"
+    },
+    {
+      "t": 34,
+      "state": "focus"
+    },
+    {
+      "t": 35,
+      "state": "focus"
+    },
+    {
+      "t": 36,
+      "state": "focus"
+    },
+    {
+      "t": 37,
+      "state": "focus"
+    },
+    {
+      "t": 38,
+      "state": "focus"
+    },
+    {
+      "t": 39,
+      "state": "focus"
+    },
+    {
+      "t": 40,
+      "state": "focus"
+    },
+    {
+      "t": 41,
+      "state": "focus"
+    },
+    {
+      "t": 42,
+      "state": "focus"
+    },
+    {
+      "t": 43,
+      "state": "focus"
+    },
+    {
+      "t": 44,
+      "state": "focus"
+    },
+    {
+      "t": 45,
+      "state": "focus"
+    },
+    {
+      "t": 46,
+      "state": "focus"
+    },
+    {
+      "t": 47,
+      "state": "focus"
+    },
+    {
+      "t": 48,
+      "state": "focus"
+    },
+    {
+      "t": 49,
+      "state": "focus"
+    },
+    {
+      "t": 50,
+      "state": "focus"
+    },
+    {
+      "t": 51,
+      "state": "focus"
+    },
+    {
+      "t": 52,
+      "state": "focus"
+    },
+    {
+      "t": 53,
+      "state": "focus"
+    },
+    {
+      "t": 54,
+      "state": "focus"
+    },
+    {
+      "t": 55,
+      "state": "focus"
+    },
+    {
+      "t": 56,
+      "state": "focus"
+    },
+    {
+      "t": 57,
+      "state": "focus"
+    },
+    {
+      "t": 58,
+      "state": "focus"
+    },
+    {
+      "t": 59,
+      "state": "focus"
+    },
+    {
+      "t": 60,
+      "state": "focus"
+    },
+    {
+      "t": 61,
+      "state": "focus"
+    },
+    {
+      "t": 62,
+      "state": "focus"
+    },
+    {
+      "t": 63,
+      "state": "focus"
+    },
+    {
+      "t": 64,
+      "state": "focus"
+    },
+    {
+      "t": 65,
+      "state": "focus"
+    },
+    {
+      "t": 66,
+      "state": "focus"
+    },
+    {
+      "t": 67,
+      "state": "focus"
+    },
+    {
+      "t": 68,
+      "state": "focus"
+    },
+    {
+      "t": 69,
+      "state": "focus"
+    },
+    {
+      "t": 70,
+      "state": "focus"
+    },
+    {
+      "t": 71,
+      "state": "focus"
+    },
+    {
+      "t": 72,
+      "state": "focus"
+    },
+    {
+      "t": 73,
+      "state": "focus"
+    },
+    {
+      "t": 74,
+      "state": "focus"
+    },
+    {
+      "t": 75,
+      "state": "focus"
+    },
+    {
+      "t": 76,
+      "state": "focus"
+    },
+    {
+      "t": 77,
+      "state": "focus"
+    },
+    {
+      "t": 78,
+      "state": "focus"
+    },
+    {
+      "t": 79,
+      "state": "focus"
+    },
+    {
+      "t": 80,
+      "state": "focus"
+    },
+    {
+      "t": 81,
+      "state": "focus"
+    },
+    {
+      "t": 82,
+      "state": "focus"
+    },
+    {
+      "t": 83,
+      "state": "focus"
+    },
+    {
+      "t": 84,
+      "state": "focus"
+    },
+    {
+      "t": 85,
+      "state": "focus"
+    },
+    {
+      "t": 86,
+      "state": "focus"
+    },
+    {
+      "t": 87,
+      "state": "focus"
+    },
+    {
+      "t": 88,
+      "state": "focus"
+    },
+    {
+      "t": 89,
+      "state": "focus"
+    },
+    {
+      "t": 90,
+      "state": "focus"
+    },
+    {
+      "t": 91,
+      "state": "focus"
+    },
+    {
+      "t": 92,
+      "state": "focus"
+    },
+    {
+      "t": 93,
+      "state": "focus"
+    },
+    {
+      "t": 94,
+      "state": "focus"
+    },
+    {
+      "t": 95,
+      "state": "focus"
+    },
+    {
+      "t": 96,
+      "state": "focus"
+    },
+    {
+      "t": 97,
+      "state": "focus"
+    },
+    {
+      "t": 98,
+      "state": "focus"
+    },
+    {
+      "t": 99,
+      "state": "focus"
+    },
+    {
+      "t": 100,
+      "state": "focus"
+    },
+    {
+      "t": 101,
+      "state": "focus"
+    },
+    {
+      "t": 102,
+      "state": "focus"
+    },
+    {
+      "t": 103,
+      "state": "focus"
+    },
+    {
+      "t": 104,
+      "state": "focus"
+    },
+    {
+      "t": 105,
+      "state": "focus"
+    },
+    {
+      "t": 106,
+      "state": "focus"
+    },
+    {
+      "t": 107,
+      "state": "focus"
+    },
+    {
+      "t": 108,
+      "state": "focus"
+    },
+    {
+      "t": 109,
+      "state": "focus"
+    },
+    {
+      "t": 110,
+      "state": "focus"
+    },
+    {
+      "t": 111,
+      "state": "focus"
+    },
+    {
+      "t": 112,
+      "state": "focus"
+    },
+    {
+      "t": 113,
+      "state": "focus"
+    },
+    {
+      "t": 114,
+      "state": "focus"
+    },
+    {
+      "t": 115,
+      "state": "focus"
+    },
+    {
+      "t": 116,
+      "state": "focus"
+    },
+    {
+      "t": 117,
+      "state": "focus"
+    },
+    {
+      "t": 118,
+      "state": "focus"
+    },
+    {
+      "t": 119,
+      "state": "focus"
+    },
+    {
+      "t": 120,
+      "state": "focus"
+    },
+    {
+      "t": 121,
+      "state": "focus"
+    },
+    {
+      "t": 122,
+      "state": "focus"
+    },
+    {
+      "t": 123,
+      "state": "focus"
+    },
+    {
+      "t": 124,
+      "state": "focus"
+    },
+    {
+      "t": 125,
+      "state": "focus"
+    },
+    {
+      "t": 126,
+      "state": "focus"
+    },
+    {
+      "t": 127,
+      "state": "focus"
+    },
+    {
+      "t": 128,
+      "state": "focus"
+    },
+    {
+      "t": 129,
+      "state": "focus"
+    },
+    {
+      "t": 130,
+      "state": "focus"
+    },
+    {
+      "t": 131,
+      "state": "focus"
+    },
+    {
+      "t": 132,
+      "state": "focus"
+    },
+    {
+      "t": 133,
+      "state": "focus"
+    },
+    {
+      "t": 134,
+      "state": "focus"
+    },
+    {
+      "t": 135,
+      "state": "focus"
+    },
+    {
+      "t": 136,
+      "state": "focus"
+    },
+    {
+      "t": 137,
+      "state": "focus"
+    },
+    {
+      "t": 138,
+      "state": "focus"
+    },
+    {
+      "t": 139,
+      "state": "focus"
+    },
+    {
+      "t": 140,
+      "state": "focus"
+    },
+    {
+      "t": 141,
+      "state": "focus"
+    },
+    {
+      "t": 142,
+      "state": "focus"
+    },
+    {
+      "t": 143,
+      "state": "focus"
+    },
+    {
+      "t": 144,
+      "state": "focus"
+    },
+    {
+      "t": 145,
+      "state": "focus"
+    },
+    {
+      "t": 146,
+      "state": "focus"
+    },
+    {
+      "t": 147,
+      "state": "focus"
+    },
+    {
+      "t": 148,
+      "state": "focus"
+    },
+    {
+      "t": 149,
+      "state": "focus"
+    },
+    {
+      "t": 150,
+      "state": "focus"
+    },
+    {
+      "t": 151,
+      "state": "focus"
+    },
+    {
+      "t": 152,
+      "state": "focus"
+    },
+    {
+      "t": 153,
+      "state": "focus"
+    },
+    {
+      "t": 154,
+      "state": "focus"
+    },
+    {
+      "t": 155,
+      "state": "focus"
+    },
+    {
+      "t": 156,
+      "state": "focus"
+    },
+    {
+      "t": 157,
+      "state": "focus"
+    },
+    {
+      "t": 158,
+      "state": "focus"
+    },
+    {
+      "t": 159,
+      "state": "focus"
+    },
+    {
+      "t": 160,
+      "state": "focus"
+    },
+    {
+      "t": 161,
+      "state": "focus"
+    },
+    {
+      "t": 162,
+      "state": "focus"
+    },
+    {
+      "t": 163,
+      "state": "absent"
+    },
+    {
+      "t": 164,
+      "state": "absent"
+    },
+    {
+      "t": 165,
+      "state": "absent"
+    },
+    {
+      "t": 166,
+      "state": "absent"
+    },
+    {
+      "t": 167,
+      "state": "absent"
+    },
+    {
+      "t": 168,
+      "state": "absent"
+    },
+    {
+      "t": 169,
+      "state": "focus"
+    },
+    {
+      "t": 170,
+      "state": "focus"
+    },
+    {
+      "t": 171,
+      "state": "focus"
+    },
+    {
+      "t": 172,
+      "state": "focus"
+    },
+    {
+      "t": 173,
+      "state": "focus"
+    },
+    {
+      "t": 174,
+      "state": "focus"
+    },
+    {
+      "t": 175,
+      "state": "focus"
+    },
+    {
+      "t": 176,
+      "state": "focus"
+    },
+    {
+      "t": 177,
+      "state": "focus"
+    },
+    {
+      "t": 178,
+      "state": "focus"
+    },
+    {
+      "t": 179,
+      "state": "focus"
+    },
+    {
+      "t": 180,
+      "state": "focus"
+    },
+    {
+      "t": 181,
+      "state": "focus"
+    },
+    {
+      "t": 182,
+      "state": "focus"
+    },
+    {
+      "t": 183,
+      "state": "focus"
+    },
+    {
+      "t": 184,
+      "state": "focus"
+    },
+    {
+      "t": 185,
+      "state": "focus"
+    },
+    {
+      "t": 186,
+      "state": "focus"
+    },
+    {
+      "t": 187,
+      "state": "focus"
+    },
+    {
+      "t": 188,
+      "state": "focus"
+    },
+    {
+      "t": 189,
+      "state": "focus"
+    },
+    {
+      "t": 190,
+      "state": "focus"
+    },
+    {
+      "t": 191,
+      "state": "focus"
+    },
+    {
+      "t": 192,
+      "state": "focus"
+    },
+    {
+      "t": 193,
+      "state": "focus"
+    },
+    {
+      "t": 194,
+      "state": "focus"
+    },
+    {
+      "t": 195,
+      "state": "focus"
+    },
+    {
+      "t": 196,
+      "state": "focus"
+    },
+    {
+      "t": 197,
+      "state": "focus"
+    },
+    {
+      "t": 198,
+      "state": "focus"
+    },
+    {
+      "t": 199,
+      "state": "focus"
+    },
+    {
+      "t": 200,
+      "state": "focus"
+    },
+    {
+      "t": 201,
+      "state": "focus"
+    },
+    {
+      "t": 202,
+      "state": "focus"
+    },
+    {
+      "t": 203,
+      "state": "focus"
+    },
+    {
+      "t": 204,
+      "state": "focus"
+    },
+    {
+      "t": 205,
+      "state": "focus"
+    },
+    {
+      "t": 206,
+      "state": "focus"
+    },
+    {
+      "t": 207,
+      "state": "focus"
+    },
+    {
+      "t": 208,
+      "state": "focus"
+    },
+    {
+      "t": 209,
+      "state": "focus"
+    },
+    {
+      "t": 210,
+      "state": "focus"
+    },
+    {
+      "t": 211,
+      "state": "focus"
+    },
+    {
+      "t": 212,
+      "state": "focus"
+    },
+    {
+      "t": 213,
+      "state": "focus"
+    },
+    {
+      "t": 214,
+      "state": "focus"
+    },
+    {
+      "t": 215,
+      "state": "focus"
+    },
+    {
+      "t": 216,
+      "state": "focus"
+    }
+  ],
+  "events": [
+    {
+      "type": "absent",
+      "start_sec": 163,
+      "end_sec": 169,
+      "score": 1.0
+    }
+  ]
 }
