@@ -3,8 +3,8 @@ from sqlalchemy.orm import Session
 from passlib.context import CryptContext
 
 # 최상위 경로에 있는 모듈들 불러오기
-from backend import models, schemas
-from backend.database import get_db
+import models, schemas
+from database import get_db
 
 # 라우터 설정 (URL 앞부분과 API 문서에 표시될 카테고리 이름 지정)
 router = APIRouter(

@@ -3,8 +3,8 @@ from sqlalchemy.orm import Session
 from typing import List
 from datetime import datetime
 
-from backend import models, schemas
-from backend.database import get_db
+import models, schemas
+from database import get_db
 
 # 라우터 설정
 router = APIRouter(
