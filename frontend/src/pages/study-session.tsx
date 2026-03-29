@@ -4,6 +4,7 @@ import { Play, Square } from "lucide-react";
 export function StudySession() {
   const [isRunning, setIsRunning] = useState(false);
   const [seconds, setSeconds] = useState(0);
+  const [sessionId, setSessionId] = useState<number | null>(null);
 
   useEffect(() => {
     let interval: number | undefined;
@@ -29,17 +30,53 @@ export function StudySession() {
       .padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   };
 
-  const handleStart = () => {
-    if (!isRunning) {
+  const handleStart = async () => {
+    const userId = localStorage.getItem("user_id");
+    if (!userId) {
+    alert("로그인이 필요합니다.");
+    return;
+  }
+
+  try {
+    const response = await fetch("http://127.0.0.1:8000/api/v1/sessions/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_id: parseInt(userId) }),
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      setSessionId(data.id); 
       setIsRunning(true);
     }
-  };
+  } catch (error) {
+    console.error("Failed to start session:", error);
+  }
+};
 
-  const handleStop = () => {
-    setIsRunning(false);
-    alert(`세션이 저장되었습니다! 시간: ${formatTime(seconds)}`);
-    setSeconds(0);
-  };
+  const handleStop = async () => {
+    if (!sessionId) return;
+
+  try {
+    const response = await fetch(`http://127.0.0.1:8000/api/v1/sessions/${sessionId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        end_time: new Date().toISOString(),
+        status: "completed",
+      }),
+    });
+
+    if (response.ok) {
+      setIsRunning(false);
+      alert(`세션이 저장되었습니다! 총 시간: ${formatTime(seconds)}`);
+      setSeconds(0);
+      setSessionId(null);
+    }
+  } catch (error) {
+    console.error("Failed to stop session:", error);
+  }
+};
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-accent/20 to-white p-8">

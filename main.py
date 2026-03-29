@@ -9,7 +9,7 @@ import models
 from database import engine
 
 # 🌟 1. 우리가 만든 라우터 불러오기
-from routers import users, sessions, logs, analysis # 🌟 sessions,logs 추가
+from routers import users, sessions, logs, analysis, reports # 🌟 sessions,logs, reports 추가
 
 # 🌟 핵심: 서버가 켜질 때 모델을 확인하고 데이터베이스에 테이블을 생성합니다.
 # (이미 테이블이 존재하면 건너뛰고, 없으면 새로 만듭니다.)
@@ -36,6 +36,7 @@ app.include_router(users.router)
 app.include_router(sessions.router) # 🌟 세션 라우터 등록 추가
 app.include_router(logs.router) # logs 라우터 추가
 app.include_router(analysis.router) # 집중도 분석 라우터 추가
+app.include_router(reports.router)
 
 # 기본 루트 엔드포인트 (서버 접속 테스트용)
 @app.get("/")
