@@ -7,10 +7,33 @@ export function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    navigate("/app");
-  };
+  const handleSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
+
+  try {
+    const response = await fetch("http://localhost:8000/api/v1/users/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: email,
+        password: password,
+      }),
+    });
+
+    const data = await response.json();
+
+    if (response.ok) {
+      localStorage.setItem("user_name", data.name);
+      localStorage.setItem("user_id", data.user_id);
+      
+      navigate("/app"); 
+    } else {
+      alert(data.detail || "로그인 실패");
+    }
+  } catch (error) {
+    alert("서버와 연결할 수 없습니다.");
+  }
+};
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-accent/30 via-white to-accent/20 flex items-center justify-center p-6">

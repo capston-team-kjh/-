@@ -9,10 +9,37 @@ export function Signup() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    navigate("/app");
-  };
+
+    if (password !== confirmPassword) {
+    alert("비밀번호가 일치하지 않습니다.");
+    return;
+  }
+
+  try {
+    const response = await fetch("http://localhost:8000/api/v1/users/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: email,
+        password: password,
+        name: name,
+      }),
+    });
+
+    if (response.ok) {
+      alert("회원가입 성공! 로그인 해주세요.");
+      navigate("/login");
+    } else {
+      const errorData = await response.json();
+      alert(errorData.detail || "회원가입에 실패했습니다.");
+    }
+  } catch (error) {
+    console.error("Signup error:", error);
+    alert("서버와 연결할 수 없습니다.");
+  }
+};
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-accent/30 via-white to-accent/20 flex items-center justify-center p-6">
