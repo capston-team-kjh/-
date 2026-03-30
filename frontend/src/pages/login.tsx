@@ -23,9 +23,9 @@ export function Login() {
     const data = await response.json();
 
     if (response.ok) {
-      localStorage.setItem("user_name", data.name);
+      localStorage.setItem("name", data.name);
       localStorage.setItem("user_id", data.user_id);
-      localStorage.setItem("email", data.email);
+      localStorage.setItem("email", email);
       
       navigate("/app"); 
     } else {
