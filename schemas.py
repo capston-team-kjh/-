@@ -27,6 +27,16 @@ class UserResponse(BaseModel):
     class Config:
         from_attributes = True  # SQLAlchemy ORM 객체를 Pydantic 모델로 변환할 수 있게 해줍니다.
 
+# 회원 정보 수정 요청 (이름, 이메일 등 선택적 수정)
+class UserUpdate(BaseModel):
+    name: Optional[str] = None
+    email: Optional[EmailStr] = None
+
+# 비밀번호 변경 요청 (현재 비밀번호 검증 포함)
+class UserPasswordUpdate(BaseModel):
+    current_password: str
+    new_password: str
+
 # ==========================================
 # 2. FocusSession (집중 세션) 스키마
 # ==========================================

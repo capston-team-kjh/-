@@ -25,6 +25,7 @@ export function Login() {
     if (response.ok) {
       localStorage.setItem("user_name", data.name);
       localStorage.setItem("user_id", data.user_id);
+      localStorage.setItem("email", data.email);
       
       navigate("/app"); 
     } else {

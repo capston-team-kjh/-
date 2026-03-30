@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import { Calendar, Clock, Target, TrendingUp, Play } from "lucide-react";
 import { ActivityHeatmap } from "../components/activity-heatmap";
@@ -21,13 +22,51 @@ const recentSessions = [
 ];
 
 export function Dashboard() {
+  const [reportData, setReportData] = useState<any>(null);
+  const [recentSessions, setRecentSessions] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  
+  // Get user info from localStorage (saved during login)
+  const userId = localStorage.getItem("user_id");
+  const userName = localStorage.getItem("name") || "사용자";
+
+  useEffect(() => {
+    if (!userId) return;
+
+    const fetchDashboardData = async () => {
+      try {
+        const headers = { "X-User-Id": userId };
+        
+        // Fetch both summary and recent sessions in parallel
+        const [summaryRes, recentRes] = await Promise.all([
+          fetch(`http://127.0.0.1:8000/api/v1/reports/summary?range=weekly`, { headers }),
+          fetch(`http://127.0.0.1:8000/api/v1/reports/recent?size=4`, { headers })
+        ]);
+
+        if (summaryRes.ok && recentRes.ok) {
+          setReportData(await summaryRes.json());
+          const recentData = await recentRes.json();
+          setRecentSessions(recentData.items);
+        }
+      } catch (error) {
+        console.error("Dashboard data fetch failed:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchDashboardData();
+  }, [userId]);
+
+  if (loading) return <div className="p-8 text-center">학습 데이터를 불러오는 중...</div>;
+
   return (
     <div className="p-8 space-y-8 max-w-7xl mx-auto">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-foreground mb-1">대시보드</h1>
           <p className="text-muted-foreground">
-            다시 오신 것을 환영합니다! 학습 현황을 확인하세요.
+            {userName}님, 다시 오신 것을 환영합니다! 오늘의 학습 현황을 확인하세요.
           </p>
         </div>
         <Link
@@ -42,30 +81,26 @@ export function Dashboard() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatCard
           icon={<Clock className="w-6 h-6" />}
-          label="이번 주"
-          value="28.5 hrs"
-          change="+12%"
+          label="이번 주 학습"
+          value={`${reportData?.total_hours || 0} hrs`}
+          change={`${reportData?.active_days || 0}일 활동 중`}
           positive
-        />
-        <StatCard
-          icon={<Calendar className="w-6 h-6" />}
-          label="이번 달"
-          value="124 hrs"
-          change="+8%"
-          positive
-        />
-        <StatCard
-          icon={<Target className="w-6 h-6" />}
-          label="목표 진행률"
-          value="87%"
-          change="13% 남음"
         />
         <StatCard
           icon={<TrendingUp className="w-6 h-6" />}
-          label="평균 세션"
-          value="2.4 hrs"
-          change="+5%"
+          label="평균 집중도"
+          value={`${reportData?.avg_focus_score || 0}%`}
           positive
+        />
+        <StatCard
+          icon={<Target className="w-6 h-6" />} 
+          label="최근 세션"
+          value={`${recentSessions.length > 0 ? recentSessions[0].duration_min : 0} min`}
+        />
+        <StatCard
+          icon={<Calendar className="w-6 h-6" />}
+          label="활동 지수"
+          value={reportData?.active_days > 3 ? "높음" : "보통"}
         />
       </div>
 
@@ -116,16 +151,16 @@ export function Dashboard() {
           </div>
           <div className="space-y-3">
             {recentSessions.map((session) => (
-              <div
-                key={session.id}
-                className="flex items-center justify-between p-4 rounded-lg border border-border hover:border-primary/30 transition-colors"
-              >
-                <div>
-                  <div className="font-medium text-foreground">{session.name}</div>
-                  <div className="text-sm text-muted-foreground">{session.date}</div>
-                </div>
-                <div className="text-sm font-medium text-primary">{session.duration}</div>
+            <div key={session.session_id} className="flex items-center justify-between p-4 rounded-lg border border-border">
+              <div>
+                <div className="font-medium">세션 #{session.session_id}</div>
+                <div className="text-sm text-muted-foreground">{session.date} {session.start_time}</div>
               </div>
+              <div className="text-right">
+                <div className="font-semibold text-primary">{session.duration_min}분</div>
+                <div className="text-xs text-muted-foreground">집중도: {session.focus_score}%</div>
+              </div>
+            </div>
             ))}
           </div>
         </div>

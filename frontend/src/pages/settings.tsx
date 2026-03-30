@@ -1,6 +1,116 @@
-import { User, Shield } from "lucide-react";
+import { useState } from "react";
+import { User, Shield, ChevronLeft } from "lucide-react";
+import {useNavigate } from "react-router";
 
 export function Settings() {
+  const navigate = useNavigate();
+  const userId = localStorage.getItem("user_id");
+
+  // View state: 'main' or 'password'
+  const [view, setView] = useState<'main' | 'password'>('main');
+
+  // Form states
+  const [profile, setProfile] = useState({
+    name: localStorage.getItem("name") || "",
+    email: localStorage.getItem("email") || "", 
+  });
+
+  const [passwords, setPasswords] = useState({
+    current: "",
+    new: "",
+    confirm: "",
+  });
+
+  // --- 1. Handle Bulk Profile Save ---
+  const handleSaveAll = async () => {
+    if (!userId) return;
+    try {
+      const response = await fetch(`http://127.0.0.1:8000/api/v1/users/${userId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          name: profile.name, 
+          email: profile.email }),
+      });
+
+      if (response.ok) {
+        localStorage.setItem("name", profile.name);
+        localStorage.setItem("email", profile.email);
+        alert("모든 변경사항이 저장되었습니다.");
+      } else {
+        alert("저장에 실패했습니다.");
+      }
+    } catch (error) {
+      console.error("Save failed:", error);
+    }
+  };
+
+  // --- 2. Handle Password Subview Save ---
+  const handleUpdatePassword = async () => {
+    if (!passwords.current || !passwords.new) {
+      alert("모든 필드를 입력해주세요.");
+      return;
+    }
+    if (passwords.new !== passwords.confirm) {
+      alert("새 비밀번호 확인이 일치하지 않습니다.");
+      return;
+    }
+
+    try {
+      const response = await fetch(`http://127.0.0.1:8000/api/v1/users/${userId}/password`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          current_password: passwords.current,
+          new_password: passwords.new
+        }),
+      });
+
+      if (response.ok) {
+        alert("비밀번호가 변경되었습니다.");
+        setView('main');
+      } else {
+        const errorData = await response.json();
+        alert(errorData.detail || "오류가 발생했습니다.");
+      }
+    } catch (error) {
+      console.error("Password change failed:", error);
+    }
+  };
+
+  if (view === 'password') {
+    return (
+      <div className="p-8 max-w-2xl mx-auto space-y-6">
+        <button onClick={() => setView('main')} className="flex items-center gap-2 text-muted-foreground hover:text-foreground">
+          <ChevronLeft className="w-4 h-4" /> 뒤로 가기
+        </button>
+        <h2 className="text-2xl font-bold">비밀번호 변경</h2>
+        <div className="space-y-4 bg-white p-6 rounded-2xl border border-border">
+          <input 
+            type="password" 
+            placeholder="현재 비밀번호" 
+            className="w-full px-4 py-3 border border-border rounded-lg"
+            onChange={(e) => setPasswords({...passwords, current: e.target.value})}
+          />
+          <input 
+            type="password" 
+            placeholder="새 비밀번호" 
+            className="w-full px-4 py-3 border border-border rounded-lg"
+            onChange={(e) => setPasswords({...passwords, new: e.target.value})}
+          />
+          <input 
+            type="password" 
+            placeholder="새 비밀번호 확인" 
+            className="w-full px-4 py-3 border border-border rounded-lg"
+            onChange={(e) => setPasswords({...passwords, confirm: e.target.value})}
+          />
+          <button onClick={handleUpdatePassword} className="w-full py-3 bg-primary text-primary-foreground rounded-lg">
+            비밀번호 업데이트
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-8 space-y-8 max-w-4xl mx-auto">
@@ -11,6 +121,7 @@ export function Settings() {
         </p>
       </div>
 
+      {/* Profile Section */}
       <section className="bg-white rounded-2xl border border-border p-6">
         <div className="flex items-center gap-3 mb-6">
           <div className="p-2 bg-accent rounded-lg text-primary">
@@ -28,7 +139,8 @@ export function Settings() {
               <input
                 id="name"
                 type="text"
-                defaultValue="홍길동"
+                value={profile.name}
+                onChange={(e) => setProfile({ ...profile, name: e.target.value })}
                 className="w-full px-4 py-3 bg-input-background rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-primary/50"
               />
             </div>
@@ -39,7 +151,8 @@ export function Settings() {
               <input
                 id="email"
                 type="email"
-                defaultValue="hong@example.com"
+                value={profile.email}
+                onChange={(e) => setProfile({ ...profile, email: e.target.value })}
                 className="w-full px-4 py-3 bg-input-background rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-primary/50"
               />
             </div>
@@ -56,7 +169,7 @@ export function Settings() {
         </div>
 
         <div className="space-y-4">
-          <button className="w-full md:w-auto px-6 py-3 border border-border rounded-lg hover:bg-accent transition-colors text-left">
+          <button onClick={()=>setView('password')} className="w-full md:w-auto px-6 py-3 border border-border rounded-lg hover:bg-accent transition-colors text-left">
             비밀번호 변경
           </button>
           <button className="w-full md:w-auto px-6 py-3 border border-border rounded-lg hover:bg-accent transition-colors text-left">
@@ -69,10 +182,10 @@ export function Settings() {
       </section>
 
       <div className="flex items-center justify-end gap-4 pt-4">
-        <button className="px-6 py-3 border border-border rounded-lg hover:bg-accent transition-colors">
+        <button onClick={()=>navigate('/app')} className="px-6 py-3 border border-border rounded-lg hover:bg-accent transition-colors">
           취소
         </button>
-        <button className="px-6 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors">
+        <button onClick={handleSaveAll} className="px-6 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors">
           변경사항 저장
         </button>
       </div>
