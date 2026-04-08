@@ -1,10 +1,13 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { DualCameraManager } from "@/utils/dualCamManager";
 import { Play, Square } from "lucide-react";
 
 export function StudySession() {
   const [isRunning, setIsRunning] = useState(false);
   const [seconds, setSeconds] = useState(0);
   const [sessionId, setSessionId] = useState<number | null>(null);
+
+  const manager = useRef(new DualCameraManager());
 
   useEffect(() => {
     let interval: number | undefined;
@@ -32,51 +35,70 @@ export function StudySession() {
 
   const handleStart = async () => {
     const userId = localStorage.getItem("user_id");
-    if (!userId) {
-    alert("로그인이 필요합니다.");
-    return;
-  }
+    if (!userId) return alert("로그인이 필요합니다.");
 
-  try {
-    const response = await fetch("http://13.209.127.3:8000/api/v1/sessions/", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ user_id: parseInt(userId) }),
-    });
+    try {
+      // 1. First, check for cameras
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const cams = devices.filter(d => d.kind === "videoinput");
+      if (cams.length < 2) return alert("카메라가 2개 필요합니다 (얼굴용, 책상용)");
 
-    if (response.ok) {
-      const data = await response.json();
-      setSessionId(data.id); 
-      setIsRunning(true);
+      // 2. Start the AWS Session
+      const response = await fetch("http://localhost:8000/api/v1/sessions/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: parseInt(userId) }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setSessionId(data.id);
+        
+        // 3. Start Recording ONLY if session created successfully
+        await manager.current.start(cams[0].deviceId, cams[1].deviceId);
+        
+        setIsRunning(true);
+      }
+    } catch (error) {
+      console.error("Failed to start session:", error);
     }
-  } catch (error) {
-    console.error("Failed to start session:", error);
-  }
-};
+  };
 
   const handleStop = async () => {
     if (!sessionId) return;
 
-  try {
-    const response = await fetch(`http://13.209.127.3:8000/api/v1/sessions/${sessionId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        end_time: new Date().toISOString(),
-        status: "completed",
-      }),
-    });
+    try {
+      // 1. Stop Recording and get the Blob
+      const videoBlob = await manager.current.stop();
+      
+      // 2. Download locally for your test
+      const url = URL.createObjectURL(videoBlob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `focus_test_${Date.now()}.webm`;
+      a.click();
+      URL.revokeObjectURL(url);
 
-    if (response.ok) {
-      setIsRunning(false);
-      alert(`세션이 저장되었습니다! 총 시간: ${formatTime(seconds)}`);
-      setSeconds(0);
-      setSessionId(null);
+      // 3. Update AWS Session status
+      const response = await fetch(`http://localhost:8000/api/v1/sessions/${sessionId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          end_time: new Date().toISOString(),
+          status: "completed",
+        }),
+      });
+
+      if (response.ok) {
+        setIsRunning(false);
+        alert(`세션이 저장되었습니다! 총 시간: ${formatTime(seconds)}`);
+        setSeconds(0);
+        setSessionId(null);
+      }
+    } catch (error) {
+      console.error("Failed to stop session:", error);
     }
-  } catch (error) {
-    console.error("Failed to stop session:", error);
-  }
-};
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-accent/20 to-white p-8">

@@ -39,8 +39,8 @@ export function Dashboard() {
         
         // Fetch both summary and recent sessions in parallel
         const [summaryRes, recentRes] = await Promise.all([
-          fetch(`http://13.209.127.3:8000/api/v1/reports/summary?range=weekly`, { headers }),
-          fetch(`http://13.209.127.3:8000/api/v1/reports/recent?size=4`, { headers })
+          fetch(`http://localhost:8000/api/v1/reports/summary?range=weekly`, { headers }),
+          fetch(`http://localhost:8000/api/v1/reports/recent?size=4`, { headers })
         ]);
 
         if (summaryRes.ok && recentRes.ok) {

@@ -18,7 +18,7 @@ export function Signup() {
   }
 
   try {
-    const response = await fetch("http://13.209.127.3:8000/api/v1/users/register", {
+    const response = await fetch("http://localhost:8000/api/v1/users/register", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
