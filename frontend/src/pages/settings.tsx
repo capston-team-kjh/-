@@ -25,7 +25,7 @@ export function Settings() {
   const handleSaveAll = async () => {
     if (!userId) return;
     try {
-      const response = await fetch(`http://127.0.0.1:8000/api/v1/users/${userId}`, {
+      const response = await fetch(`http://13.209.127.3:8000/api/v1/users/${userId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
@@ -57,7 +57,7 @@ export function Settings() {
     }
 
     try {
-      const response = await fetch(`http://127.0.0.1:8000/api/v1/users/${userId}/password`, {
+      const response = await fetch(`http://13.209.127.3:8000/api/v1/users/${userId}/password`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

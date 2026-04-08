@@ -11,7 +11,7 @@ export function Login() {
   e.preventDefault();
 
   try {
-    const response = await fetch("http://localhost:8000/api/v1/users/login", {
+    const response = await fetch("http://13.209.127.3:8000/api/v1/users/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

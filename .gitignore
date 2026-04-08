@@ -2,6 +2,10 @@
 .venv/
 venv/
 
+# Production Builds
+dist/
+build/
+
 # Node.js modules
 node_modules/
 

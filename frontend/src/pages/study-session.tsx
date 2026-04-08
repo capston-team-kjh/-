@@ -38,7 +38,7 @@ export function StudySession() {
   }
 
   try {
-    const response = await fetch("http://127.0.0.1:8000/api/v1/sessions/", {
+    const response = await fetch("http://13.209.127.3:8000/api/v1/sessions/", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ user_id: parseInt(userId) }),
@@ -58,7 +58,7 @@ export function StudySession() {
     if (!sessionId) return;
 
   try {
-    const response = await fetch(`http://127.0.0.1:8000/api/v1/sessions/${sessionId}`, {
+    const response = await fetch(`http://13.209.127.3:8000/api/v1/sessions/${sessionId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
