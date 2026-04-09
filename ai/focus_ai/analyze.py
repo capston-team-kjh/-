@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 import csv
@@ -5,9 +6,12 @@ import os
 import time
 import argparse
 import statistics
+import tempfile
+import shutil
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
+import pymysql
 import cv2
 import mediapipe as mp
 from mediapipe.tasks import python
@@ -16,7 +20,7 @@ from mediapipe.tasks.python import vision
 
 @dataclass
 class AnalyzeConfig:
-    sampling_fps: int = 5
+    sampling_fps: int = 1
     absent_threshold_sec: int = 5
     min_face_confidence: float = 0.5
 
@@ -54,15 +58,6 @@ class AnalyzeConfig:
     restless_hand_min_bbox_diag: float = 0.18
     restless_hand_min_dir_changes: int = 2
 
-    # 얼굴 만지기 / 턱 괴기
-    enable_face_touch: bool = True
-    enable_chin_rest: bool = True
-    wrist_min_visibility: float = 0.5
-    face_touch_bbox_margin_ratio: float = 0.18
-    face_touch_min_duration_sec: int = 2
-    chin_rest_dist_ratio: float = 0.22
-    chin_rest_min_duration_sec: int = 2
-
     # 졸음 판정
     enable_drowsy: bool = True
     drowsy_ear_threshold: float = 0.16
@@ -82,18 +77,189 @@ class AnalyzeConfig:
     blink_max_duration_sec: int = 1
     long_eye_closure_min_sec: int = 2
 
-    # yawn
-    yawn_mar_threshold: float = 0.60
-    yawn_mar_offset: float = 0.18
-    yawn_min_duration_sec: int = 2
-
     # 상태 최소 지속 시간(초)
     gaze_side_min_duration_sec: int = 2
     gaze_down_min_duration_sec: int = 2
     bad_posture_min_duration_sec: int = 2
     enable_unknown_state: bool = True
 
-    version: str = "ai-0.2.3"
+    version: str = "ai-0.2.4"
+
+
+def _unique_keep_order(items: List[str]) -> List[str]:
+    seen = set()
+    result: List[str] = []
+
+    for item in items:
+        if item and item not in seen:
+            seen.add(item)
+            result.append(item)
+
+    return result
+
+
+def _ensure_states_list(item: Dict[str, Any]) -> List[str]:
+    states = item.get("states")
+    if isinstance(states, list) and states:
+        return [str(s) for s in states if s]
+    state = item.get("state", "focus")
+    return [state] if state else ["focus"]
+
+
+def _build_active_states_for_sec(
+    t: int,
+    primary_state: str,
+    gaze_side_seen_by_sec: List[bool],
+    gaze_down_seen_by_sec: List[bool],
+    bad_posture_seen_by_sec: List[bool],
+    drowsy_seen_by_sec: List[bool],
+    page_turn_seen_by_sec: List[bool],
+    pen_fidget_seen_by_sec: List[bool],
+    restless_hand_seen_by_sec: List[bool],
+) -> List[str]:
+    active: List[str] = []
+
+    if primary_state == "absent":
+        return ["absent"]
+
+    if primary_state == "unknown":
+        active.append("unknown")
+
+    if drowsy_seen_by_sec[t]:
+        active.append("drowsy")
+    if gaze_side_seen_by_sec[t]:
+        active.append("gaze_side")
+    if gaze_down_seen_by_sec[t]:
+        active.append("gaze_down")
+    if bad_posture_seen_by_sec[t]:
+        active.append("bad_posture")
+    if page_turn_seen_by_sec[t]:
+        active.append("page_turn")
+    if pen_fidget_seen_by_sec[t]:
+        active.append("pen_fidget")
+    if restless_hand_seen_by_sec[t]:
+        active.append("restless_hand")
+
+    if not active:
+        active.append("focus")
+
+    return _unique_keep_order(active)
+
+
+def get_db_connection():
+    return pymysql.connect(
+        host="127.0.0.1",
+        user="root",
+        password="1234",
+        database="joljak_db",
+        charset="utf8mb4",
+        cursorclass=pymysql.cursors.DictCursor,
+        autocommit=False,
+    )
+
+
+def save_analysis_to_db(session_id: str, result: Dict[str, Any]) -> None:
+    if result.get("status") != "success":
+        print("분석 실패 상태라 DB 저장 생략")
+        return
+
+    summary = result.get("summary", {})
+    meta = result.get("meta", {})
+    timeline = result.get("timeline", [])
+    events = result.get("events", [])
+
+    conn = get_db_connection()
+
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("DELETE FROM analysis_timeline WHERE session_id = %s", (session_id,))
+            cursor.execute("DELETE FROM analysis_events WHERE session_id = %s", (session_id,))
+            cursor.execute("DELETE FROM analysis_summary WHERE session_id = %s", (session_id,))
+
+            cursor.execute(
+                """
+                INSERT INTO analysis_summary (
+                    session_id,
+                    focus_ratio,
+                    absent_count,
+                    absent_total_sec,
+                    away_count,
+                    away_total_sec,
+                    bad_posture_ratio,
+                    processing_time_sec,
+                    camera_type,
+                    version
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    session_id,
+                    summary.get("focus_ratio", 0),
+                    summary.get("absent_count", 0),
+                    summary.get("absent_total_sec", 0),
+                    summary.get("away_count", 0),
+                    summary.get("away_total_sec", 0),
+                    summary.get("bad_posture_ratio", 0),
+                    meta.get("processing_time_sec", 0),
+                    meta.get("camera_type", "merged"),
+                    meta.get("version", ""),
+                ),
+            )
+
+            if timeline:
+                timeline_values = []
+
+                for row in timeline:
+                    t = row.get("t", 0)
+                    states = _ensure_states_list(row)
+
+                    for state_name in states:
+                        timeline_values.append(
+                            (
+                                session_id,
+                                t,
+                                state_name,
+                            )
+                        )
+
+                cursor.executemany(
+                    """
+                    INSERT INTO analysis_timeline (session_id, t, state)
+                    VALUES (%s, %s, %s)
+                    """,
+                    timeline_values,
+                )
+
+            if events:
+                event_values = [
+                    (
+                        session_id,
+                        row.get("type", "unknown"),
+                        row.get("start_sec", 0),
+                        row.get("end_sec", 0),
+                        row.get("score", 0),
+                    )
+                    for row in events
+                ]
+
+                cursor.executemany(
+                    """
+                    INSERT INTO analysis_events (
+                        session_id, event_type, start_sec, end_sec, score
+                    ) VALUES (%s, %s, %s, %s, %s)
+                    """,
+                    event_values,
+                )
+
+        conn.commit()
+        print(f"{session_id} 분석 결과 DB 저장 완료")
+
+    except Exception as e:
+        conn.rollback()
+        print("DB 저장 실패:", e)
+        raise
+
+    finally:
+        conn.close()
 
 
 def _read_video_meta(video_path: str) -> Dict[str, Any]:
@@ -139,6 +305,288 @@ def _read_video_meta(video_path: str) -> Dict[str, Any]:
     }
 
 
+def analyze_merged_video(
+    session_id: str,
+    video_path: str,
+    config: AnalyzeConfig,
+) -> Dict[str, Any]:
+    started = time.time()
+    temp_dir = tempfile.mkdtemp(prefix="merged_split_")
+
+    left_path = os.path.join(temp_dir, f"{session_id}_front.mp4")
+    right_path = os.path.join(temp_dir, f"{session_id}_overhead.mp4")
+
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        return {
+            "session_id": session_id,
+            "status": "failed",
+            "meta": {
+                "video_path": video_path,
+                "processing_time_sec": int(time.time() - started),
+                "version": config.version,
+                "fail_reason": "VIDEO_OPEN_FAIL",
+            },
+            "summary": {},
+            "timeline": [],
+            "events": [],
+        }
+
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    if fps is None or fps <= 0:
+        fps = 30.0
+
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+    if width < 2 or height < 2:
+        cap.release()
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        return {
+            "session_id": session_id,
+            "status": "failed",
+            "meta": {
+                "video_path": video_path,
+                "processing_time_sec": int(time.time() - started),
+                "version": config.version,
+                "fail_reason": "VIDEO_META_INVALID",
+            },
+            "summary": {},
+            "timeline": [],
+            "events": [],
+        }
+
+    split_x = width // 2
+    left_width = split_x
+    right_width = width - split_x
+
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    left_writer = cv2.VideoWriter(left_path, fourcc, fps, (left_width, height))
+    right_writer = cv2.VideoWriter(right_path, fourcc, fps, (right_width, height))
+
+    if not left_writer.isOpened() or not right_writer.isOpened():
+        cap.release()
+        left_writer.release()
+        right_writer.release()
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        return {
+            "session_id": session_id,
+            "status": "failed",
+            "meta": {
+                "video_path": video_path,
+                "processing_time_sec": int(time.time() - started),
+                "version": config.version,
+                "fail_reason": "VIDEO_WRITER_OPEN_FAIL",
+            },
+            "summary": {},
+            "timeline": [],
+            "events": [],
+        }
+
+    try:
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            left_frame = frame[:, :split_x]
+            right_frame = frame[:, split_x:]
+
+            left_writer.write(left_frame)
+            right_writer.write(right_frame)
+
+    finally:
+        cap.release()
+        left_writer.release()
+        right_writer.release()
+
+    front_result = analyze_absent(session_id, left_path, "front", config)
+    overhead_result = analyze_absent(session_id, right_path, "overhead", config)
+
+    if front_result.get("status") != "success" or overhead_result.get("status") != "success":
+        result = {
+            "session_id": session_id,
+            "status": "failed",
+            "meta": {
+                "video_path": video_path,
+                "processing_time_sec": int(time.time() - started),
+                "version": config.version,
+                "fail_reason": "SUB_ANALYSIS_FAILED",
+            },
+            "summary": {},
+            "timeline": [],
+            "events": [],
+            "front_result": front_result,
+            "overhead_result": overhead_result,
+        }
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        return result
+
+    front_timeline = {item["t"]: item for item in front_result.get("timeline", [])}
+    overhead_timeline = {item["t"]: item for item in overhead_result.get("timeline", [])}
+
+    duration_sec = max(
+        int(front_result.get("meta", {}).get("duration_sec", 0)),
+        int(overhead_result.get("meta", {}).get("duration_sec", 0)),
+    )
+
+    final_timeline = []
+    for t in range(duration_sec):
+        front_item = front_timeline.get(t, {"state": "focus", "states": ["focus"], "flags": {}})
+        overhead_item = overhead_timeline.get(t, {"state": "focus", "states": ["focus"], "flags": {}})
+
+        front_state = front_item.get("state", "focus")
+        front_states = _ensure_states_list(front_item)
+
+        front_flags = front_item.get("flags", {})
+        overhead_flags = overhead_item.get("flags", {})
+
+        if front_state == "absent":
+            final_state = "absent"
+        elif front_state == "drowsy":
+            final_state = "drowsy"
+        elif front_state == "gaze_side":
+            final_state = "gaze_side"
+        elif front_state == "gaze_down":
+            final_state = "gaze_down"
+        elif front_state == "bad_posture":
+            final_state = "bad_posture"
+        elif front_state == "unknown":
+            final_state = "unknown"
+        else:
+            final_state = "focus"
+
+        if "absent" in front_states:
+            merged_states = ["absent"]
+        else:
+            merged_states: List[str] = []
+
+            non_focus_front_states = [s for s in front_states if s not in {"focus", "absent"}]
+            if non_focus_front_states:
+                merged_states.extend(non_focus_front_states)
+            else:
+                merged_states.append("focus")
+
+            if overhead_flags.get("page_turn", False):
+                merged_states.append("page_turn")
+            if overhead_flags.get("pen_fidget", False):
+                merged_states.append("pen_fidget")
+            if overhead_flags.get("restless_hand", False):
+                merged_states.append("restless_hand")
+
+            merged_states = _unique_keep_order(merged_states)
+
+        final_timeline.append(
+            {
+                "t": t,
+                "state": final_state,
+                "states": merged_states,
+                "flags": {
+                    "face_seen": front_flags.get("face_seen", False),
+                    "gaze_side": front_flags.get("gaze_side", False),
+                    "gaze_down": front_flags.get("gaze_down", False),
+                    "bad_posture": front_flags.get("bad_posture", False),
+                    "eye_closed": front_flags.get("eye_closed", False),
+                    "blink": front_flags.get("blink", False),
+                    "long_eye_closure": front_flags.get("long_eye_closure", False),
+                    "head_down": front_flags.get("head_down", False),
+                    "head_tilt": front_flags.get("head_tilt", False),
+                    "raw_drowsy": front_flags.get("raw_drowsy", False),
+                    "drowsy": front_flags.get("drowsy", False),
+                    "page_turn": overhead_flags.get("page_turn", False),
+                    "pen_fidget": overhead_flags.get("pen_fidget", False),
+                    "restless_hand": overhead_flags.get("restless_hand", False),
+                    "unknown": front_flags.get("unknown", False),
+                    "absent": front_flags.get("absent", False),
+                },
+            }
+        )
+
+    def _count_state(state_name: str) -> tuple[int, int]:
+        flags = [item["state"] == state_name for item in final_timeline]
+        return _count_segments(flags)
+
+    focus_total_sec = sum(1 for item in final_timeline if item["state"] == "focus")
+    focus_ratio = (focus_total_sec / duration_sec) if duration_sec > 0 else 0.0
+
+    gaze_side_count, gaze_side_total_sec = _count_state("gaze_side")
+    gaze_down_count, gaze_down_total_sec = _count_state("gaze_down")
+    drowsy_count, drowsy_total_sec = _count_state("drowsy")
+    absent_count, absent_total_sec = _count_state("absent")
+    _, bad_posture_total_sec = _count_state("bad_posture")
+
+    front_summary = front_result.get("summary", {})
+    overhead_summary = overhead_result.get("summary", {})
+
+    merged_events = []
+    for event in front_result.get("events", []):
+        e = dict(event)
+        e["source"] = "front"
+        merged_events.append(e)
+
+    for event in overhead_result.get("events", []):
+        e = dict(event)
+        e["source"] = "overhead"
+        merged_events.append(e)
+
+    merged_events.sort(key=lambda x: (x.get("start_sec", 0), x.get("end_sec", 0)))
+
+    result = {
+        "session_id": session_id,
+        "status": "success",
+        "meta": {
+            "video_path": video_path,
+            "split_mode": "left-right",
+            "camera_type": "merged",
+            "duration_sec": duration_sec,
+            "processing_time_sec": int(time.time() - started),
+            "version": config.version,
+            "warnings": [],
+        },
+        "summary": {
+            "focus_ratio": round(float(focus_ratio), 4),
+            "focus_total_sec": int(focus_total_sec),
+            "present_total_sec": int(front_summary.get("present_total_sec", duration_sec)),
+            "gaze_side_count": int(gaze_side_count),
+            "gaze_side_total_sec": int(gaze_side_total_sec),
+            "gaze_down_count": int(gaze_down_count),
+            "gaze_down_total_sec": int(gaze_down_total_sec),
+            "drowsy_count": int(drowsy_count),
+            "drowsy_total_sec": int(drowsy_total_sec),
+            "eye_closed_total_sec": int(front_summary.get("eye_closed_total_sec", 0)),
+            "blink_count": int(front_summary.get("blink_count", 0)),
+            "blink_total_sec": int(front_summary.get("blink_total_sec", 0)),
+            "long_eye_closure_count": int(front_summary.get("long_eye_closure_count", 0)),
+            "long_eye_closure_total_sec": int(front_summary.get("long_eye_closure_total_sec", 0)),
+            "head_down_total_sec": int(front_summary.get("head_down_total_sec", 0)),
+            "head_tilt_total_sec": int(front_summary.get("head_tilt_total_sec", 0)),
+            "away_count": int(gaze_side_count),
+            "away_total_sec": int(gaze_side_total_sec),
+            "unknown_count": int(front_summary.get("unknown_count", 0)),
+            "unknown_total_sec": int(front_summary.get("unknown_total_sec", 0)),
+            "absent_count": int(absent_count),
+            "absent_total_sec": int(absent_total_sec),
+            "bad_posture_ratio": round((bad_posture_total_sec / duration_sec), 4) if duration_sec > 0 else 0.0,
+            "bad_posture_total_sec": int(bad_posture_total_sec),
+            "concentration_score": float(front_summary.get("concentration_score", 0.0)),
+            "page_turn_count": int(overhead_summary.get("page_turn_count", 0)),
+            "page_turn_total_sec": int(overhead_summary.get("page_turn_total_sec", 0)),
+            "pen_fidget_count": int(overhead_summary.get("pen_fidget_count", 0)),
+            "pen_fidget_total_sec": int(overhead_summary.get("pen_fidget_total_sec", 0)),
+            "restless_hand_count": int(overhead_summary.get("restless_hand_count", 0)),
+            "restless_hand_total_sec": int(overhead_summary.get("restless_hand_total_sec", 0)),
+        },
+        "timeline": final_timeline,
+        "events": merged_events,
+        "front_result": front_result,
+        "overhead_result": overhead_result,
+    }
+
+    shutil.rmtree(temp_dir, ignore_errors=True)
+    return result
+
+
 def analyze_dummy(
     session_id: str,
     video_path: str,
@@ -176,6 +624,7 @@ def analyze_dummy(
         {
             "t": t,
             "state": "focus",
+            "states": ["focus"],
             "flags": {
                 "face_seen": True,
                 "gaze_side": False,
@@ -186,11 +635,11 @@ def analyze_dummy(
                 "long_eye_closure": False,
                 "head_down": False,
                 "head_tilt": False,
-                "yawn": False,
                 "raw_drowsy": False,
                 "drowsy": False,
-                "face_touch": False,
-                "chin_rest": False,
+                "page_turn": False,
+                "pen_fidget": False,
+                "restless_hand": False,
                 "unknown": False,
                 "absent": False,
             },
@@ -228,12 +677,6 @@ def analyze_dummy(
             "long_eye_closure_total_sec": 0,
             "head_down_total_sec": 0,
             "head_tilt_total_sec": 0,
-            "yawn_count": 0,
-            "yawn_total_sec": 0,
-            "face_touch_count": 0,
-            "face_touch_total_sec": 0,
-            "chin_rest_count": 0,
-            "chin_rest_total_sec": 0,
             "away_count": 0,
             "away_total_sec": 0,
             "unknown_count": 0,
@@ -323,23 +766,6 @@ def _eye_aspect_ratio(
     return (vertical_sum / len(vertical_pairs)) / horizontal
 
 
-def _mouth_aspect_ratio(landmarks: List[Any]) -> Optional[float]:
-    max_idx = max(78, 308, 13, 14, 81, 178, 82, 87, 312, 317)
-    if len(landmarks) <= max_idx:
-        return None
-
-    horizontal = _dist2d(landmarks[78], landmarks[308])
-    if horizontal < 1e-6:
-        return None
-
-    vertical_pairs = [(13, 14), (81, 178), (82, 87), (312, 317)]
-    vertical_sum = 0.0
-    for top_idx, bottom_idx in vertical_pairs:
-        vertical_sum += _dist2d(landmarks[top_idx], landmarks[bottom_idx])
-
-    return (vertical_sum / len(vertical_pairs)) / horizontal
-
-
 def _median_valid(values: List[Optional[float]], max_sec: int) -> Optional[float]:
     valid = [v for v in values[:max_sec] if v is not None]
     if not valid:
@@ -402,104 +828,6 @@ def _landmark_visible(lm: Any, min_visibility: float) -> bool:
     return True
 
 
-def _get_face_region_features(landmarks: List[Any]) -> Optional[Dict[str, float]]:
-    if not landmarks or len(landmarks) <= 152:
-        return None
-
-    xs = [float(lm.x) for lm in landmarks]
-    ys = [float(lm.y) for lm in landmarks]
-
-    x_min = min(xs)
-    x_max = max(xs)
-    y_min = min(ys)
-    y_max = max(ys)
-
-    face_width = x_max - x_min
-    face_height = y_max - y_min
-
-    if face_width < 1e-6 or face_height < 1e-6:
-        return None
-
-    chin = landmarks[152]
-    nose = landmarks[1]
-
-    return {
-        "x_min": x_min,
-        "x_max": x_max,
-        "y_min": y_min,
-        "y_max": y_max,
-        "face_width": face_width,
-        "face_height": face_height,
-        "center_x": (x_min + x_max) / 2.0,
-        "center_y": (y_min + y_max) / 2.0,
-        "chin_x": float(chin.x),
-        "chin_y": float(chin.y),
-        "nose_x": float(nose.x),
-        "nose_y": float(nose.y),
-    }
-
-
-def _is_face_touch_from_pose_and_face(
-    face_region: Dict[str, float],
-    pose_landmarks: List[Any],
-    wrist_min_visibility: float,
-    bbox_margin_ratio: float,
-) -> bool:
-    if len(pose_landmarks) <= 16:
-        return False
-
-    margin_x = face_region["face_width"] * bbox_margin_ratio
-    margin_y = face_region["face_height"] * bbox_margin_ratio
-
-    x_min = face_region["x_min"] - margin_x
-    x_max = face_region["x_max"] + margin_x
-    y_min = face_region["y_min"] - margin_y
-    y_max = face_region["y_max"] + margin_y
-
-    for wrist_idx in (15, 16):
-        wrist = pose_landmarks[wrist_idx]
-        if not _landmark_visible(wrist, wrist_min_visibility):
-            continue
-
-        wx = float(wrist.x)
-        wy = float(wrist.y)
-
-        if x_min <= wx <= x_max and y_min <= wy <= y_max:
-            return True
-
-    return False
-
-
-def _is_chin_rest_from_pose_and_face(
-    face_region: Dict[str, float],
-    pose_landmarks: List[Any],
-    wrist_min_visibility: float,
-    chin_dist_ratio: float,
-) -> bool:
-    if len(pose_landmarks) <= 16:
-        return False
-
-    chin_x = face_region["chin_x"]
-    chin_y = face_region["chin_y"]
-    face_scale = max(face_region["face_width"], face_region["face_height"])
-    dist_threshold = face_scale * chin_dist_ratio
-
-    for wrist_idx in (15, 16):
-        wrist = pose_landmarks[wrist_idx]
-        if not _landmark_visible(wrist, wrist_min_visibility):
-            continue
-
-        wx = float(wrist.x)
-        wy = float(wrist.y)
-
-        dist = ((wx - chin_x) ** 2 + (wy - chin_y) ** 2) ** 0.5
-
-        if dist <= dist_threshold and wy >= (chin_y - face_region["face_height"] * 0.12):
-            return True
-
-    return False
-
-
 def _flags_to_events(
     flags_by_sec: List[bool],
     event_type: str,
@@ -528,6 +856,7 @@ def _flags_to_events(
         )
 
     return events
+
 
 def _path_length(points: List[tuple[float, float]]) -> float:
     if len(points) < 2:
@@ -617,7 +946,6 @@ def _classify_hand_action(
     bbox_diag = features["bbox_diag"]
     dir_changes = int(features["dir_changes"])
 
-    # 1순위: 책 넘기기 (단발성, 한 방향, x축 이동 큼)
     if (
         path_len >= config.page_turn_min_path_len
         and net_disp >= config.page_turn_min_net_disp
@@ -627,7 +955,6 @@ def _classify_hand_action(
     ):
         return "page_turn"
 
-    # 2순위: 펜 만지작 / 펜 돌리기 (작은 범위 반복)
     if (
         path_len >= config.pen_fidget_min_path_len
         and bbox_diag <= config.pen_fidget_max_bbox_diag
@@ -635,7 +962,6 @@ def _classify_hand_action(
     ):
         return "pen_fidget"
 
-    # 3순위: 큰 손 움직임 (넓은 범위 반복)
     if (
         path_len >= config.restless_hand_min_path_len
         and bbox_diag >= config.restless_hand_min_bbox_diag
@@ -680,13 +1006,10 @@ def _get_drowsy_face_features(landmarks: List[Any]) -> Dict[str, Any]:
         if face_height >= 1e-6:
             face_head_down_ratio = (float(nose.y) - eye_mid_y) / face_height
 
-    mouth_open_ratio = _mouth_aspect_ratio(landmarks)
-
     return {
         "avg_ear": avg_ear,
         "face_head_down_ratio": face_head_down_ratio,
         "face_head_tilt_ratio": face_head_tilt_ratio,
-        "mouth_open_ratio": mouth_open_ratio,
     }
 
 
@@ -954,6 +1277,7 @@ def _is_bad_posture_from_pose(
 
     return shoulder_slope >= shoulder_threshold or head_tilt >= tilt_threshold
 
+
 def _write_summary_csv(result: Dict[str, Any], csv_path: str) -> None:
     summary = result.get("summary", {})
     meta = result.get("meta", {})
@@ -978,7 +1302,7 @@ def _write_timeline_csv(result: Dict[str, Any], csv_path: str) -> None:
     if not timeline:
         with open(csv_path, "w", newline="", encoding="utf-8-sig") as f:
             writer = csv.writer(f)
-            writer.writerow(["session_id", "t", "state"])
+            writer.writerow(["session_id", "t", "state", "states"])
         return
 
     rows: List[Dict[str, Any]] = []
@@ -987,6 +1311,7 @@ def _write_timeline_csv(result: Dict[str, Any], csv_path: str) -> None:
             "session_id": result.get("session_id"),
             "t": item.get("t"),
             "state": item.get("state"),
+            "states": "|".join(_ensure_states_list(item)),
         }
 
         flags = item.get("flags", {})
@@ -1038,6 +1363,7 @@ def _write_events_csv(result: Dict[str, Any], csv_path: str) -> None:
         writer.writeheader()
         writer.writerows(rows)
 
+
 def analyze_absent(
     session_id: str,
     video_path: str,
@@ -1081,11 +1407,6 @@ def analyze_absent(
     bad_posture_seen_by_sec = [False] * max(duration_sec, 0)
     unknown_seen_by_sec = [False] * max(duration_sec, 0)
 
-    raw_face_touch_seen_by_sec = [False] * max(duration_sec, 0)
-    face_touch_seen_by_sec = [False] * max(duration_sec, 0)
-    raw_chin_rest_seen_by_sec = [False] * max(duration_sec, 0)
-    chin_rest_seen_by_sec = [False] * max(duration_sec, 0)
-
     eye_closed_seen_by_sec = [False] * max(duration_sec, 0)
     head_down_seen_by_sec = [False] * max(duration_sec, 0)
     head_tilt_seen_by_sec = [False] * max(duration_sec, 0)
@@ -1095,14 +1416,11 @@ def analyze_absent(
     avg_ear_by_sec: List[Optional[float]] = [None] * max(duration_sec, 0)
     face_head_down_ratio_by_sec: List[Optional[float]] = [None] * max(duration_sec, 0)
     face_head_tilt_ratio_by_sec: List[Optional[float]] = [None] * max(duration_sec, 0)
-    mouth_open_ratio_by_sec: List[Optional[float]] = [None] * max(duration_sec, 0)
     pose_head_drop_ratio_by_sec: List[Optional[float]] = [None] * max(duration_sec, 0)
     pose_head_tilt_ratio_by_sec: List[Optional[float]] = [None] * max(duration_sec, 0)
 
     blink_seen_by_sec = [False] * max(duration_sec, 0)
     long_eye_closure_seen_by_sec = [False] * max(duration_sec, 0)
-    raw_yawn_seen_by_sec = [False] * max(duration_sec, 0)
-    yawn_seen_by_sec = [False] * max(duration_sec, 0)
 
     raw_page_turn_seen_by_sec = [False] * max(duration_sec, 0)
     page_turn_seen_by_sec = [False] * max(duration_sec, 0)
@@ -1175,20 +1493,10 @@ def analyze_absent(
         face_detector = _create_face_landmarker(model_path, config.min_face_confidence)
 
         pose_model_path = _resolve_pose_model_path()
-        if (
-            config.enable_bad_posture
-            or config.enable_drowsy
-            or config.enable_face_touch
-            or config.enable_chin_rest
-        ) and os.path.exists(pose_model_path):
+        if (config.enable_bad_posture or config.enable_drowsy) and os.path.exists(pose_model_path):
             pose_detector = _create_pose_landmarker(pose_model_path)
         else:
-            if (
-                config.enable_bad_posture
-                or config.enable_drowsy
-                or config.enable_face_touch
-                or config.enable_chin_rest
-            ):
+            if config.enable_bad_posture or config.enable_drowsy:
                 warnings.append("POSE_MODEL_NOT_FOUND")
 
         frame_idx = 0
@@ -1211,13 +1519,10 @@ def analyze_absent(
                     mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
                     timestamp_ms = int((frame_idx / fps) * 1000) if fps > 0 else 0
 
-                    current_face_region: Optional[Dict[str, float]] = None
-
                     detection_result = face_detector.detect_for_video(mp_image, timestamp_ms)
                     if detection_result.face_landmarks:
                         face_seen_by_sec[sec] = True
                         landmarks = detection_result.face_landmarks[0]
-                        current_face_region = _get_face_region_features(landmarks)
 
                         gaze_state = _classify_gaze_from_landmarks(
                             landmarks,
@@ -1237,7 +1542,6 @@ def analyze_absent(
                             avg_ear_by_sec[sec] = drowsy_face["avg_ear"]
                             face_head_down_ratio_by_sec[sec] = drowsy_face["face_head_down_ratio"]
                             face_head_tilt_ratio_by_sec[sec] = drowsy_face["face_head_tilt_ratio"]
-                            mouth_open_ratio_by_sec[sec] = drowsy_face["mouth_open_ratio"]
 
                     if pose_detector is not None:
                         pose_result = pose_detector.detect_for_video(mp_image, timestamp_ms)
@@ -1261,24 +1565,6 @@ def analyze_absent(
                                 drowsy_pose = _get_drowsy_pose_features(pose_landmarks)
                                 pose_head_drop_ratio_by_sec[sec] = drowsy_pose["pose_head_drop_ratio"]
                                 pose_head_tilt_ratio_by_sec[sec] = drowsy_pose["pose_head_tilt_ratio"]
-
-                            if current_face_region is not None:
-                                if config.enable_face_touch and _is_face_touch_from_pose_and_face(
-                                    current_face_region,
-                                    pose_landmarks,
-                                    config.wrist_min_visibility,
-                                    config.face_touch_bbox_margin_ratio,
-                                ):
-                                    raw_face_touch_seen_by_sec[sec] = True
-
-                                if config.enable_chin_rest and _is_chin_rest_from_pose_and_face(
-                                    current_face_region,
-                                    pose_landmarks,
-                                    config.wrist_min_visibility,
-                                    config.chin_rest_dist_ratio,
-                                ):
-                                    raw_chin_rest_seen_by_sec[sec] = True
-                                    raw_face_touch_seen_by_sec[sec] = True
 
             frame_idx += 1
 
@@ -1316,7 +1602,6 @@ def analyze_absent(
 
         ear_baseline = _median_valid(avg_ear_by_sec, baseline_sec)
         face_head_down_baseline = _median_valid(face_head_down_ratio_by_sec, baseline_sec)
-        mouth_open_baseline = _median_valid(mouth_open_ratio_by_sec, baseline_sec)
 
         effective_ear_threshold = float(config.drowsy_ear_threshold)
         if ear_baseline is not None:
@@ -1332,20 +1617,12 @@ def analyze_absent(
                 float(face_head_down_baseline) + float(config.face_head_down_offset),
             )
 
-        effective_yawn_threshold = float(config.yawn_mar_threshold)
-        if mouth_open_baseline is not None:
-            effective_yawn_threshold = max(
-                float(config.yawn_mar_threshold),
-                float(mouth_open_baseline) + float(config.yawn_mar_offset),
-            )
-
         for t in range(duration_sec):
             avg_ear = avg_ear_by_sec[t]
             face_head_down_ratio = face_head_down_ratio_by_sec[t]
             face_head_tilt_ratio = face_head_tilt_ratio_by_sec[t]
             pose_head_drop_ratio = pose_head_drop_ratio_by_sec[t]
             pose_head_tilt_ratio = pose_head_tilt_ratio_by_sec[t]
-            mouth_open_ratio = mouth_open_ratio_by_sec[t]
 
             if avg_ear is not None and avg_ear <= effective_ear_threshold:
                 eye_closed_seen_by_sec[t] = True
@@ -1377,9 +1654,6 @@ def analyze_absent(
             if face_head_tilt or pose_head_tilt:
                 head_tilt_seen_by_sec[t] = True
 
-            if mouth_open_ratio is not None and mouth_open_ratio >= effective_yawn_threshold:
-                raw_yawn_seen_by_sec[t] = True
-
         blink_seen_by_sec = _filter_segments_by_duration(
             eye_closed_seen_by_sec,
             max_duration_sec=int(config.blink_max_duration_sec),
@@ -1387,10 +1661,6 @@ def analyze_absent(
         long_eye_closure_seen_by_sec = _filter_segments_by_duration(
             eye_closed_seen_by_sec,
             min_duration_sec=int(config.long_eye_closure_min_sec),
-        )
-        yawn_seen_by_sec = _filter_segments_by_duration(
-            raw_yawn_seen_by_sec,
-            min_duration_sec=int(config.yawn_min_duration_sec),
         )
 
         for t in range(duration_sec):
@@ -1402,8 +1672,6 @@ def analyze_absent(
                 drowsy_score += 0.20
             if head_tilt_seen_by_sec[t]:
                 drowsy_score += 0.10
-            if yawn_seen_by_sec[t]:
-                drowsy_score += 0.15
 
             if (
                 (long_eye_closure_seen_by_sec[t] and head_down_seen_by_sec[t])
@@ -1415,7 +1683,7 @@ def analyze_absent(
             raw_drowsy_seen_by_sec,
             min_duration_sec=int(config.drowsy_min_duration_sec),
         )
-    
+
     if use_hand_actions:
         for t in range(duration_sec):
             left_points = wrist_points_by_sec[t]["left"]
@@ -1424,12 +1692,7 @@ def analyze_absent(
             left_features = _hand_motion_features(left_points)
             right_features = _hand_motion_features(right_points)
 
-            # 더 많이 움직인 손 기준으로 판단
-            if left_features["path_len"] >= right_features["path_len"]:
-                selected = left_features
-            else:
-                selected = right_features
-
+            selected = left_features if left_features["path_len"] >= right_features["path_len"] else right_features
             label = _classify_hand_action(selected, config)
 
             if label == "page_turn":
@@ -1439,7 +1702,6 @@ def analyze_absent(
             elif label == "restless_hand":
                 raw_restless_hand_seen_by_sec[t] = True
 
-    # 순간 오검출 줄이기 위한 최소 지속 시간 필터
     gaze_side_seen_by_sec = _filter_segments_by_duration(
         gaze_side_seen_by_sec,
         min_duration_sec=int(config.gaze_side_min_duration_sec),
@@ -1451,14 +1713,6 @@ def analyze_absent(
     bad_posture_seen_by_sec = _filter_segments_by_duration(
         bad_posture_seen_by_sec,
         min_duration_sec=int(config.bad_posture_min_duration_sec),
-    )
-    face_touch_seen_by_sec = _filter_segments_by_duration(
-        raw_face_touch_seen_by_sec,
-        min_duration_sec=int(config.face_touch_min_duration_sec),
-    )
-    chin_rest_seen_by_sec = _filter_segments_by_duration(
-        raw_chin_rest_seen_by_sec,
-        min_duration_sec=int(config.chin_rest_min_duration_sec),
     )
     page_turn_seen_by_sec = _filter_segments_by_duration(
         raw_page_turn_seen_by_sec,
@@ -1536,9 +1790,6 @@ def analyze_absent(
         unknown_total_sec = unknown_seg["total_sec"]
         unknown_count = unknown_seg["count"]
 
-    # 습관성 행동 이벤트만 추가
-    events.extend(_flags_to_events(face_touch_seen_by_sec, "face_touch", 0.2))
-    events.extend(_flags_to_events(chin_rest_seen_by_sec, "chin_rest", 0.25))
     events.extend(_flags_to_events(page_turn_seen_by_sec, "page_turn", 0.0))
     events.extend(_flags_to_events(pen_fidget_seen_by_sec, "pen_fidget", 0.25))
     events.extend(_flags_to_events(restless_hand_seen_by_sec, "restless_hand", 0.35))
@@ -1574,14 +1825,22 @@ def analyze_absent(
 
     blink_count, blink_total_sec = _count_segments(blink_seen_by_sec)
     long_eye_closure_count, long_eye_closure_total_sec = _count_segments(long_eye_closure_seen_by_sec)
-    yawn_count, yawn_total_sec = _count_segments(yawn_seen_by_sec)
-    face_touch_count, face_touch_total_sec = _count_segments(face_touch_seen_by_sec)
-    chin_rest_count, chin_rest_total_sec = _count_segments(chin_rest_seen_by_sec)
 
     timeline = [
         {
             "t": t,
             "state": states[t],
+            "states": _build_active_states_for_sec(
+                t,
+                states[t],
+                gaze_side_seen_by_sec,
+                gaze_down_seen_by_sec,
+                bad_posture_seen_by_sec,
+                drowsy_seen_by_sec,
+                page_turn_seen_by_sec,
+                pen_fidget_seen_by_sec,
+                restless_hand_seen_by_sec,
+            ),
             "flags": {
                 "face_seen": face_seen_by_sec[t],
                 "gaze_side": gaze_side_seen_by_sec[t],
@@ -1592,11 +1851,8 @@ def analyze_absent(
                 "long_eye_closure": long_eye_closure_seen_by_sec[t],
                 "head_down": head_down_seen_by_sec[t],
                 "head_tilt": head_tilt_seen_by_sec[t],
-                "yawn": yawn_seen_by_sec[t],
                 "raw_drowsy": raw_drowsy_seen_by_sec[t],
                 "drowsy": drowsy_seen_by_sec[t],
-                "face_touch": face_touch_seen_by_sec[t],
-                "chin_rest": chin_rest_seen_by_sec[t],
                 "page_turn": page_turn_seen_by_sec[t],
                 "pen_fidget": pen_fidget_seen_by_sec[t],
                 "restless_hand": restless_hand_seen_by_sec[t],
@@ -1625,52 +1881,32 @@ def analyze_absent(
             "focus_ratio": float(focus_ratio),
             "focus_total_sec": int(focus_total_sec),
             "present_total_sec": int(present_total_sec),
-
             "gaze_side_count": int(gaze_side_count),
             "gaze_side_total_sec": int(gaze_side_total_sec),
             "gaze_down_count": int(gaze_down_count),
             "gaze_down_total_sec": int(gaze_down_total_sec),
-
             "drowsy_count": int(drowsy_count),
             "drowsy_total_sec": int(drowsy_total_sec),
-
             "eye_closed_total_sec": int(sum(1 for x in eye_closed_seen_by_sec if x)),
             "blink_count": int(blink_count),
             "blink_total_sec": int(blink_total_sec),
             "long_eye_closure_count": int(long_eye_closure_count),
             "long_eye_closure_total_sec": int(long_eye_closure_total_sec),
-
             "head_down_total_sec": int(sum(1 for x in head_down_seen_by_sec if x)),
             "head_tilt_total_sec": int(sum(1 for x in head_tilt_seen_by_sec if x)),
-
-            "yawn_count": int(yawn_count),
-            "yawn_total_sec": int(yawn_total_sec),
-
-            "face_touch_count": int(face_touch_count),
-            "face_touch_total_sec": int(face_touch_total_sec),
-
-            "chin_rest_count": int(chin_rest_count),
-            "chin_rest_total_sec": int(chin_rest_total_sec),
-
             "away_count": int(away_count),
             "away_total_sec": int(away_total_sec),
-
             "unknown_count": int(unknown_count),
             "unknown_total_sec": int(unknown_total_sec),
-
             "absent_count": int(absent_count),
             "absent_total_sec": int(absent_total_sec),
-
             "bad_posture_ratio": float(bad_posture_ratio),
             "bad_posture_total_sec": int(bad_posture_total_sec),
             "concentration_score": round(float(concentration_score), 1),
-
             "page_turn_count": int(_count_segments(page_turn_seen_by_sec)[0]),
             "page_turn_total_sec": int(_count_segments(page_turn_seen_by_sec)[1]),
-
             "pen_fidget_count": int(_count_segments(pen_fidget_seen_by_sec)[0]),
             "pen_fidget_total_sec": int(_count_segments(pen_fidget_seen_by_sec)[1]),
-
             "restless_hand_count": int(_count_segments(restless_hand_seen_by_sec)[0]),
             "restless_hand_total_sec": int(_count_segments(restless_hand_seen_by_sec)[1]),
         },
@@ -1681,35 +1917,19 @@ def analyze_absent(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("video_path", help="분석할 영상 파일 경로")
+    parser.add_argument("video_path", help="좌측 얼굴 + 우측 손/책상 합본 영상 경로")
     parser.add_argument("--session-id", default="S001", help="세션 ID")
-    parser.add_argument("--camera-type", default="front", help="카메라 타입")
     args = parser.parse_args()
 
     print("RUNNING VERSION:", AnalyzeConfig().version)
     print("VIDEO PATH:", args.video_path)
     print("SESSION ID:", args.session_id)
-    print("CAMERA TYPE:", args.camera_type)
 
-    result = analyze_absent(
+    result = analyze_merged_video(
         args.session_id,
         args.video_path,
-        args.camera_type,
         AnalyzeConfig(),
     )
 
-    base_name = os.path.splitext(os.path.basename(args.video_path))[0]
-    out_dir = os.path.dirname(args.video_path)
-
-    summary_csv_path = os.path.join(out_dir, f"{base_name}_{args.session_id}_summary.csv")
-    timeline_csv_path = os.path.join(out_dir, f"{base_name}_{args.session_id}_timeline.csv")
-    events_csv_path = os.path.join(out_dir, f"{base_name}_{args.session_id}_events.csv")
-
-    _write_summary_csv(result, summary_csv_path)
-    _write_timeline_csv(result, timeline_csv_path)
-    _write_events_csv(result, events_csv_path)
-
+    save_analysis_to_db(args.session_id, result)
     print(result["summary"])
-    print("SUMMARY CSV:", summary_csv_path)
-    print("TIMELINE CSV:", timeline_csv_path)
-    print("EVENTS CSV:", events_csv_path)
