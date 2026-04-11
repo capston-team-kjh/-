@@ -38,13 +38,24 @@ export function StudySession() {
     if (!userId) return alert("로그인이 필요합니다.");
 
     try {
-      // 1. First, check for cameras
+      await navigator.mediaDevices.getUserMedia({ video: true });
       const devices = await navigator.mediaDevices.enumerateDevices();
-      const cams = devices.filter(d => d.kind === "videoinput");
-      if (cams.length < 2) return alert("카메라가 2개 필요합니다 (얼굴용, 책상용)");
+      // Filter out integrated camera
+      const allCams = devices.filter(d => d.kind === "videoinput");
+
+      const externalCams = allCams.filter(cam => 
+      cam.label.toLowerCase().includes("usb") || 
+      !cam.label.toLowerCase().includes("integrated")
+    );
+
+      if (externalCams.length < 2) return alert("카메라가 2개 필요합니다 (얼굴용, 책상용)");
+
+      // 2. Log them to see if the IDs are actually different
+      console.log("Found Camera 1 ID:", externalCams[0]?.deviceId);
+      console.log("Found Camera 2 ID:", externalCams[1]?.deviceId);
 
       // 2. Start the AWS Session
-      const response = await fetch("http://localhost:8000/api/v1/sessions/", {
+      const response = await fetch("http://localhost:8000/api/v1/sessions/", { 
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ user_id: parseInt(userId) }),
@@ -55,7 +66,7 @@ export function StudySession() {
         setSessionId(data.id);
         
         // 3. Start Recording ONLY if session created successfully
-        await manager.current.start(cams[0].deviceId, cams[1].deviceId);
+        await manager.current.start(externalCams[0].deviceId, externalCams[1].deviceId);
         
         setIsRunning(true);
       }
