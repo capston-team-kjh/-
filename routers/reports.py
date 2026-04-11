@@ -1,3 +1,6 @@
+# 기존에 작성했었던 Flask API를 FastAPI로 옮긴 것
+# 데이터를 정리해서 페이지에 뿌려주는 역할을 함
+
 from fastapi import APIRouter, Depends, HTTPException, Header, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func
