@@ -1,0 +1,169 @@
+import { useState, useEffect, useRef } from "react";
+import { DualCameraManager } from "@/utils/dualCamManager";
+import { Play, Square } from "lucide-react";
+
+export function StudySession() {
+  const [isRunning, setIsRunning] = useState(false);
+  const [seconds, setSeconds] = useState(0);
+  const [sessionId, setSessionId] = useState<number | null>(null);
+
+  const manager = useRef(new DualCameraManager());
+
+  useEffect(() => {
+    let interval: number | undefined;
+    
+    if (isRunning) {
+      interval = window.setInterval(() => {
+        setSeconds((s) => s + 1);
+      }, 1000);
+    }
+    
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [isRunning]);
+
+  const formatTime = (totalSeconds: number) => {
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const secs = totalSeconds % 60;
+    
+    return `${hours.toString().padStart(2, "0")}:${minutes
+      .toString()
+      .padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+  };
+
+  const handleStart = async () => {
+    const userId = localStorage.getItem("user_id");
+    if (!userId) return alert("로그인이 필요합니다.");
+
+    try {
+      await navigator.mediaDevices.getUserMedia({ video: true });
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      // Filter out integrated camera
+      const allCams = devices.filter(d => d.kind === "videoinput");
+
+      const externalCams = allCams.filter(cam => 
+      cam.label.toLowerCase().includes("usb") || 
+      !cam.label.toLowerCase().includes("integrated")
+    );
+
+      if (externalCams.length < 2) return alert("카메라가 2개 필요합니다 (얼굴용, 책상용)");
+
+      // 2. Log them to see if the IDs are actually different
+      console.log("Found Camera 1 ID:", externalCams[0]?.deviceId);
+      console.log("Found Camera 2 ID:", externalCams[1]?.deviceId);
+
+      // 2. Start the AWS Session
+      const response = await fetch("http://localhost:8000/api/v1/sessions/", { 
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: parseInt(userId) }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setSessionId(data.id);
+        
+        // 3. Start Recording ONLY if session created successfully
+        await manager.current.start(externalCams[0].deviceId, externalCams[1].deviceId);
+        
+        setIsRunning(true);
+      }
+    } catch (error) {
+      console.error("Failed to start session:", error);
+    }
+  };
+
+  const handleStop = async () => {
+    if (!sessionId) return;
+
+    try {
+      // 1. Stop Recording and get the Blob
+      const videoBlob = await manager.current.stop();
+      
+      // 2. Prepare for uploa
+      const formData = new FormData();
+      formData.append("file", videoBlob, `session_${sessionId}.webm`);
+
+      // 3. Upload to the new root-level endpoint
+      const uploadResponse = await fetch(`http://127.0.0.1:8000/api/v1/sessions/${sessionId}/upload`, {
+        method: "POST",
+        body: formData,
+      });
+
+      if (uploadResponse.ok) {
+        // 4. Only then update the session status to 'completed'
+        await fetch(`http://127.0.0.1:8000/api/v1/sessions/${sessionId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: "completed", end_time: new Date().toISOString() }),
+        });
+        setIsRunning(false);      // 1. Stops the useEffect interval
+        setSeconds(0);            // 2. Resets the timer display to 00:00:00
+        setSessionId(null);       // 3. Clears the ID so !isRunning shows the start UI
+
+        alert("영상 업로드 및 세션 종료 성공!");
+      }
+    } catch (error) {
+      console.error("Pipeline error:", error);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-accent/20 to-white p-8">
+      <div className="max-w-4xl mx-auto">
+        <h1 className="text-3xl font-bold text-foreground mb-8">학습 세션</h1>
+
+        <div className="bg-white rounded-2xl border border-border p-12 mb-6 text-center shadow-lg">
+          {!isRunning ? (
+            <div className="space-y-6">
+              <div className="w-24 h-24 bg-accent rounded-full flex items-center justify-center mx-auto mb-4">
+                <Play className="w-12 h-12 text-primary" />
+              </div>
+              <h2 className="text-2xl font-semibold text-foreground">
+                학습을 시작할 준비가 되셨나요?
+              </h2>
+              <p className="text-muted-foreground">
+                아래 버튼을 클릭하여 세션 추적을 시작하세요
+              </p>
+
+              <button
+                onClick={handleStart}
+                className="px-8 py-4 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-lg"
+              >
+                세션 시작
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-8">
+              <div>
+                <div className="text-7xl font-bold text-primary mb-4 font-mono">
+                  {formatTime(seconds)}
+                </div>
+              </div>
+
+              <button
+                onClick={handleStop}
+                className="flex items-center gap-2 px-6 py-3 bg-destructive text-destructive-foreground rounded-lg hover:bg-destructive/90 transition-colors mx-auto"
+              >
+                <Square className="w-5 h-5" />
+                <span>세션 종료</span>
+              </button>
+            </div>
+          )}
+        </div>
+
+        <div className="p-6 bg-accent/30 rounded-xl border border-primary/20">
+          <h3 className="font-semibold mb-3 text-primary">학습 팁</h3>
+          <ul className="space-y-2 text-sm text-muted-foreground">
+            <li>• 50분 학습 후 5-10분 휴식을 취하세요</li>
+            <li>• 수분을 충분히 섭취하고 바른 자세를 유지하세요</li>
+            <li>• 더 나은 집중을 위해 방해 요소를 제거하세요</li>
+            <li>• 완료 후 세션 인사이트를 확인하세요</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+}

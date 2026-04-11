@@ -1,10 +1,7 @@
-from fastapi import FastAPI
-<<<<<<< HEAD
-from fastapi.middleware.cors import CORSMiddleware # 🌟 1. CORS 도구를 불러옵니다.
-=======
-from a2wsgi import WSGIMiddleware
-from backend.app import app as flask_app
->>>>>>> 745ab5347593373ce38f6fa612269bf6bfb776cd
+from fastapi import FastAPI, UploadFile, File
+from fastapi.staticfiles import StaticFiles
+import shutil
+import os
 import uvicorn
 
 # CORS 설정
@@ -15,7 +12,7 @@ import models
 from database import engine
 
 # 🌟 1. 우리가 만든 라우터 불러오기
-from routers import users, sessions, logs, analysis # 🌟 sessions,logs 추가
+from routers import users, sessions, logs, analysis, reports # 🌟 sessions,logs, reports 추가
 
 # 🌟 핵심: 서버가 켜질 때 모델을 확인하고 데이터베이스에 테이블을 생성합니다.
 # (이미 테이블이 존재하면 건너뛰고, 없으면 새로 만듭니다.)
@@ -28,23 +25,13 @@ app = FastAPI(
     version="1.0.0"
 )
 
-<<<<<<< HEAD
 # 🌟 2. 경비원(CORS)에게 문을 열어달라고 지시하는 코드를 추가합니다.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 모든 주소(*)에서 오는 요청을 허락합니다. (실무에서는 실제 프론트엔드 주소만 넣습니다)
-    allow_credentials=True,
-    allow_methods=["*"],  # GET, POST 등 모든 방식의 요청을 허락합니다.
-    allow_headers=["*"],  # 모든 형태의 데이터 전송을 허락합니다.
-=======
-# CORS 설정
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
->>>>>>> 745ab5347593373ce38f6fa612269bf6bfb776cd
 )
 
 # 🌟 2. FastAPI 앱에 라우터 등록하기
@@ -52,6 +39,30 @@ app.include_router(users.router)
 app.include_router(sessions.router) # 🌟 세션 라우터 등록 추가
 app.include_router(logs.router) # logs 라우터 추가
 app.include_router(analysis.router) # 집중도 분석 라우터 추가
+app.include_router(reports.router)
+
+# 1. 프로젝트 루트 경로에 'upload' 폴더를 정의하고, 없으면 자동으로 생성
+UPLOAD_DIR = "upload"
+if not os.path.exists(UPLOAD_DIR):
+    os.makedirs(UPLOAD_DIR)
+
+# 2. "StaticFiles"로 /upload 경로를 웹상에서 접근 가능하게 만듦
+# 이제 브라우저나 워커에서 http://localhost:8000/upload/...webm으로 영상을 접근
+app.mount("/upload", StaticFiles(directory=UPLOAD_DIR), name="upload")
+
+# 3. 프론트엔드에서 보낸 영상을 실제 파일로 저장하는 API 엔드포인트 정의
+@app.post("/api/v1/sessions/{session_id}/upload")
+async def save_session_video(session_id: int, file: UploadFile = File(...)):
+    # 저장될 전체 파일 경로를 생성 (예: upload/session_101.webm)
+    file_path = os.path.join(UPLOAD_DIR, f"session_{session_id}.webm")
+    
+    # 전달받은 파일 객체의 내용을 한 바이트씩 버퍼를 통해 실제 디스크에 작성
+    # shutil.copyfileobj는 메모리 효율적으로 대용량 파일을 복사
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+        
+    # 저장이 완료되면 접근 가능한 공개 URL을 반환
+    return {"url": f"http://localhost:8000/upload/session_{session_id}.webm"}
 
 # 기본 루트 엔드포인트 (서버 접속 테스트용)
 @app.get("/")
@@ -62,9 +73,6 @@ def read_root():
 @app.get("/api/health")
 def health_check():
     return {"status": "ok", "db_connected": "True (Tables created or verified)"}
-
-# /backend로 시작하는 리퀘스트는 Flask로 이동동
-app.mount("/backend", WSGIMiddleware(flask_app))
 
 # 파이썬 스크립트 직접 실행 시 Uvicorn 서버 구동
 if __name__ == "__main__":

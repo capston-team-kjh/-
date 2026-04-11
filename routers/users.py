@@ -67,3 +67,35 @@ def login_user(user_credentials: schemas.UserLogin, db: Session = Depends(get_db
         "user_id": user.id, 
         "name": user.name
     }
+
+@router.patch("/{user_id}", response_model=schemas.UserResponse)
+def update_user_profile(user_id: int, user_update: schemas.UserUpdate, db: Session = Depends(get_db)):
+    """이름이나 이메일 정보를 수정합니다."""
+    db_user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not db_user:
+        raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
+    
+    if user_update.name is not None:
+        db_user.name = user_update.name
+    if user_update.email is not None:
+        db_user.email = user_update.email
+        
+    db.commit()
+    db.refresh(db_user)
+    return db_user
+
+@router.patch("/{user_id}/password")
+def update_user_password(user_id: int, pw_data: schemas.UserPasswordUpdate, db: Session = Depends(get_db)):
+    """현재 비밀번호 확인 후 새 비밀번호로 교체합니다."""
+    db_user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not db_user:
+        raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
+
+    # 1. 현재 비밀번호 검증 (이미 정의된 verify_password 사용)
+    if not verify_password(pw_data.current_password, db_user.password_hash):
+        raise HTTPException(status_code=400, detail="현재 비밀번호가 올바르지 않습니다.")
+
+    # 2. 새 비밀번호 해싱 후 저장
+    db_user.password_hash = get_password_hash(pw_data.new_password)
+    db.commit()
+    return {"message": "비밀번호가 성공적으로 변경되었습니다."}
