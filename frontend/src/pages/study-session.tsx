@@ -82,32 +82,31 @@ export function StudySession() {
       // 1. Stop Recording and get the Blob
       const videoBlob = await manager.current.stop();
       
-      // 2. Download locally for your test
-      const url = URL.createObjectURL(videoBlob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `focus_test_${Date.now()}.webm`;
-      a.click();
-      URL.revokeObjectURL(url);
+      // 2. Prepare for uploa
+      const formData = new FormData();
+      formData.append("file", videoBlob, `session_${sessionId}.webm`);
 
-      // 3. Update AWS Session status
-      const response = await fetch(`http://localhost:8000/api/v1/sessions/${sessionId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          end_time: new Date().toISOString(),
-          status: "completed",
-        }),
+      // 3. Upload to the new root-level endpoint
+      const uploadResponse = await fetch(`http://127.0.0.1:8000/api/v1/sessions/${sessionId}/upload`, {
+        method: "POST",
+        body: formData,
       });
 
-      if (response.ok) {
-        setIsRunning(false);
-        alert(`세션이 저장되었습니다! 총 시간: ${formatTime(seconds)}`);
-        setSeconds(0);
-        setSessionId(null);
+      if (uploadResponse.ok) {
+        // 4. Only then update the session status to 'completed'
+        await fetch(`http://127.0.0.1:8000/api/v1/sessions/${sessionId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: "completed", end_time: new Date().toISOString() }),
+        });
+        setIsRunning(false);      // 1. Stops the useEffect interval
+        setSeconds(0);            // 2. Resets the timer display to 00:00:00
+        setSessionId(null);       // 3. Clears the ID so !isRunning shows the start UI
+
+        alert("영상 업로드 및 세션 종료 성공!");
       }
     } catch (error) {
-      console.error("Failed to stop session:", error);
+      console.error("Pipeline error:", error);
     }
   };
 

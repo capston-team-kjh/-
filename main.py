@@ -1,4 +1,7 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, UploadFile, File
+from fastapi.staticfiles import StaticFiles
+import shutil
+import os
 import uvicorn
 
 # CORS 설정
@@ -37,6 +40,29 @@ app.include_router(sessions.router) # 🌟 세션 라우터 등록 추가
 app.include_router(logs.router) # logs 라우터 추가
 app.include_router(analysis.router) # 집중도 분석 라우터 추가
 app.include_router(reports.router)
+
+# 1. 프로젝트 루트 경로에 'upload' 폴더를 정의하고, 없으면 자동으로 생성
+UPLOAD_DIR = "upload"
+if not os.path.exists(UPLOAD_DIR):
+    os.makedirs(UPLOAD_DIR)
+
+# 2. "StaticFiles"로 /upload 경로를 웹상에서 접근 가능하게 만듦
+# 이제 브라우저나 워커에서 http://localhost:8000/upload/...webm으로 영상을 접근
+app.mount("/upload", StaticFiles(directory=UPLOAD_DIR), name="upload")
+
+# 3. 프론트엔드에서 보낸 영상을 실제 파일로 저장하는 API 엔드포인트 정의
+@app.post("/api/v1/sessions/{session_id}/upload")
+async def save_session_video(session_id: int, file: UploadFile = File(...)):
+    # 저장될 전체 파일 경로를 생성 (예: upload/session_101.webm)
+    file_path = os.path.join(UPLOAD_DIR, f"session_{session_id}.webm")
+    
+    # 전달받은 파일 객체의 내용을 한 바이트씩 버퍼를 통해 실제 디스크에 작성
+    # shutil.copyfileobj는 메모리 효율적으로 대용량 파일을 복사
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+        
+    # 저장이 완료되면 접근 가능한 공개 URL을 반환
+    return {"url": f"http://localhost:8000/upload/session_{session_id}.webm"}
 
 # 기본 루트 엔드포인트 (서버 접속 테스트용)
 @app.get("/")
