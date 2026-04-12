@@ -11,13 +11,13 @@ export function StudySession() {
 
   useEffect(() => {
     let interval: number | undefined;
-    
+
     if (isRunning) {
       interval = window.setInterval(() => {
         setSeconds((s) => s + 1);
       }, 1000);
     }
-    
+
     return () => {
       if (interval) clearInterval(interval);
     };
@@ -27,7 +27,7 @@ export function StudySession() {
     const hours = Math.floor(totalSeconds / 3600);
     const minutes = Math.floor((totalSeconds % 3600) / 60);
     const secs = totalSeconds % 60;
-    
+
     return `${hours.toString().padStart(2, "0")}:${minutes
       .toString()
       .padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
@@ -35,43 +35,71 @@ export function StudySession() {
 
   const handleStart = async () => {
     const userId = localStorage.getItem("user_id");
-    if (!userId) return alert("로그인이 필요합니다.");
+    if (!userId) {
+      alert("로그인이 필요합니다.");
+      return;
+    }
+
+    if (isRunning) return;
+
+    let permissionStream: MediaStream | null = null;
 
     try {
-      await navigator.mediaDevices.getUserMedia({ video: true });
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      // Filter out integrated camera
-      const allCams = devices.filter(d => d.kind === "videoinput");
-
-      const externalCams = allCams.filter(cam => 
-      cam.label.toLowerCase().includes("usb") || 
-      !cam.label.toLowerCase().includes("integrated")
-    );
-
-      if (externalCams.length < 2) return alert("카메라가 2개 필요합니다 (얼굴용, 책상용)");
-
-      // 2. Log them to see if the IDs are actually different
-      console.log("Found Camera 1 ID:", externalCams[0]?.deviceId);
-      console.log("Found Camera 2 ID:", externalCams[1]?.deviceId);
-
-      // 2. Start the AWS Session
-      const response = await fetch("http://localhost:8000/api/v1/sessions/", { 
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: parseInt(userId) }),
+      permissionStream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: false,
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        setSessionId(data.id);
-        
-        // 3. Start Recording ONLY if session created successfully
-        await manager.current.start(externalCams[0].deviceId, externalCams[1].deviceId);
-        
-        setIsRunning(true);
+      const devices = await navigator.mediaDevices.enumerateDevices();
+
+      permissionStream.getTracks().forEach((track) => track.stop());
+      permissionStream = null;
+
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+
+      const allCams = devices.filter((d) => d.kind === "videoinput");
+      const selectedCams = allCams.slice(0, 2);
+
+      if (selectedCams.length < 2) {
+        alert("카메라가 2개 필요합니다 (얼굴용, 책상용)");
+        return;
       }
+
+      console.log("Found Camera 1 ID:", selectedCams[0].deviceId);
+      console.log("Found Camera 2 ID:", selectedCams[1].deviceId);
+
+      const response = await fetch("http://localhost:8000/api/v1/sessions/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: parseInt(userId, 10) }),
+      });
+
+      if (!response.ok) {
+        throw new Error("세션 생성 실패");
+      }
+
+      const data = await response.json();
+      setSessionId(data.id);
+
+      await manager.current.start(
+        selectedCams[0].deviceId,
+        selectedCams[1].deviceId
+      );
+
+      setIsRunning(true);
     } catch (error) {
       console.error("Failed to start session:", error);
+
+      if (error instanceof Error) {
+        console.error("Error name:", error.name);
+        console.error("Error message:", error.message);
+      }
+
+      alert("세션 시작에 실패했습니다. 카메라 연결 상태를 확인하고 다시 시도해주세요.");
+    } finally {
+      if (permissionStream) {
+        permissionStream.getTracks().forEach((track) => track.stop());
+      }
     }
   };
 
@@ -79,34 +107,53 @@ export function StudySession() {
     if (!sessionId) return;
 
     try {
-      // 1. Stop Recording and get the Blob
       const videoBlob = await manager.current.stop();
-      
-      // 2. Prepare for uploa
+
       const formData = new FormData();
       formData.append("file", videoBlob, `session_${sessionId}.webm`);
 
-      // 3. Upload to the new root-level endpoint
-      const uploadResponse = await fetch(`http://127.0.0.1:8000/api/v1/sessions/${sessionId}/upload`, {
-        method: "POST",
-        body: formData,
-      });
+      const uploadResponse = await fetch(
+        `http://127.0.0.1:8000/api/v1/sessions/${sessionId}/upload`,
+        {
+          method: "POST",
+          body: formData,
+        }
+      );
 
-      if (uploadResponse.ok) {
-        // 4. Only then update the session status to 'completed'
-        await fetch(`http://127.0.0.1:8000/api/v1/sessions/${sessionId}`, {
+      if (!uploadResponse.ok) {
+        throw new Error("영상 업로드 실패");
+      }
+
+      const patchResponse = await fetch(
+        `http://127.0.0.1:8000/api/v1/sessions/${sessionId}`,
+        {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status: "completed", end_time: new Date().toISOString() }),
-        });
-        setIsRunning(false);      // 1. Stops the useEffect interval
-        setSeconds(0);            // 2. Resets the timer display to 00:00:00
-        setSessionId(null);       // 3. Clears the ID so !isRunning shows the start UI
+          body: JSON.stringify({
+            status: "completed",
+            end_time: new Date().toISOString(),
+          }),
+        }
+      );
 
-        alert("영상 업로드 및 세션 종료 성공!");
+      if (!patchResponse.ok) {
+        throw new Error("세션 종료 처리 실패");
       }
+
+      setIsRunning(false);
+      setSeconds(0);
+      setSessionId(null);
+
+      alert("영상 업로드 및 세션 종료 성공!");
     } catch (error) {
       console.error("Pipeline error:", error);
+
+      if (error instanceof Error) {
+        console.error("Error name:", error.name);
+        console.error("Error message:", error.message);
+      }
+
+      alert("세션 종료 중 오류가 발생했습니다.");
     }
   };
 
