@@ -18,3 +18,8 @@ output.json
 
 # test videos
 /upload
+
+# Environment variables
+.env
+.env.production
+.env.development

@@ -28,7 +28,7 @@ app = FastAPI(
 # 🌟 2. 경비원(CORS)에게 문을 열어달라고 지시하는 코드를 추가합니다.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

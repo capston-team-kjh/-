@@ -14,13 +14,6 @@ const weeklyData = [
   { day: "Sun", hours: 4.8 },
 ];
 
-const recentSessions = [
-  { id: 1, name: "세션 43", duration: "2h 15m", date: "오늘, 2:30 PM" },
-  { id: 2, name: "세션 42", duration: "1h 45m", date: "오늘, 10:00 AM" },
-  { id: 3, name: "세션 41", duration: "3h 00m", date: "어제, 3:15 PM" },
-  { id: 4, name: "세션 40", duration: "1h 30m", date: "어제, 9:00 AM" },
-];
-
 export function Dashboard() {
   const [reportData, setReportData] = useState<any>(null);
   const [recentSessions, setRecentSessions] = useState<any[]>([]);
@@ -39,8 +32,8 @@ export function Dashboard() {
         
         // Fetch both summary and recent sessions in parallel
         const [summaryRes, recentRes] = await Promise.all([
-          fetch(`http://localhost:8000/api/v1/reports/summary?range=weekly`, { headers }),
-          fetch(`http://localhost:8000/api/v1/reports/recent?size=4`, { headers })
+          fetch(`${import.meta.env.VITE_API_BASE_URL}/reports/summary?range=weekly`, { headers }),
+          fetch(`${import.meta.env.VITE_API_BASE_URL}/reports/recent?size=4`, { headers })
         ]);
 
         if (summaryRes.ok && recentRes.ok) {

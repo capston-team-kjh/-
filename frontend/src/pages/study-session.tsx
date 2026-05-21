@@ -68,7 +68,7 @@ export function StudySession() {
       console.log("Found Camera 1 ID:", selectedCams[0].deviceId);
       console.log("Found Camera 2 ID:", selectedCams[1].deviceId);
 
-      const response = await fetch("http://localhost:8000/api/v1/sessions/", {
+      const response = await fetch("${import.meta.env.VITE_API_BASE_URL}/sessions/", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ user_id: parseInt(userId, 10) }),
@@ -113,7 +113,7 @@ export function StudySession() {
       formData.append("file", videoBlob, `session_${sessionId}.webm`);
 
       const uploadResponse = await fetch(
-        `http://127.0.0.1:8000/api/v1/sessions/${sessionId}/upload`,
+        `${import.meta.env.VITE_API_BASE_URL}/sessions/${sessionId}/upload`,
         {
           method: "POST",
           body: formData,
@@ -125,7 +125,7 @@ export function StudySession() {
       }
 
       const patchResponse = await fetch(
-        `http://127.0.0.1:8000/api/v1/sessions/${sessionId}`,
+        `${import.meta.env.VITE_API_BASE_URL}/sessions/${sessionId}`,
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
