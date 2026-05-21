@@ -1,9 +1,15 @@
+import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # MySQL 연결 주소 (아이피, 포트, DB이름, 비밀번호 등은 본인 환경에 맞게 수정)
 # 형식: mysql+pymysql://유저이름:비밀번호@호스트주소:포트/DB이름
-SQLALCHEMY_DATABASE_URL = "mysql+pymysql://root:1234@127.0.0.1:3306/joljak_db"
+LOCAL_DATABASE_URL = "mysql+pymysql://root:1234@127.0.0.1:3306/joljak_db"
+
+SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", LOCAL_DATABASE_URL)
 
 # 데이터베이스 엔진 생성 (echo=True로 설정하면 터미널에 SQL 쿼리문이 출력되어 디버깅에 좋습니다)
 engine = create_engine(SQLALCHEMY_DATABASE_URL, echo=True)
