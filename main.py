@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, Request, File
 from fastapi.staticfiles import StaticFiles
 import shutil
 import os
@@ -52,7 +52,7 @@ app.mount("/upload", StaticFiles(directory=UPLOAD_DIR), name="upload")
 
 # 3. 프론트엔드에서 보낸 영상을 실제 파일로 저장하는 API 엔드포인트 정의
 @app.post("/api/v1/sessions/{session_id}/upload")
-async def save_session_video(session_id: int, file: UploadFile = File(...)):
+async def save_session_video(session_id: int, request: Request, file: UploadFile = File(...)):
     # 저장될 전체 파일 경로를 생성 (예: upload/session_101.webm)
     file_path = os.path.join(UPLOAD_DIR, f"session_{session_id}.webm")
     
@@ -61,8 +61,8 @@ async def save_session_video(session_id: int, file: UploadFile = File(...)):
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
         
-    # 저장이 완료되면 접근 가능한 공개 URL을 반환
-    return {"url": f"http://localhost:8000/upload/session_{session_id}.webm"}
+    base_url = str(request.base_url).rstrip("/")
+    return {"url": f"{base_url}/upload/session_{session_id}.webm"}
 
 # 기본 루트 엔드포인트 (서버 접속 테스트용)
 @app.get("/")
