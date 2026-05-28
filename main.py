@@ -54,7 +54,7 @@ app.mount("/upload", StaticFiles(directory=UPLOAD_DIR), name="upload")
 @app.post("/api/v1/sessions/{session_id}/upload")
 async def save_session_video(session_id: int, request: Request, file: UploadFile = File(...)):
     # 저장될 전체 파일 경로를 생성 (예: upload/session_101.webm)
-    file_path = os.path.join(UPLOAD_DIR, f"session_{session_id}.webm")
+    file_path = os.path.join(UPLOAD_DIR, file.filename)
     
     # 전달받은 파일 객체의 내용을 한 바이트씩 버퍼를 통해 실제 디스크에 작성
     # shutil.copyfileobj는 메모리 효율적으로 대용량 파일을 복사
@@ -62,7 +62,7 @@ async def save_session_video(session_id: int, request: Request, file: UploadFile
         shutil.copyfileobj(file.file, buffer)
         
     base_url = str(request.base_url).rstrip("/")
-    return {"url": f"{base_url}/upload/session_{session_id}.webm"}
+    return {"url": f"{base_url}/upload/{file.filename}"}
 
 # 기본 루트 엔드포인트 (서버 접속 테스트용)
 @app.get("/")
