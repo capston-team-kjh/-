@@ -68,7 +68,7 @@ export function StudySession() {
       console.log("Found Camera 1 ID:", selectedCams[0].deviceId);
       console.log("Found Camera 2 ID:", selectedCams[1].deviceId);
 
-      const response = await fetch("${import.meta.env.VITE_API_BASE_URL}/sessions/", {
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/sessions/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ user_id: parseInt(userId, 10) }),
