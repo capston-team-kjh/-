@@ -46,7 +46,7 @@ export function StudySession() {
       .padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   };
 
-  const uploadChunk = async (videoBlob: Blob) => {
+  const uploadChunk = async (videoBlob: Blob, isFinal: boolean = false) => {
     const currentSessionId = sessionIdRef.current;
     if (!currentSessionId) return;
 
@@ -59,6 +59,8 @@ export function StudySession() {
       const formData = new FormData();
       // Pass the slice file named uniquely with its sequence index string
       formData.append("file", videoBlob, `user_${userId}_session_${currentSessionId}_part${currentPart}.webm`);
+      
+      formData.append("is_final_chunk", isFinal ? "true" : "false");
 
       console.log(`Uploading chunk ${currentPart} for Session ${currentSessionId}...`);
 
@@ -158,6 +160,7 @@ export function StudySession() {
     if (!sessionId) return;
 
     try {
+      manager.current.requestSlice(true); 
       await manager.current.stop();
 
       const patchResponse = await fetch(
