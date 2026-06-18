@@ -2,10 +2,14 @@ import { useState, useEffect, useRef } from "react";
 import { DualCameraManager } from "@/utils/dualCamManager";
 import { Play, Square } from "lucide-react";
 
+const SPLICING_INTERVAL_SECONDS = 10;
+
 export function StudySession() {
   const [isRunning, setIsRunning] = useState(false);
   const [seconds, setSeconds] = useState(0);
   const [sessionId, setSessionId] = useState<number | null>(null);
+  const chunkIndexRef = useRef(1); 
+  const sessionIdRef = useRef<number | null>(null);
 
   const manager = useRef(new DualCameraManager());
 
@@ -14,7 +18,16 @@ export function StudySession() {
 
     if (isRunning) {
       interval = window.setInterval(() => {
-        setSeconds((s) => s + 1);
+        setSeconds((s) => {
+          const nextSecond = s + 1;
+          
+          if (nextSecond > 0 && nextSecond % SPLICING_INTERVAL_SECONDS === 0) {
+            console.log(`Interval Reached: (${SPLICING_INTERVAL_SECONDS}s) Requesting video slice...`);
+            manager.current.requestSlice();
+          }
+          
+          return nextSecond;
+        });
       }, 1000);
     }
 
@@ -31,6 +44,40 @@ export function StudySession() {
     return `${hours.toString().padStart(2, "0")}:${minutes
       .toString()
       .padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+  };
+
+  const uploadChunk = async (videoBlob: Blob) => {
+    const currentSessionId = sessionIdRef.current;
+    if (!currentSessionId) return;
+
+    const userId = localStorage.getItem("user_id") || "unknown";
+
+    const currentPart = chunkIndexRef.current;
+    chunkIndexRef.current += 1; // Increment immediately for the next interval ticker
+
+    try {
+      const formData = new FormData();
+      // Pass the slice file named uniquely with its sequence index string
+      formData.append("file", videoBlob, `user_${userId}_session_${currentSessionId}_part${currentPart}.webm`);
+
+      console.log(`Uploading chunk ${currentPart} for Session ${currentSessionId}...`);
+
+      const uploadResponse = await fetch(
+        `${import.meta.env.VITE_API_BASE_URL}/sessions/${currentSessionId}/upload`,
+        {
+          method: "POST",
+          body: formData,
+        }
+      );
+
+      if (!uploadResponse.ok) {
+        throw new Error(`Chunk ${currentPart} upload failed`);
+      }
+
+      console.log(`Chunk ${currentPart} uploaded successfully!`);
+    } catch (error) {
+      console.error(`Background upload error for chunk ${currentPart}:`, error);
+    }
   };
 
   const handleStart = async () => {
@@ -81,9 +128,13 @@ export function StudySession() {
       const data = await response.json();
       setSessionId(data.id);
 
+      sessionIdRef.current = data.id;
+      chunkIndexRef.current = 1;
+
       await manager.current.start(
         selectedCams[0].deviceId,
-        selectedCams[1].deviceId
+        selectedCams[1].deviceId,
+        uploadChunk
       );
 
       setIsRunning(true);
@@ -107,22 +158,7 @@ export function StudySession() {
     if (!sessionId) return;
 
     try {
-      const videoBlob = await manager.current.stop();
-
-      const formData = new FormData();
-      formData.append("file", videoBlob, `session_${sessionId}.webm`);
-
-      const uploadResponse = await fetch(
-        `${import.meta.env.VITE_API_BASE_URL}/sessions/${sessionId}/upload`,
-        {
-          method: "POST",
-          body: formData,
-        }
-      );
-
-      if (!uploadResponse.ok) {
-        throw new Error("영상 업로드 실패");
-      }
+      await manager.current.stop();
 
       const patchResponse = await fetch(
         `${import.meta.env.VITE_API_BASE_URL}/sessions/${sessionId}`,
@@ -143,16 +179,11 @@ export function StudySession() {
       setIsRunning(false);
       setSeconds(0);
       setSessionId(null);
+      sessionIdRef.current = null;
 
-      alert("영상 업로드 및 세션 종료 성공!");
+      alert("모든 영상 조각 업로드 및 세션 종료 성공!");
     } catch (error) {
       console.error("Pipeline error:", error);
-
-      if (error instanceof Error) {
-        console.error("Error name:", error.name);
-        console.error("Error message:", error.message);
-      }
-
       alert("세션 종료 중 오류가 발생했습니다.");
     }
   };
