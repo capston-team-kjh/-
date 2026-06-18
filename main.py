@@ -1,6 +1,8 @@
 from fastapi import FastAPI, UploadFile, Request, File
 from fastapi.staticfiles import StaticFiles
 import shutil
+import json
+import boto3
 import os
 import uvicorn
 
@@ -41,28 +43,59 @@ app.include_router(logs.router) # logs 라우터 추가
 app.include_router(analysis.router) # 집중도 분석 라우터 추가
 app.include_router(reports.router)
 
-# 1. 프로젝트 루트 경로에 'upload' 폴더를 정의하고, 없으면 자동으로 생성
-UPLOAD_DIR = "upload"
-if not os.path.exists(UPLOAD_DIR):
-    os.makedirs(UPLOAD_DIR)
+# 🌟 AWS SQS & S3 Configurations
+SQS_QUEUE_URL = "https://sqs.ap-northeast-2.amazonaws.com/003344631039/joljak-video-queue.fifo"
+S3_BUCKET_NAME = "jolljak-storage-2026"  # <-- Have your cloud teammate create this bucket!
 
-# 2. "StaticFiles"로 /upload 경로를 웹상에서 접근 가능하게 만듦
-# 이제 브라우저나 워커에서 http://localhost:8000/upload/...webm으로 영상을 접근
-app.mount("/upload", StaticFiles(directory=UPLOAD_DIR), name="upload")
+# Initialize the AWS Clients
+sqs_client = boto3.client('sqs', region_name='ap-northeast-2')
+s3_client = boto3.client('s3', region_name='ap-northeast-2')
 
-# 3. 프론트엔드에서 보낸 영상을 실제 파일로 저장하는 API 엔드포인트 정의
 @app.post("/api/v1/sessions/{session_id}/upload")
-async def save_session_video(session_id: int, request: Request, file: UploadFile = File(...)):
-    # 저장될 전체 파일 경로를 생성 (예: upload/session_101.webm)
-    file_path = os.path.join(UPLOAD_DIR, file.filename)
-    
-    # 전달받은 파일 객체의 내용을 한 바이트씩 버퍼를 통해 실제 디스크에 작성
-    # shutil.copyfileobj는 메모리 효율적으로 대용량 파일을 복사
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+async def save_session_video(session_id: int, file: UploadFile = File(...)):
+    # 1. Parse the chunk index from the filename string (user_X_session_Y_partZ.webm)
+    try:
+        filename_no_ext = file.filename.split(".")[0]
+        chunk_index_str = filename_no_ext.split("_part")[-1]
+        chunk_index = int(chunk_index_str)
+    except Exception:
+        chunk_index = 1
+
+    # Define the destination path keys inside the S3 bucket cloud folder structure
+    s3_file_key = f"sessions/{session_id}/{file.filename}"
+
+    try:
+        # 2. 🌟 UPLOAD DIRECTLY TO S3 (Bypasses the local local hard drive entirely)
+        s3_client.upload_fileobj(
+            file.file,          # The raw binary file stream object from React
+            S3_BUCKET_NAME,     # Target Bucket
+            s3_file_key,        # Storage key path inside S3
+            ExtraArgs={'ContentType': 'video/webm'}  # Ensures it plays natively in web browsers
+        )
         
-    base_url = str(request.base_url).rstrip("/")
-    return {"url": f"{base_url}/upload/{file.filename}"}
+        # Construct the permanent public S3 URL link
+        s3_url = f"https://{S3_BUCKET_NAME}.s3.ap-northeast-2.amazonaws.com/{s3_file_key}"
+        
+        # 3. Construct the message body matching your teammate's design rules
+        message_payload = {
+            "video_id": session_id,
+            "chunk_index": chunk_index,
+            "s3_url": s3_url  # <-- Passing the real S3 bucket link!
+        }
+        
+        # 4. Ship the metadata tracking ticket over to your AWS SQS FIFO queue
+        sqs_client.send_message(
+            QueueUrl=SQS_QUEUE_URL,
+            MessageBody=json.dumps(message_payload),
+            MessageGroupId="video-analysis-group",
+            MessageDeduplicationId=f"{session_id}-{chunk_index}"
+        )
+        
+        return {"status": "success", "s3_url": s3_url, "queued": True}
+
+    except Exception as e:
+        print(f"❌ Cloud Pipeline Failure: {str(e)}")
+        return {"status": "failed", "detail": str(e)}
 
 # 기본 루트 엔드포인트 (서버 접속 테스트용)
 @app.get("/")

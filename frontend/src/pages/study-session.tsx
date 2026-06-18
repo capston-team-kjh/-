@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { DualCameraManager } from "@/utils/dualCamManager";
 import { Play, Square } from "lucide-react";
 
-const SPLICING_INTERVAL_SECONDS = 10;
+const SPLICING_INTERVAL_SECONDS = 3600;
 
 export function StudySession() {
   const [isRunning, setIsRunning] = useState(false);
