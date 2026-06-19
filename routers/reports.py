@@ -17,20 +17,35 @@ router = APIRouter(
 
 @router.get("/summary")
 def get_dashboard_summary(
-    range_type: str = Query("weekly", enum=["weekly", "monthly"]),
+    start_date: str = Query(...),  # Expected format: "YYYY-MM-DD"
+    end_date: str = Query(...),    # Expected format: "YYYY-MM-DD"
     db: Session = Depends(get_db),
     x_user_id: int = Header(..., alias="X-User-Id")
 ):
-    """주간/월간 학습 시간, 평균 집중도 및 요일별 학습 통계를 계산합니다."""
-    # Compute base relative boundaries
-    today = datetime.now()
-    start_date = today - timedelta(days=7 if range_type == 'weekly' else 30)
+    """지정된 맞춤 날짜 범위 내의 학습 시간, 평균 집중도 및 요일별 통계를 계산합니다."""
+    try:
+        # Parse text strings into true datetime objects for SQL parsing
+        start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+        # Extend end_dt to 23:59:59 to fully include the final chosen day
+        end_dt = datetime.strptime(end_date, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="날짜 형식이 올바르지 않습니다. YYYY-MM-DD 형식을 사용하세요.")
 
+    # Query completed sessions specifically falling inside the custom calendar frame
     sessions = db.query(models.FocusSession).filter(
         models.FocusSession.user_id == x_user_id,
-        models.FocusSession.start_time >= start_date,
+        models.FocusSession.start_time >= start_dt,
+        models.FocusSession.start_time <= end_dt,
         models.FocusSession.status == "completed"
     ).all()
+
+    if not sessions:
+        return {
+            "total_hours": 0.0,
+            "avg_focus_score": 0,
+            "active_days": 0,
+            "weekly_chart_data": []
+        }
 
     # 1. Base Aggregations
     total_seconds = sum([(s.end_time - s.start_time).total_seconds() for s in sessions if s.end_time])
@@ -43,30 +58,27 @@ def get_dashboard_summary(
         models.AnalysisSummary.session_id.in_(session_ids)
     ).scalar() or 0.0
 
-    # 2. 📊 요일별 데이터 계산 (Area Chart Mapping)
+    # 2. Daily Breakdown Mapping
     weekday_map = {0: "Mon", 1: "Tue", 2: "Wed", 3: "Thu", 4: "Fri", 5: "Sat", 6: "Sun"}
     weekly_breakdown = {name: 0.0 for name in weekday_map.values()}
 
     for s in sessions:
         if s.end_time:
-            # s.start_time.weekday() returns 0 for Monday, 6 for Sunday
             day_name = weekday_map.get(s.start_time.weekday())
             if day_name in weekly_breakdown:
                 duration_hours = (s.end_time - s.start_time).total_seconds() / 3600
                 weekly_breakdown[day_name] += duration_hours
 
-    # Format into a clean sequential structure for Recharts
     chart_data = [{"day": day, "hours": round(hours, 1)} for day, hours in weekly_breakdown.items()]
 
     return {
-        "range": range_type,
         "total_hours": total_hours,
         "avg_focus_score": round(float(avg_score_res * 100), 1),
         "active_days": len(unique_days),
-        "weekly_chart_data": chart_data  # 🌟 NEW payload key parsed directly to UI
+        "weekly_chart_data": chart_data
     }
 
-# 📜 2. Dashboard Recent Sessions Feed
+# Dashboard Recent Sessions Feed
 @router.get("/recent")
 def get_recent_results(
     size: int = 4,
@@ -75,19 +87,19 @@ def get_recent_results(
 ):
     """최근 세션 목록과 함께 유저별 상대적 세션 회차 번호(display_index)를 계산하여 가져옵니다."""
     
-    # 1. First, fetch ALL completed session tuples for this user
+    # fetch ALL completed session tuples for this user
     all_user_sessions = db.query(models.FocusSession).filter(
         models.FocusSession.user_id == x_user_id,
         models.FocusSession.status == "completed"
     ).order_by(models.FocusSession.start_time.asc()).all()
     
-    # 🌟 FIXED: Loop through the rows using a clean variable name (session_row), then read its .id
+    # Loop through the rows using a clean variable name (session_row), then read its .id
     display_index_map = {
         session_row.id: index + 1 
         for index, session_row in enumerate(all_user_sessions)
     }
 
-    # 2. Fetch the standard limited subset size for display feed generation
+    # Fetch the standard limited subset size for display feed generation
     sessions = db.query(models.FocusSession).filter(
         models.FocusSession.user_id == x_user_id,
         models.FocusSession.status == "completed"
@@ -109,6 +121,7 @@ def get_recent_results(
             "session_id": s.id,
             "display_index": display_index_map.get(s.id, 1),
             "date": s.start_time.strftime("%b %d, %Y"),
+            "date_raw": s.start_time.strftime("%Y-%m-%d"),
             "start_time": s.start_time.strftime("%H:%M"),
             "duration_min": duration_min,
             "focus_score": focus_score,
@@ -117,7 +130,7 @@ def get_recent_results(
 
     return {"items": items}
 
-# 🍱 3. NEW: Detailed Report Endpoint for an Individual Session (/app/reports/:id)
+# Detailed Report Endpoint for an Individual Session (/app/reports/:id)
 @router.get("/session/{session_id}")
 def get_individual_session_report(
     session_id: str,
@@ -163,3 +176,46 @@ def get_individual_session_report(
             } for e in events
         ]
     }
+
+@router.get("/list")
+def get_all_historical_reports(
+    db: Session = Depends(get_db),
+    x_user_id: int = Header(..., alias="X-User-Id")
+):
+    """유저의 모든 완료된 세션 기록 리스트와 매칭되는 AI 분석 서머리 데이터를 가져옵니다."""
+    # Fetch all matching sessions in reverse chronological order
+    sessions = db.query(models.FocusSession).filter(
+        models.FocusSession.user_id == x_user_id,
+        models.FocusSession.status == "completed"
+    ).order_by(models.FocusSession.start_time.desc()).all()
+
+    # Get absolute timeline ordering to calculate true relative sequence display indices
+    all_user_sessions = db.query(models.FocusSession.id).filter(
+        models.FocusSession.user_id == x_user_id,
+        models.FocusSession.status == "completed"
+    ).order_by(models.FocusSession.start_time.asc()).all()
+    
+    display_index_map = {s_row.id: idx + 1 for idx, s_row in enumerate(all_user_sessions)}
+
+    items = []
+    for s in sessions:
+        duration_min = 0
+        if s.end_time:
+            duration_min = int((s.end_time - s.start_time).total_seconds() / 60)
+            
+        analysis = db.query(models.AnalysisSummary).filter(
+            models.AnalysisSummary.session_id == str(s.id)
+        ).first()
+        
+        focus_score = round(float((analysis.focus_ratio or 0) * 100), 1) if analysis else 0.0
+
+        items.append({
+            "id": s.id,
+            "display_index": display_index_map.get(s.id, 1),
+            "date": s.start_time.strftime("%b %d, %Y"),
+            "date_raw": s.start_time.strftime("%Y-%m-%d"),
+            "duration_min": duration_min,
+            "focus_score": focus_score
+        })
+
+    return {"items": items}

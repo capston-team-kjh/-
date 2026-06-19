@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { ChevronDown } from "lucide-react";
 
 interface HeatmapProps {
-  rawSessions: Array<{date: string; duration_min: number; }>;
+  rawSessions: Array<{date: string; date_raw: string; duration_min: number; }>;
 }
 
 export function ActivityHeatmap({ rawSessions = [] }: HeatmapProps) {
@@ -12,7 +12,7 @@ export function ActivityHeatmap({ rawSessions = [] }: HeatmapProps) {
 
   const availableYears = [currentYear, currentYear - 1, currentYear - 2];
 
-  // 🌟 2. Map real database items onto specific dates instead of using random numbers!
+  // Map real database items onto specific dates instead of using random numbers!
   const activityData = useMemo(() => {
     const data: { date: Date; count: number }[] = [];
     const startDate = new Date(selectedYear, 0, 1);
@@ -22,30 +22,37 @@ export function ActivityHeatmap({ rawSessions = [] }: HeatmapProps) {
     const sessionMap: { [key: string]: number } = {};
     rawSessions.forEach((s) => {
       try {
-        const parsedDate = new Date(s.date);
-        const dateKey = parsedDate.toISOString().split("T")[0]; // Looks like: "2026-06-19"
-        const hours = s.duration_min / 60;
-        sessionMap[dateKey] = (sessionMap[dateKey] || 0) + hours;
+        // 🌟 Read the raw YYYY-MM-DD string directly from the backend payload!
+        const dateKey = s.date_raw; 
+        
+        if (dateKey) {
+          const hours = s.duration_min / 60;
+          sessionMap[dateKey] = (sessionMap[dateKey] || 0) + hours;
+        }
       } catch (e) {
-        // Guard against bad dates
+        // Guard tracking block
       }
     });
 
     const currentDate = new Date(startDate);
     while (currentDate <= endDate) {
-      const dateKey = currentDate.toISOString().split("T")[0];
+      // Extract year, month, and day based on local time instead of running .toISOString()
+      const year = currentDate.getFullYear();
+      const month = String(currentDate.getMonth() + 1).padStart(2, "0");
+      const day = String(currentDate.getDate()).padStart(2, "0");
       
-      // If a matching date exists in our database, use those hours. Otherwise, it's 0.
+      // Format as a standard "YYYY-MM-DD" string matching your database values
+      const dateKey = `${year}-${month}-${day}`;
+      
       const actualHours = sessionMap[dateKey] || 0;
       
       data.push({
         date: new Date(currentDate),
-        count: actualHours, // Populates real grid intensity values
+        count: actualHours,
       });
       
       currentDate.setDate(currentDate.getDate() + 1);
     }
-    
     return data;
   }, [selectedYear, rawSessions]);
 

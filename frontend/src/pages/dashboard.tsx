@@ -23,7 +23,7 @@ export function Dashboard() {
         // Fetch both summary and recent sessions in parallel
         const [summaryRes, recentRes] = await Promise.all([
           fetch(`${import.meta.env.VITE_API_BASE_URL}/analytics/summary?range=weekly`, { headers }),
-          fetch(`${import.meta.env.VITE_API_BASE_URL}/analytics/recent?size=4`, { headers })
+          fetch(`${import.meta.env.VITE_API_BASE_URL}/analytics/list`, { headers })
         ]);
 
         if (summaryRes.ok && recentRes.ok) {
@@ -133,14 +133,14 @@ export function Dashboard() {
             </Link>
           </div>
           <div className="space-y-3">
-            {recentSessions.map((session) => (
+            {recentSessions.slice(0,3).map((session) => (
               <Link 
                 key={session.session_id} 
-                to={`/app/reports/${session.session_id}`} // 🌟 Dynamically routes to the specific report ID!
+                to={`/app/reports/${session.session_id}`} //  Dynamically routes to the specific report ID
                 className="flex items-center justify-between p-4 rounded-xl border border-border bg-white hover:border-primary/40 hover:shadow-sm transition-all cursor-pointer group block"
               >
                 <div>
-                  {/* 🌟 Displaying the relative order number instead of the absolute database index row id */}
+                  {/* Displaying the relative order number instead of the absolute database index row id */}
                   <div className="font-semibold text-foreground group-hover:text-primary transition-colors">
                     세션 #{session.display_index}
                   </div>

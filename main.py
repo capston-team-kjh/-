@@ -13,10 +13,10 @@ from fastapi.middleware.cors import CORSMiddleware
 import models
 from database import engine
 
-# 🌟 1. 우리가 만든 라우터 불러오기
-from routers import users, sessions, logs, analysis, reports # 🌟 sessions,logs, reports 추가
+# 우리가 만든 라우터 불러오기
+from routers import users, sessions, logs, analysis, reports # sessions,logs, reports 추가
 
-# 🌟 핵심: 서버가 켜질 때 모델을 확인하고 데이터베이스에 테이블을 생성합니다.
+# 핵심: 서버가 켜질 때 모델을 확인하고 데이터베이스에 테이블을 생성합니다.
 # (이미 테이블이 존재하면 건너뛰고, 없으면 새로 만듭니다.)
 models.Base.metadata.create_all(bind=engine)
 
@@ -27,7 +27,7 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# 🌟 2. 경비원(CORS)에게 문을 열어달라고 지시하는 코드를 추가합니다.
+# 경비원(CORS)에게 문을 열어달라고 지시하는 코드를 추가합니다.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -36,14 +36,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 🌟 2. FastAPI 앱에 라우터 등록하기
+# FastAPI 앱에 라우터 등록하기
 app.include_router(users.router)
-app.include_router(sessions.router) # 🌟 세션 라우터 등록 추가
+app.include_router(sessions.router) # 세션 라우터 등록 추가
 app.include_router(logs.router) # logs 라우터 추가
 app.include_router(analysis.router) # 집중도 분석 라우터 추가
 app.include_router(reports.router)
 
-# 🌟 AWS SQS & S3 Configurations
+# AWS SQS & S3 Configurations
 SQS_QUEUE_URL = "https://sqs.ap-northeast-2.amazonaws.com/003344631039/joljak-video-queue.fifo"
 S3_BUCKET_NAME = "jolljak-storage-2026" 
 
