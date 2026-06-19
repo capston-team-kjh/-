@@ -21,45 +21,76 @@ def get_dashboard_summary(
     db: Session = Depends(get_db),
     x_user_id: int = Header(..., alias="X-User-Id")
 ):
-    """주간/월간 학습 시간 및 평균 집중도를 계산합니다."""
-    days_to_subtract = 7 if range_type == 'weekly' else 30
-    start_date = datetime.now() - timedelta(days=days_to_subtract)
+    """주간/월간 학습 시간, 평균 집중도 및 요일별 학습 통계를 계산합니다."""
+    # Compute base relative boundaries
+    today = datetime.now()
+    start_date = today - timedelta(days=7 if range_type == 'weekly' else 30)
 
-    # Query: 요약 정보 (활동 일수, 전체 평균 점수)
-    stats = db.query(
-        func.count(func.distinct(func.date(models.FocusSession.start_time))).label('active_days'),
-        func.avg(models.FocusLog.focus_score).label('avg_score')
-    ).join(models.FocusLog, models.FocusSession.id == models.FocusLog.session_id)\
-     .filter(models.FocusSession.user_id == x_user_id)\
-     .filter(models.FocusSession.start_time >= start_date).first()
-
-    # Query: 총 학습 시간 계산 (초 단위 합산 후 시간으로 변환)
-    # Note: MySQL/SQLite에 따라 func.sum 사용 방식이 다를 수 있어 단순화된 로직 적용
     sessions = db.query(models.FocusSession).filter(
         models.FocusSession.user_id == x_user_id,
         models.FocusSession.start_time >= start_date,
-        models.FocusSession.end_time != None
+        models.FocusSession.status == "completed"
     ).all()
-    
-    total_seconds = sum([(s.end_time - s.start_time).total_seconds() for s in sessions])
+
+    # 1. Base Aggregations
+    total_seconds = sum([(s.end_time - s.start_time).total_seconds() for s in sessions if s.end_time])
     total_hours = round(total_seconds / 3600, 1)
+
+    session_ids = [str(s.id) for s in sessions]
+    unique_days = set([s.start_time.strftime("%Y-%m-%d") for s in sessions])
+
+    avg_score_res = db.query(func.avg(models.AnalysisSummary.focus_ratio)).filter(
+        models.AnalysisSummary.session_id.in_(session_ids)
+    ).scalar() or 0.0
+
+    # 2. 📊 요일별 데이터 계산 (Area Chart Mapping)
+    weekday_map = {0: "Mon", 1: "Tue", 2: "Wed", 3: "Thu", 4: "Fri", 5: "Sat", 6: "Sun"}
+    weekly_breakdown = {name: 0.0 for name in weekday_map.values()}
+
+    for s in sessions:
+        if s.end_time:
+            # s.start_time.weekday() returns 0 for Monday, 6 for Sunday
+            day_name = weekday_map.get(s.start_time.weekday())
+            if day_name in weekly_breakdown:
+                duration_hours = (s.end_time - s.start_time).total_seconds() / 3600
+                weekly_breakdown[day_name] += duration_hours
+
+    # Format into a clean sequential structure for Recharts
+    chart_data = [{"day": day, "hours": round(hours, 1)} for day, hours in weekly_breakdown.items()]
 
     return {
         "range": range_type,
         "total_hours": total_hours,
-        "avg_focus_score": round(float(stats.avg_score or 0), 1),
-        "active_days": stats.active_days or 0
+        "avg_focus_score": round(float(avg_score_res * 100), 1),
+        "active_days": len(unique_days),
+        "weekly_chart_data": chart_data  # 🌟 NEW payload key parsed directly to UI
     }
 
+# 📜 2. Dashboard Recent Sessions Feed
 @router.get("/recent")
 def get_recent_results(
     size: int = 4,
     db: Session = Depends(get_db),
     x_user_id: int = Header(..., alias="X-User-Id")
 ):
-    """최근 세션 목록을 가져옵니다."""
+    """최근 세션 목록과 함께 유저별 상대적 세션 회차 번호(display_index)를 계산하여 가져옵니다."""
+    
+    # 1. First, fetch ALL completed session tuples for this user
+    all_user_sessions = db.query(models.FocusSession).filter(
+        models.FocusSession.user_id == x_user_id,
+        models.FocusSession.status == "completed"
+    ).order_by(models.FocusSession.start_time.asc()).all()
+    
+    # 🌟 FIXED: Loop through the rows using a clean variable name (session_row), then read its .id
+    display_index_map = {
+        session_row.id: index + 1 
+        for index, session_row in enumerate(all_user_sessions)
+    }
+
+    # 2. Fetch the standard limited subset size for display feed generation
     sessions = db.query(models.FocusSession).filter(
-        models.FocusSession.user_id == x_user_id
+        models.FocusSession.user_id == x_user_id,
+        models.FocusSession.status == "completed"
     ).order_by(models.FocusSession.start_time.desc()).limit(size).all()
 
     items = []
@@ -68,17 +99,67 @@ def get_recent_results(
         if s.end_time:
             duration_min = int((s.end_time - s.start_time).total_seconds() / 60)
             
-        avg_score = db.query(func.avg(models.FocusLog.focus_score)).filter(
-            models.FocusLog.session_id == s.id
-        ).scalar() or 0
+        analysis = db.query(models.AnalysisSummary).filter(
+            models.AnalysisSummary.session_id == str(s.id)
+        ).first()
+        
+        focus_score = round(float((analysis.focus_ratio or 0) * 100), 1) if analysis else 0.0
 
         items.append({
             "session_id": s.id,
-            "date": s.start_time.strftime("%Y-%m-%d"),
+            "display_index": display_index_map.get(s.id, 1),
+            "date": s.start_time.strftime("%b %d, %Y"),
             "start_time": s.start_time.strftime("%H:%M"),
             "duration_min": duration_min,
-            "focus_score": round(float(avg_score), 1),
+            "focus_score": focus_score,
             "status": s.status
         })
 
     return {"items": items}
+
+# 🍱 3. NEW: Detailed Report Endpoint for an Individual Session (/app/reports/:id)
+@router.get("/session/{session_id}")
+def get_individual_session_report(
+    session_id: str,
+    db: Session = Depends(get_db)
+):
+    """특정 세션의 요약 정보, 타임라인 차트 데이터, 피드백 문구 및 감지 이벤트를 통합 반환합니다."""
+    # 1. Fetch High Level Summary
+    summary = db.query(models.AnalysisSummary).filter(models.AnalysisSummary.session_id == session_id).first()
+    if not summary:
+        raise HTTPException(status_code=404, detail="해당 세션의 분석 리포트를 찾을 수 없습니다.")
+
+    # 2. Fetch Timeline Data (Ordered chronologically)
+    timeline = db.query(models.AnalysisTimeline).filter(
+        models.AnalysisTimeline.session_id == session_id
+    ).order_by(models.AnalysisTimeline.t.asc()).all()
+
+    # 3. Fetch Feedback Lines
+    feedbacks = db.query(models.AnalysisFeedback).filter(models.AnalysisFeedback.session_id == session_id).all()
+
+    # 4. Fetch Event Logs
+    events = db.query(models.AnalysisEvent).filter(models.AnalysisEvent.session_id == session_id).all()
+
+    # Pack everything cleanly into a unified data contract response wrapper
+    return {
+        "summary": {
+            "session_id": summary.session_id,
+            "focus_ratio": summary.focus_ratio,
+            "absent_count": summary.absent_count,
+            "absent_total_sec": summary.absent_total_sec,
+            "away_count": summary.away_count,
+            "away_total_sec": summary.away_total_sec,
+            "bad_posture_ratio": summary.bad_posture_ratio,
+            "analyzed_at": summary.analyzed_at
+        },
+        "timeline": [{"t": t.t, "state": t.state} for t in timeline],
+        "insights": [f.feedback_text for f in feedbacks],
+        "events": [
+            {
+                "event_type": e.event_type,
+                "start_sec": e.start_sec,
+                "end_sec": e.end_sec,
+                "score": e.score
+            } for e in events
+        ]
+    }

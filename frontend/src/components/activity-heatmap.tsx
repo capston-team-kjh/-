@@ -1,39 +1,53 @@
 import { useMemo, useState } from "react";
 import { ChevronDown } from "lucide-react";
 
-export function ActivityHeatmap() {
+interface HeatmapProps {
+  rawSessions: Array<{date: string; duration_min: number; }>;
+}
+
+export function ActivityHeatmap({ rawSessions = [] }: HeatmapProps) {
   const currentYear = new Date().getFullYear();
   const [selectedYear, setSelectedYear] = useState(currentYear);
   const [dropdownOpen, setDropdownOpen] = useState(false);
 
-  // Available years (current year and past 2 years)
   const availableYears = [currentYear, currentYear - 1, currentYear - 2];
 
-  // Generate mock activity data for the entire selected year (Jan 1 to Dec 31)
+  // 🌟 2. Map real database items onto specific dates instead of using random numbers!
   const activityData = useMemo(() => {
     const data: { date: Date; count: number }[] = [];
-    const startDate = new Date(selectedYear, 0, 1); // January 1
-    const endDate = new Date(selectedYear, 11, 31); // December 31
+    const startDate = new Date(selectedYear, 0, 1);
+    const endDate = new Date(selectedYear, 11, 31);
     
+    // Create a fast-lookup map of your real database dates: {"2026-06-19": total_hours}
+    const sessionMap: { [key: string]: number } = {};
+    rawSessions.forEach((s) => {
+      try {
+        const parsedDate = new Date(s.date);
+        const dateKey = parsedDate.toISOString().split("T")[0]; // Looks like: "2026-06-19"
+        const hours = s.duration_min / 60;
+        sessionMap[dateKey] = (sessionMap[dateKey] || 0) + hours;
+      } catch (e) {
+        // Guard against bad dates
+      }
+    });
+
     const currentDate = new Date(startDate);
     while (currentDate <= endDate) {
-      // Generate realistic study hours (0-6 hours, weighted towards 2-4)
-      const random = Math.random();
-      let count = 0;
-      if (random > 0.3) { // 70% chance of studying
-        count = Math.floor(Math.random() * 5) + 1; // 1-5 hours
-      }
+      const dateKey = currentDate.toISOString().split("T")[0];
+      
+      // If a matching date exists in our database, use those hours. Otherwise, it's 0.
+      const actualHours = sessionMap[dateKey] || 0;
       
       data.push({
         date: new Date(currentDate),
-        count,
+        count: actualHours, // Populates real grid intensity values
       });
       
       currentDate.setDate(currentDate.getDate() + 1);
     }
     
     return data;
-  }, [selectedYear]);
+  }, [selectedYear, rawSessions]);
 
   // Organize data by day of week for each week column
   const gridData = useMemo(() => {

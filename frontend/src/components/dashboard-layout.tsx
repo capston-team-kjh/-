@@ -16,7 +16,7 @@ export function DashboardLayout() {
     <div className="min-h-screen bg-background flex">
       <aside className="w-64 bg-white border-r border-border flex flex-col">
         <div className="p-6 border-b border-border">
-          <Link to="/" className="flex items-center gap-3">
+          <Link to="/app" className="flex items-center gap-3">
             <img src={logo} alt="FocusAI" className="h-10 w-auto" />
             <span className="text-xl font-semibold text-foreground">FocusAI</span>
           </Link>

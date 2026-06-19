@@ -4,16 +4,6 @@ import { Calendar, Clock, Target, TrendingUp, Play } from "lucide-react";
 import { ActivityHeatmap } from "../components/activity-heatmap";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 
-const weeklyData = [
-  { day: "Mon", hours: 3.5 },
-  { day: "Tue", hours: 4.2 },
-  { day: "Wed", hours: 2.8 },
-  { day: "Thu", hours: 5.1 },
-  { day: "Fri", hours: 3.9 },
-  { day: "Sat", hours: 6.5 },
-  { day: "Sun", hours: 4.8 },
-];
-
 export function Dashboard() {
   const [reportData, setReportData] = useState<any>(null);
   const [recentSessions, setRecentSessions] = useState<any[]>([]);
@@ -32,8 +22,8 @@ export function Dashboard() {
         
         // Fetch both summary and recent sessions in parallel
         const [summaryRes, recentRes] = await Promise.all([
-          fetch(`${import.meta.env.VITE_API_BASE_URL}/reports/summary?range=weekly`, { headers }),
-          fetch(`${import.meta.env.VITE_API_BASE_URL}/reports/recent?size=4`, { headers })
+          fetch(`${import.meta.env.VITE_API_BASE_URL}/analytics/summary?range=weekly`, { headers }),
+          fetch(`${import.meta.env.VITE_API_BASE_URL}/analytics/recent?size=4`, { headers })
         ]);
 
         if (summaryRes.ok && recentRes.ok) {
@@ -99,14 +89,14 @@ export function Dashboard() {
 
       <div className="bg-white rounded-2xl border border-border p-6">
         <h2 className="text-xl font-semibold mb-4">활동 현황</h2>
-        <ActivityHeatmap />
+        <ActivityHeatmap rawSessions={recentSessions} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-white rounded-2xl border border-border p-6">
           <h2 className="text-xl font-semibold mb-4">주간 학습 시간</h2>
           <ResponsiveContainer width="100%" height={250}>
-            <AreaChart data={weeklyData}>
+            <AreaChart data={reportData?.weekly_chart_data || []}>
               <defs>
                 <linearGradient id="colorHours" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#1a667a" stopOpacity={0.3} />
@@ -144,16 +134,33 @@ export function Dashboard() {
           </div>
           <div className="space-y-3">
             {recentSessions.map((session) => (
-            <div key={session.session_id} className="flex items-center justify-between p-4 rounded-lg border border-border">
-              <div>
-                <div className="font-medium">세션 #{session.session_id}</div>
-                <div className="text-sm text-muted-foreground">{session.date} {session.start_time}</div>
-              </div>
-              <div className="text-right">
-                <div className="font-semibold text-primary">{session.duration_min}분</div>
-                <div className="text-xs text-muted-foreground">집중도: {session.focus_score}%</div>
-              </div>
-            </div>
+              <Link 
+                key={session.session_id} 
+                to={`/app/reports/${session.session_id}`} // 🌟 Dynamically routes to the specific report ID!
+                className="flex items-center justify-between p-4 rounded-xl border border-border bg-white hover:border-primary/40 hover:shadow-sm transition-all cursor-pointer group block"
+              >
+                <div>
+                  {/* 🌟 Displaying the relative order number instead of the absolute database index row id */}
+                  <div className="font-semibold text-foreground group-hover:text-primary transition-colors">
+                    세션 #{session.display_index}
+                  </div>
+                  <div className="text-sm text-muted-foreground mt-0.5">
+                    {session.date} {session.start_time}
+                  </div>
+                </div>
+                <div className="text-right flex items-center gap-4">
+                  <div>
+                    <div className="font-bold text-primary">{session.duration_min}분</div>
+                    <div className="text-xs text-muted-foreground font-medium">
+                      집중도: {session.focus_score}%
+                    </div>
+                  </div>
+                  {/* Subtle decorative arrow to emphasize clickability */}
+                  <span className="text-muted-foreground opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all text-sm font-medium">
+                    →
+                  </span>
+                </div>
+              </Link>
             ))}
           </div>
         </div>
