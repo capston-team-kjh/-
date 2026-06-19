@@ -20,9 +20,18 @@ export function Dashboard() {
       try {
         const headers = { "X-User-Id": userId };
         
+        const getPastDateString = (daysAgo: number) => {
+        const d = new Date();
+        d.setDate(d.getDate() - daysAgo);
+        return d.toISOString().split("T")[0];
+      };
+
+      const startDate = getPastDateString(7);
+      const endDate = getPastDateString(0);
+
         // Fetch both summary and recent sessions in parallel
         const [summaryRes, recentRes] = await Promise.all([
-          fetch(`${import.meta.env.VITE_API_BASE_URL}/analytics/summary?range=weekly`, { headers }),
+          fetch(`${import.meta.env.VITE_API_BASE_URL}/analytics/summary?start_date=${startDate}&end_date=${endDate}`, { headers }),
           fetch(`${import.meta.env.VITE_API_BASE_URL}/analytics/list`, { headers })
         ]);
 
