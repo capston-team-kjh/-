@@ -5,9 +5,11 @@ export class DualCameraManager {
   private video1: HTMLVideoElement; // Left Feed (Face)
   private video2: HTMLVideoElement; // Right Feed (Desk)
   private mediaRecorder: MediaRecorder | null = null;
-  private onChunkReadyCallback: ((blob: Blob) => void) | null = null;
+  private onChunkReadyCallback: ((blob: Blob, isFinal: boolean) => void) | null = null;
   
   private activeStream: MediaStream | null = null;
+
+  private isProcessingFinalChunk: boolean = false;
 
   constructor() {
     this.canvas = document.createElement("canvas");
@@ -58,13 +60,20 @@ export class DualCameraManager {
     this.mediaRecorder.ondataavailable = (e) => {
       if (e.data && e.data.size > 0 && this.onChunkReadyCallback) {
         const chunkBlob = new Blob([e.data], { type: "video/webm" });
-        this.onChunkReadyCallback(chunkBlob);
+        
+        // Pass the current state of our final flag to study-session.tsx
+        this.onChunkReadyCallback(chunkBlob, this.isProcessingFinalChunk);
+        
+        // Reset the flag immediately after firing the callback so standard ticker chunks stay false
+        this.isProcessingFinalChunk = false;
       }
     };
   }
 
-  async requestSlice() {
+  async requestSlice(isFinal: boolean = false) {
     if (this.mediaRecorder && this.mediaRecorder.state === "recording" && this.activeStream) {
+      
+      this.isProcessingFinalChunk = isFinal;
       
       this.mediaRecorder.onstop = () => {
         if (this.activeStream) {

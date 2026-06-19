@@ -1,6 +1,8 @@
-from fastapi import FastAPI, UploadFile, Request, File
+from fastapi import FastAPI, UploadFile, Request, Form, File
 from fastapi.staticfiles import StaticFiles
 import shutil
+import json
+import boto3
 import os
 import uvicorn
 
@@ -41,28 +43,70 @@ app.include_router(logs.router) # logs 라우터 추가
 app.include_router(analysis.router) # 집중도 분석 라우터 추가
 app.include_router(reports.router)
 
-# 1. 프로젝트 루트 경로에 'upload' 폴더를 정의하고, 없으면 자동으로 생성
-UPLOAD_DIR = "upload"
-if not os.path.exists(UPLOAD_DIR):
-    os.makedirs(UPLOAD_DIR)
+# 🌟 AWS SQS & S3 Configurations
+SQS_QUEUE_URL = "https://sqs.ap-northeast-2.amazonaws.com/003344631039/joljak-video-queue.fifo"
+S3_BUCKET_NAME = "jolljak-storage-2026" 
 
-# 2. "StaticFiles"로 /upload 경로를 웹상에서 접근 가능하게 만듦
-# 이제 브라우저나 워커에서 http://localhost:8000/upload/...webm으로 영상을 접근
-app.mount("/upload", StaticFiles(directory=UPLOAD_DIR), name="upload")
+# Initialize the AWS Clients
+sqs_client = boto3.client('sqs', region_name='ap-northeast-2')
+s3_client = boto3.client('s3', region_name='ap-northeast-2')
 
-# 3. 프론트엔드에서 보낸 영상을 실제 파일로 저장하는 API 엔드포인트 정의
 @app.post("/api/v1/sessions/{session_id}/upload")
-async def save_session_video(session_id: int, request: Request, file: UploadFile = File(...)):
-    # 저장될 전체 파일 경로를 생성 (예: upload/session_101.webm)
-    file_path = os.path.join(UPLOAD_DIR, file.filename)
-    
-    # 전달받은 파일 객체의 내용을 한 바이트씩 버퍼를 통해 실제 디스크에 작성
-    # shutil.copyfileobj는 메모리 효율적으로 대용량 파일을 복사
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+async def save_session_video(session_id: int, file: UploadFile = File(...), is_final_chunk: str = Form("false")):
+    # 1. Parse chunk index out of the custom filename string (user_{uid}_session_{sid}_part{index}.webm)
+    try:
+        filename_no_ext = file.filename.split(".")[0]
+        chunk_index_str = filename_no_ext.split("_part")[-1]
+        chunk_index = int(chunk_index_str)
         
-    base_url = str(request.base_url).rstrip("/")
-    return {"url": f"{base_url}/upload/{file.filename}"}
+        # Extract the user_id integer from the filename prefix
+        user_id_str = filename_no_ext.split("user_")[-1].split("_session")[0]
+        user_id = int(user_id_str)
+    except Exception:
+        chunk_index = 1
+        user_id = 0
+
+    # Convert the string form data parameter ("true"/"false") into a real Python Boolean
+    final_flag = True if is_final_chunk.lower() == "true" else False
+
+    # Define the precise file path storage key matching their directory format
+    s3_file_key = f"uploads/session_{session_id}/chunk_{chunk_index}.webm"
+
+    try:
+        # Upload raw data chunks up to the S3 bucket cloud layer
+        s3_client.upload_fileobj(
+            file.file,
+            S3_BUCKET_NAME,
+            s3_file_key,
+            ExtraArgs={'ContentType': 'video/webm'}
+        )
+        
+        # ALIGN PAYLOAD
+        message_payload = {
+            "session_id": session_id,
+            "user_id": user_id,
+            "s3_bucket": S3_BUCKET_NAME,
+            "s3_key": s3_file_key,
+            "camera_type": "merged",          # Side-by-side kiosk canvas video format
+            "mode": "focus_analysis",         # Focus inference execution group label
+            "chunk_index": chunk_index,
+            "is_final_chunk": final_flag      # Python boolean matches strict JSON bool requirements
+        }
+        
+        # Transmission: Ship the structured message ticket directly to SQS
+        sqs_client.send_message(
+            QueueUrl=SQS_QUEUE_URL,
+            MessageBody=json.dumps(message_payload), # Converts dictionary keys into strict JSON format
+            MessageGroupId="video-analysis-group",
+            MessageDeduplicationId=f"{session_id}-{chunk_index}"
+        )
+        
+        print(f"Perfect SQS message queued for Session {session_id} Part {chunk_index} (Final: {final_flag})")
+        return {"status": "success", "queued": True, "is_final_chunk": final_flag}
+
+    except Exception as e:
+        print(f"Cloud Pipeline Failure: {str(e)}")
+        return {"status": "failed", "detail": str(e)}
 
 # 기본 루트 엔드포인트 (서버 접속 테스트용)
 @app.get("/")

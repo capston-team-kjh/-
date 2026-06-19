@@ -53,3 +53,50 @@ class FocusAnalysis(Base):
     body_score = Column(Float, nullable=False)
     is_absent = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+# AI Analysis Models
+class AnalysisEvent(Base):
+    __tablename__ = "analysis_events"
+
+    id = Column(BigInteger, primary_key=True, index=True, autoincrement=True) # BIGINT + AI
+    session_id = Column(String(100), nullable=False) # VARCHAR(100) NN
+    event_type = Column(String(50), nullable=True)   # VARCHAR(50)
+    start_sec = Column(Float, nullable=True)         # FLOAT
+    end_sec = Column(Float, nullable=True)           # FLOAT
+    score = Column(Float, nullable=True)             # FLOAT
+
+
+class AnalysisFeedback(Base):
+    __tablename__ = "analysis_feedback"
+
+    id = Column(BigInteger, primary_key=True, index=True, autoincrement=True) # BIGINT + AI
+    session_id = Column(String(100), nullable=False) # VARCHAR(100) NN
+    feedback_text = Column(String, nullable=False)   # LONGTEXT NN (Mapped to String in SQLAlchemy)
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now()) # TIMESTAMP with trigger
+
+
+class AnalysisSummary(Base):
+    __tablename__ = "analysis_summary"
+
+    id = Column(BigInteger, primary_key=True, index=True, autoincrement=True) # BIGINT + AI
+    session_id = Column(String(100), nullable=False) # VARCHAR(100) NN
+    focus_ratio = Column(Float, nullable=True)       # FLOAT
+    absent_count = Column(Integer, nullable=True)    # INT
+    absent_total_sec = Column(Float, nullable=True)  # FLOAT
+    away_count = Column(Integer, nullable=True)      # INT
+    away_total_sec = Column(Float, nullable=True)    # FLOAT
+    bad_posture_ratio = Column(Float, nullable=True) # FLOAT
+    processing_time_sec = Column(Float, nullable=True) # FLOAT
+    camera_type = Column(String(50), nullable=True)  # VARCHAR(50)
+    version = Column(String(50), nullable=True)      # VARCHAR(50)
+    analyzed_at = Column(DateTime, default=func.now()) # TIMESTAMP
+
+
+class AnalysisTimeline(Base):
+    __tablename__ = "analysis_timeline"
+
+    id = Column(BigInteger, primary_key=True, index=True, autoincrement=True) # BIGINT + AI
+    session_id = Column(String(100), nullable=False) # VARCHAR(100) NN
+    t = Column(Float, nullable=True)                 # FLOAT
+    state = Column(String(50), nullable=True)        # VARCHAR(50)
