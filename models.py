@@ -1,5 +1,6 @@
 from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, BigInteger, Boolean
 from sqlalchemy.orm import relationship
+from sqlalchemy.dialects.mysql import LONGTEXT
 from sqlalchemy.sql import func
 from datetime import datetime
 from database import Base
@@ -72,7 +73,7 @@ class AnalysisFeedback(Base):
 
     id = Column(BigInteger, primary_key=True, index=True, autoincrement=True) # BIGINT + AI
     session_id = Column(String(100), nullable=False) # VARCHAR(100) NN
-    feedback_text = Column(String, nullable=False)   # LONGTEXT NN (Mapped to String in SQLAlchemy)
+    feedback_text = Column(LONGTEXT, nullable=False)   # LONGTEXT NN (Mapped to String in SQLAlchemy)
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now()) # TIMESTAMP with trigger
 
 

@@ -24,3 +24,6 @@ output.json
 .env.local
 .env.production
 .env.development
+
+#
+seed_mock_data.py
