@@ -10,3 +10,4 @@ pydantic[email]
 bcrypt<4.0.0
 python-multipart
 python-dotenv
+boto3
