@@ -1,6 +1,5 @@
 from fastapi import FastAPI, UploadFile, Request, Form, File
 from fastapi.staticfiles import StaticFiles
-import shutil
 import json
 import boto3
 import os
@@ -42,71 +41,6 @@ app.include_router(sessions.router) # 세션 라우터 등록 추가
 app.include_router(logs.router) # logs 라우터 추가
 app.include_router(analysis.router) # 집중도 분석 라우터 추가
 app.include_router(reports.router)
-
-# AWS SQS & S3 Configurations
-SQS_QUEUE_URL = "https://sqs.ap-northeast-2.amazonaws.com/003344631039/joljak-video-queue.fifo"
-S3_BUCKET_NAME = "jolljak-storage-2026" 
-
-# Initialize the AWS Clients
-sqs_client = boto3.client('sqs', region_name='ap-northeast-2')
-s3_client = boto3.client('s3', region_name='ap-northeast-2')
-
-@app.post("/api/v1/sessions/{session_id}/upload")
-async def save_session_video(session_id: int, file: UploadFile = File(...), is_final_chunk: str = Form("false")):
-    # 1. Parse chunk index out of the custom filename string (user_{uid}_session_{sid}_part{index}.webm)
-    try:
-        filename_no_ext = file.filename.split(".")[0]
-        chunk_index_str = filename_no_ext.split("_part")[-1]
-        chunk_index = int(chunk_index_str)
-        
-        # Extract the user_id integer from the filename prefix
-        user_id_str = filename_no_ext.split("user_")[-1].split("_session")[0]
-        user_id = int(user_id_str)
-    except Exception:
-        chunk_index = 1
-        user_id = 0
-
-    # Convert the string form data parameter ("true"/"false") into a real Python Boolean
-    final_flag = True if is_final_chunk.lower() == "true" else False
-
-    # Define the precise file path storage key matching their directory format
-    s3_file_key = f"uploads/session_{session_id}/chunk_{chunk_index}.webm"
-
-    try:
-        # Upload raw data chunks up to the S3 bucket cloud layer
-        s3_client.upload_fileobj(
-            file.file,
-            S3_BUCKET_NAME,
-            s3_file_key,
-            ExtraArgs={'ContentType': 'video/webm'}
-        )
-        
-        # ALIGN PAYLOAD
-        message_payload = {
-            "session_id": session_id,
-            "user_id": user_id,
-            "s3_bucket": S3_BUCKET_NAME,
-            "s3_key": s3_file_key,
-            "camera_type": "merged",          # Side-by-side kiosk canvas video format
-            "mode": "focus_analysis",         # Focus inference execution group label
-            "chunk_index": chunk_index,
-            "is_final_chunk": final_flag      # Python boolean matches strict JSON bool requirements
-        }
-        
-        # Transmission: Ship the structured message ticket directly to SQS
-        sqs_client.send_message(
-            QueueUrl=SQS_QUEUE_URL,
-            MessageBody=json.dumps(message_payload), # Converts dictionary keys into strict JSON format
-            MessageGroupId="video-analysis-group",
-            MessageDeduplicationId=f"{session_id}-{chunk_index}"
-        )
-        
-        print(f"Perfect SQS message queued for Session {session_id} Part {chunk_index} (Final: {final_flag})")
-        return {"status": "success", "queued": True, "is_final_chunk": final_flag}
-
-    except Exception as e:
-        print(f"Cloud Pipeline Failure: {str(e)}")
-        return {"status": "failed", "detail": str(e)}
 
 # 기본 루트 엔드포인트 (서버 접속 테스트용)
 @app.get("/")
