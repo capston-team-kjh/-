@@ -95,10 +95,9 @@ export function SessionDetail() {
     let focusedPointsCount = 0;
 
     return report.timeline.map((pt, index) => {
-      const totalMinutesElapsed = Math.round(pt.t / 60);
-      const hours = Math.floor(totalMinutesElapsed / 60);
-      const mins = totalMinutesElapsed % 60;
-      const timeLabel = `${hours}:${String(mins).padStart(2, "0")}`;
+      const minutes = Math.floor(pt.t / 60);
+      const secs = Math.floor(pt.t % 60);
+      const timeLabel = `${minutes}:${String(secs).padStart(2, "0")}`;
 
       if (pt.state === "focused") {
         focusedPointsCount += 1;
@@ -127,8 +126,8 @@ export function SessionDetail() {
   const focusScore = Math.round(summary.focus_ratio * 100);
   
   // Calculate total estimated session duration in minutes
-  const estimatedTotalDurationMin = timeline.length * 10;
-  const actualFocusTimeMin = Math.round(estimatedTotalDurationMin * summary.focus_ratio);
+  const estimatedTotalDurationMin = Math.round((timeline.length * 10) / 60) || 90; 
+  const actualFocusTimeMin = Math.round(estimatedTotalDurationMin * summary.focus_ratio); //
 
   // 1. 자리 이탈 (Seat Absence) Metrics
   const absentCount = summary.absent_count;

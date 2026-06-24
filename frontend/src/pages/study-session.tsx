@@ -148,6 +148,7 @@ export function StudySession() {
         console.error("Error message:", error.message);
       }
 
+    
       alert("세션 시작에 실패했습니다. 카메라 연결 상태를 확인하고 다시 시도해주세요.");
     } finally {
       if (permissionStream) {
@@ -242,7 +243,7 @@ export function StudySession() {
             <li>• 수분을 충분히 섭취하고 바른 자세를 유지하세요</li>
             <li>• 더 나은 집중을 위해 방해 요소를 제거하세요</li>
             <li>• 완료 후 세션 인사이트를 확인하세요</li>
-          </ul>
+          </ul> 
         </div>
       </div>
     </div>
