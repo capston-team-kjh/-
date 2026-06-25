@@ -53,7 +53,7 @@ class FocusAnalysis(Base):
     head_score = Column(Float, nullable=False)
     body_score = Column(Float, nullable=False)
     is_absent = Column(Boolean, default=False, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=func.now())
 
 
 # AI Analysis Models
