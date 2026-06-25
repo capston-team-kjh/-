@@ -12,7 +12,7 @@ LOCAL_DATABASE_URL = "mysql+pymysql://root:1234@127.0.0.1:3306/joljak_db"
 SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", LOCAL_DATABASE_URL)
 
 # 데이터베이스 엔진 생성 (echo=True로 설정하면 터미널에 SQL 쿼리문이 출력되어 디버깅에 좋습니다)
-engine = create_engine(SQLALCHEMY_DATABASE_URL, echo=True)
+engine = create_engine(SQLALCHEMY_DATABASE_URL, echo=True, connect_args={"init_command": "SET time_zone='+09:00'"})
 
 # 세션 팩토리 생성 (DB에 접근할 때마다 이 팩토리에서 세션을 하나씩 꺼내 씁니다)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

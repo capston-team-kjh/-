@@ -89,28 +89,58 @@ export function SessionDetail() {
     return hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
   };
 
-  // Calculate a Moving Focus Average
   const parsedTimelineData = useMemo(() => {
-    if (!report?.timeline) return [];
-    let focusedPointsCount = 0;
+    if (!report?.events || !report?.timeline) return [];
+    
+    // 1. Determine total session length (fallback to max event end_sec if needed)
+    const totalSeconds = report.timeline.length > 0 
+      ? report.timeline.length 
+      : Math.max(...report.events.map(e => e.end_sec), 0);
+      
+    if (totalSeconds === 0) return [];
 
-    return report.timeline.map((pt, index) => {
-      const minutes = Math.floor(pt.t / 60);
-      const secs = Math.floor(pt.t % 60);
-      const timeLabel = `${minutes}:${String(secs).padStart(2, "0")}`;
+    // 2. Create a second-by-second baseline array (Default focus is 100%)
+    const secondBySecond = new Array(totalSeconds).fill(100);
 
-      if (pt.state === "focused") {
-        focusedPointsCount += 1;
+    // 3. Apply the event penalties to the exact seconds they occurred
+    report.events.forEach(event => {
+      const start = Math.floor(event.start_sec);
+      const end = Math.floor(event.end_sec);
+      
+      // Convert distraction score (e.g., 0.7) to a focus penalty (70)
+      const penalty = (event.score || 0) * 100;
+      const resultingFocus = Math.max(0, 100 - penalty);
+
+      for (let i = start; i < end && i < totalSeconds; i++) {
+        // If events overlap (e.g., bad posture AND gazing away), take the lowest focus score
+        secondBySecond[i] = Math.min(secondBySecond[i], resultingFocus);
       }
-      const runningScore = Math.round((focusedPointsCount / (index + 1)) * 100);
-
-      return {
-        time: timeLabel,
-        score: runningScore,
-      };
     });
-    // Track length instead of array reference to stabilize memory loops
-  }, [report?.timeline?.length]); 
+
+    // 4. Bucket the data into dynamic chunks for a smooth, beautiful graph
+    // (e.g., break the whole session into 30 smooth data points regardless of total length)
+    const dataPointsCount = 30;
+    const bucketSize = Math.max(1, Math.floor(totalSeconds / dataPointsCount));
+
+    const bucketedData = [];
+    for (let i = 0; i < totalSeconds; i += bucketSize) {
+      // Extract the chunk of seconds and calculate the true average
+      const chunk = secondBySecond.slice(i, i + bucketSize);
+      const avgScore = chunk.reduce((sum, val) => sum + val, 0) / chunk.length;
+
+      // Format the X-axis label nicely (MM:SS)
+      const mins = Math.floor(i / 60);
+      const secs = i % 60;
+      const timeLabel = `${mins}:${String(secs).padStart(2, "0")}`;
+
+      bucketedData.push({
+        time: timeLabel,
+        score: Math.round(avgScore),
+      });
+    }
+
+    return bucketedData;
+  }, [report]);
 
   const peakFocusText = useMemo(() => {
     if (parsedTimelineData.length === 0) return "세션 중반";
@@ -124,44 +154,88 @@ export function SessionDetail() {
   const { summary, timeline, insights, events } = report;
 
   const focusScore = Math.round(summary.focus_ratio * 100);
-  
-  // Calculate total estimated session duration in minutes
-  const estimatedTotalDurationMin = Math.round((timeline.length * 10) / 60) || 90; 
-  const actualFocusTimeMin = Math.round(estimatedTotalDurationMin * summary.focus_ratio); //
 
-  // 1. 자리 이탈 (Seat Absence) Metrics
-  const absentCount = summary.absent_count;
-  const absentTimeMin = Math.round(summary.absent_total_sec / 60);
-  const absentPercentage = estimatedTotalDurationMin > 0 
-    ? Math.min(Math.round((absentTimeMin / estimatedTotalDurationMin) * 100), 100) 
-    : 0;
+  // 1. Determine baseline session length for percentage math
+  const totalSeconds = report.timeline?.length > 0 
+    ? report.timeline.length 
+    : Math.max(...report.events.map(e => e.end_sec), 1);
+  const estimatedTotalDurationMin = Math.round(totalSeconds / 60) || 1;
+  const actualFocusTimeMin = Math.round(estimatedTotalDurationMin * summary.focus_ratio);
 
-  // 2. 시선 분산 (Gaze Deviation) Metrics
-  const awayGazeCount = summary.away_count;
-  const awayGazeTimeMin = Math.round(summary.away_total_sec / 60);
-  const awayGazePercentage = estimatedTotalDurationMin > 0 
-    ? Math.min(Math.round((awayGazeTimeMin / estimatedTotalDurationMin) * 100), 100) 
-    : 0;
+  // 2. Build a flexible query engine to extract data directly from the Events table
+  const getEventMetrics = (eventTypes: string[]) => {
+    // Find all events matching the target categories
+    const matchedEvents = report.events.filter(e => eventTypes.includes(e.event_type));
+    
+    // Calculate total triggers and raw duration
+    const count = matchedEvents.length;
+    const totalSec = matchedEvents.reduce((sum, e) => sum + (e.end_sec - e.start_sec), 0);
+    const timeMin = Math.round(totalSec / 60);
+    
+    // Calculate percentage of the total session
+    const percent = Math.min(Math.round((totalSec / totalSeconds) * 100), 100);
+    
+    // Map to the 0-5 Severity Scale
+    let score = 0;
+    if (percent > 0) score = 1;
+    if (percent >= 5) score = 2;
+    if (percent >= 15) score = 3;
+    if (percent >= 25) score = 4;
+    if (percent >= 40) score = 5;
 
-  // 3. 자세 불량 (Bad Posture) Metrics
-  const postureIssueCount = events.filter(e => e.event_type === "bad_posture" || e.event_type === "posture_warning").length || randomIntFromId(summary.session_id, 2, 5);
-  const postureTimeMin = Math.round(estimatedTotalDurationMin * summary.bad_posture_ratio);
-  const badPosturePercentage = Math.round(summary.bad_posture_ratio * 100);
+    return { count, totalSec, timeMin, percent, score };
+  };
 
-  // 4. 과도한 움직임 (Fidgeting) Metrics
-  const fidgetingEvents = events.filter(e => e.event_type === "fidgeting");
-  const fidgetingCount = fidgetingEvents.length || randomIntFromId(summary.session_id, 3, 6);
-  const fidgetingTimeMin = Math.round(fidgetingEvents.reduce((acc, curr) => acc + (curr.end_sec - curr.start_sec), 0) / 60) || randomIntFromId(summary.session_id, 5, 12);
-  const fidgetingPercentage = estimatedTotalDurationMin > 0 
-    ? Math.min(Math.round((fidgetingTimeMin / estimatedTotalDurationMin) * 100), 100) 
-    : 0;
+  const getFidgetingMetrics = () => {
+    // Filter to only minor distractions and sort them chronologically
+    const targetEvents = report.events
+      .filter(e => ["bad_posture", "gaze_side"].includes(e.event_type))
+      .sort((a, b) => a.start_sec - b.start_sec);
 
-  // Update Radar Chart Data to map standard 0-100 percentage
+    let count = 0;
+    let totalSec = 0;
+
+    // Compare each event to the one immediately before it
+    for (let i = 1; i < targetEvents.length; i++) {
+      const prev = targetEvents[i - 1];
+      const curr = targetEvents[i];
+      
+      const gapSeconds = curr.start_sec - prev.end_sec;
+
+      // If the gap between shifting postures/gazes is 5 seconds or less, it's a fidget!
+      if (gapSeconds >= 0 && gapSeconds <= 5) {
+        count += 1;
+        // Add the duration of the new movement plus the tiny gap between them
+        totalSec += (curr.end_sec - curr.start_sec) + gapSeconds;
+      }
+    }
+
+    const timeMin = Math.round(totalSec / 60);
+    const percent = Math.min(Math.round((totalSec / totalSeconds) * 100), 100);
+    
+    // 0-5 Severity Scale
+    let score = 0;
+    if (percent > 0) score = 1;
+    if (percent >= 5) score = 2;
+    if (percent >= 15) score = 3;
+    if (percent >= 25) score = 4;
+    if (percent >= 40) score = 5;
+
+    return { count, totalSec, timeMin, percent, score };
+  };
+
+  // 3. Query the specific metrics using your database's exact event string names
+  const absentMetrics = getEventMetrics(["absent"]);
+  const gazeMetrics = getEventMetrics(["gaze_side"]);
+  const postureMetrics = getEventMetrics(["bad_posture"]);
+  const fidgetingMetrics = getFidgetingMetrics();
+
+  // 4. Feed the calculated 0-5 severity scores into the Radar Chart data
   const radarData = [
-    { metric: "자리 이탈", value: absentPercentage, fullMark: 100 },
-    { metric: "시선 분산", value: awayGazePercentage, fullMark: 100 },
-    { metric: "자세 불량", value: badPosturePercentage, fullMark: 100 },
-    { metric: "과도한 움직임", value: fidgetingPercentage, fullMark: 100 },
+    { metric: "자리 이탈", value: absentMetrics.score, fullMark: 5 },
+    { metric: "시선 분산", value: gazeMetrics.score, fullMark: 5 },
+    { metric: "자세 불량", value: postureMetrics.score, fullMark: 5 },
+    { metric: "과도한 움직임", value: fidgetingMetrics.score, fullMark: 5 },
   ];
 
 // Simple deterministic helper to keep data uniform for mock sessions if database count is empty
@@ -208,7 +282,7 @@ function randomIntFromId(idStr: string, min: number, max: number) {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <MetricCard icon={<Clock className="w-5 h-5" />} label="총 학습 시간" value={formatMinutesDisplay(estimatedTotalDurationMin)} color="bg-blue-500" />
         <MetricCard icon={<Eye className="w-5 h-5" />} label="실제 집중 시간" value={formatMinutesDisplay(actualFocusTimeMin)} subtitle={`세션의 ${focusScore}%`} color="bg-green-500" />
-        <MetricCard icon={<User className="w-5 h-5" />} label="총 산만 시간" value={formatMinutesDisplay(awayGazeTimeMin + absentTimeMin + fidgetingTimeMin)} color="bg-orange-500" />
+        <MetricCard icon={<User className="w-5 h-5" />} label="총 산만 시간" value={formatMinutesDisplay(gazeMetrics.timeMin + absentMetrics.timeMin + fidgetingMetrics.timeMin)} color="bg-orange-500" />
         <MetricCard icon={<Activity className="w-5 h-5" />} label="집중도 점수" value={`${focusScore}%`} color="bg-primary" />
       </div>
 
@@ -248,7 +322,7 @@ function randomIntFromId(idStr: string, min: number, max: number) {
             <RadarChart data={radarData}>
               <PolarGrid stroke="#e5e5e5" />
               <PolarAngleAxis dataKey="metric" tick={{ fill: "#888", fontSize: 12 }} />
-              <PolarRadiusAxis angle={90} domain={[0, 100]} tick={false} axisLine={false} />
+              <PolarRadiusAxis angle={90} domain={[0, 5]} tickCount={6} tick={false} axisLine={false} />
               <Radar name="Minutes" dataKey="value" stroke="#1a667a" fill="#1a667a" fillOpacity={0.5} strokeWidth={2} />
               <Tooltip contentStyle={{ backgroundColor: "#fff", border: "1px solid #e5e5e5", borderRadius: "8px" }} />
             </RadarChart>
@@ -260,31 +334,31 @@ function randomIntFromId(idStr: string, min: number, max: number) {
           <div className="space-y-4">
             <DistractionItem 
               label="자리 이탈" 
-              value={absentTimeMin} 
+              value={absentMetrics.timeMin} 
               total={estimatedTotalDurationMin} 
               color="bg-orange-500" 
-              description={`프레임 내 미감지 빈도: 총 ${absentCount}회`} 
+              description={`프레임 내 미감지 빈도: 총 ${absentMetrics.count}회`} 
             />
             <DistractionItem 
               label="시선 분산" 
-              value={awayGazeTimeMin} 
+              value={gazeMetrics.timeMin} 
               total={estimatedTotalDurationMin} 
               color="bg-yellow-500" 
-              description={`외부 주시 및 시선 이탈 빈도: 총 ${awayGazeCount}회`} 
+              description={`외부 주시 및 시선 이탈 빈도: 총 ${gazeMetrics.count}회`} 
             />
             <DistractionItem 
               label="자세 불량" 
-              value={postureTimeMin} 
+              value={postureMetrics.timeMin} 
               total={estimatedTotalDurationMin} 
               color="bg-red-500" 
-              description={`거북목 및 구부정한 자세 감지: 총 ${postureIssueCount}회`} 
+              description={`거북목 및 구부정한 자세 감지: 총 ${postureMetrics.count}회`} 
             />
             <DistractionItem 
               label="과도한 움직임" 
-              value={fidgetingTimeMin} 
+              value={fidgetingMetrics.timeMin} 
               total={estimatedTotalDurationMin} 
               color="bg-purple-500" 
-              description={`몸 흔듦 및 불안정한 움직임 빈도: 총 ${fidgetingCount}회`} 
+              description={`불안정한 움직임 감지: 총 ${fidgetingMetrics.count}회`} 
             />
           </div>
         </div>

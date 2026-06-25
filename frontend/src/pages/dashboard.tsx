@@ -145,7 +145,7 @@ export function Dashboard() {
             {recentSessions.slice(0,3).map((session) => (
               <Link 
                 key={session.session_id} 
-                to={`/app/reports/${session.session_id}`} //  Dynamically routes to the specific report ID
+                to={`/app/reports/${session.session_id || session.id}`} //  Dynamically routes to the specific report ID
                 className="flex items-center justify-between p-4 rounded-xl border border-border bg-white hover:border-primary/40 hover:shadow-sm transition-all cursor-pointer group block"
               >
                 <div>
