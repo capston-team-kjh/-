@@ -152,34 +152,30 @@ export function SessionDetail() {
     return bucketedData;
   }, [sessionMetrics]);
 
-  if (loading) return <div className="p-8 text-center text-muted-foreground">세부 분석 리포트를 생성하는 중...</div>;
-  if (!report) return <div className="p-8 text-center text-destructive">리포트 데이터를 찾을 수 없습니다.</div>;
+  const prevMetrics = useMemo(() => {
+    if (!allSessions || allSessions.length === 0 || !sessionId) return null;
+    const currentIndex = allSessions.findIndex((s) => String(s.id) === String(sessionId));
+    if (currentIndex >= 0 && currentIndex < allSessions.length - 1) {
+        const p = allSessions[currentIndex + 1];
+        const pTotalSecs = (p.duration_min || 0) * 60;
+        const pFocusRatio = (p.focus_score || 0) / 100;
+        const pFocusSecs = pTotalSecs * pFocusRatio;
+        return { totalSecs: pTotalSecs, focusSecs: pFocusSecs, distractSecs: pTotalSecs - pFocusSecs };
+    }
+    return null;
+  }, [allSessions, sessionId]);
 
-  const { summary, timeline, insights, events } = report;
-
-  const focusScore = Math.round(summary.focus_ratio * 100);
-
-  // 1. Determine baseline session length for percentage math
-  const totalSeconds = report.timeline?.length > 0 
-    ? report.timeline.length 
-    : Math.max(...report.events.map(e => e.end_sec), 1);
-  const estimatedTotalDurationMin = Math.round(totalSeconds / 60) || 1;
-  const actualFocusTimeMin = Math.round(estimatedTotalDurationMin * summary.focus_ratio);
-
-  // 2. Build a flexible query engine to extract data directly from the Events table
   const getEventMetrics = (eventTypes: string[]) => {
-    // Find all events matching the target categories
-    const matchedEvents = report.events.filter(e => eventTypes.includes(e.event_type));
-    
-    // Calculate total triggers and raw duration
+    // Safely check if report and events exist
+    const matchedEvents = report?.events?.filter(e => eventTypes.includes(e.event_type)) || [];
     const count = matchedEvents.length;
     const totalSec = matchedEvents.reduce((sum, e) => sum + (e.end_sec - e.start_sec), 0);
     const timeMin = Math.round(totalSec / 60);
     
-    // Calculate percentage of the total session
-    const percent = Math.min(Math.round((totalSec / totalSeconds) * 100), 100);
+    // Use sessionMetrics.totalSeconds instead of the old redundant variable
+    const baseTotal = sessionMetrics.totalSeconds || 1; 
+    const percent = Math.min(Math.round((totalSec / baseTotal) * 100), 100);
     
-    // Map to the 0-5 Severity Scale
     let score = 0;
     if (percent > 0) score = 1;
     if (percent >= 5) score = 2;
@@ -191,33 +187,25 @@ export function SessionDetail() {
   };
 
   const getFidgetingMetrics = () => {
-    // Filter to only minor distractions and sort them chronologically
-    const targetEvents = report.events
-      .filter(e => ["bad_posture", "gaze_side"].includes(e.event_type))
-      .sort((a, b) => a.start_sec - b.start_sec);
-
+    const targetEvents = report?.events?.filter(e => ["bad_posture", "gaze_side"].includes(e.event_type)).sort((a, b) => a.start_sec - b.start_sec) || [];
     let count = 0;
     let totalSec = 0;
 
-    // Compare each event to the one immediately before it
     for (let i = 1; i < targetEvents.length; i++) {
       const prev = targetEvents[i - 1];
       const curr = targetEvents[i];
-      
       const gapSeconds = curr.start_sec - prev.end_sec;
 
-      // If the gap between shifting postures/gazes is 5 seconds or less, it's a fidget!
       if (gapSeconds >= 0 && gapSeconds <= 5) {
         count += 1;
-        // Add the duration of the new movement plus the tiny gap between them
         totalSec += (curr.end_sec - curr.start_sec) + gapSeconds;
       }
     }
 
     const timeMin = Math.round(totalSec / 60);
-    const percent = Math.min(Math.round((totalSec / totalSeconds) * 100), 100);
+    const baseTotal = sessionMetrics.totalSeconds || 1;
+    const percent = Math.min(Math.round((totalSec / baseTotal) * 100), 100);
     
-    // 0-5 Severity Scale
     let score = 0;
     if (percent > 0) score = 1;
     if (percent >= 5) score = 2;
@@ -228,13 +216,11 @@ export function SessionDetail() {
     return { count, totalSec, timeMin, percent, score };
   };
 
-  // 3. Query the specific metrics using your database's exact event string names
   const absentMetrics = getEventMetrics(["absent"]);
   const gazeMetrics = getEventMetrics(["gaze_side"]);
   const postureMetrics = getEventMetrics(["bad_posture"]);
   const fidgetingMetrics = getFidgetingMetrics();
 
-  // 4. Feed the calculated 0-5 severity scores into the Radar Chart data
   const radarData = [
     { metric: "자리 이탈", value: absentMetrics.score, timeLabel: formatAdaptiveTime(absentMetrics.totalSec), fullMark: 5 },
     { metric: "시선 분산", value: gazeMetrics.score, timeLabel: formatAdaptiveTime(gazeMetrics.totalSec), fullMark: 5 },
@@ -242,11 +228,61 @@ export function SessionDetail() {
     { metric: "과도한 움직임", value: fidgetingMetrics.score, timeLabel: formatAdaptiveTime(fidgetingMetrics.totalSec), fullMark: 5 },
   ];
 
-// Simple deterministic helper to keep data uniform for mock sessions if database count is empty
-function randomIntFromId(idStr: string, min: number, max: number) {
-  const num = parseInt(idStr.replace(/\D/g, "")) || 7;
-  return min + (num % (max - min + 1));
-}
+  // analyzed event insight
+  const distractionInsight = useMemo(() => {
+    const distractions = [
+        { name: "자리 이탈", metrics: absentMetrics, msg: "이번 세션은 '자리 이탈' 빈도가 가장 높습니다. 집중력이 깨지지 않도록 물이나 필요한 자료를 미리 책상에 준비하여 이동을 최소화하세요." },
+        { name: "시선 분산", metrics: gazeMetrics, msg: "이번 세션은 '시선 분산'이 자주 감지되었습니다. 스마트폰을 시야 밖으로 치우거나, 벽을 마주보고 앉는 등 시각적 자극 요소를 줄여보세요." },
+        { name: "자세 불량", metrics: postureMetrics, msg: "이번 세션은 '자세 불량'이 자주 감지되었습니다. 허리를 편 상태로 의자 깊숙이 앉는 습관을 들여보세요." },
+        { name: "과도한 움직임", metrics: fidgetingMetrics, msg: "이번 세션은 '불안정한 움직임'이 자주 감지되었습니다. 가벼운 스트레칭 후 다시 앉거나, 여건이 된다면 스탠딩 데스크를 활용해 보는 것도 좋은 방법입니다." }
+    ];
+    
+    distractions.sort((a, b) => b.metrics.totalSec - a.metrics.totalSec);
+    const worst = distractions[0];
+    if (worst.metrics.totalSec > 0) return { title: `우선 극복 과제: ${worst.name}`, content: worst.msg };
+    return { title: "방해 요소 없음", content: "감지된 주요 방해 요소가 없습니다! 아주 훌륭한 학습 환경과 자세를 갖추고 있습니다." };
+  }, [absentMetrics, gazeMetrics, postureMetrics, fidgetingMetrics]);
+
+  // feedback from the DB
+  const dbFeedbackInsight = useMemo(() => {
+    if (report?.insights && report.insights.length > 0) {
+        return { title: "AI 세션 요약", content: report.insights[0] };
+    }
+    return { title: "AI 세션 요약", content: "이 세션에서는 특별히 수집된 오동작 경고가 없습니다." };
+  }, [report]);
+
+  // timeline insight
+  const timeBasedInsight = useMemo(() => {
+    const { totalSeconds, focusScore } = sessionMetrics;
+    const isLongSession = totalSeconds > 1800; 
+
+    if (isLongSession && focusScore < 70) {
+        return { title: "학습 패턴 코칭 (장기 집중)", content: "30분 이상 학습 시 집중도가 급격히 저하되는 패턴이 감지되었습니다. '뽀모도로 기법'(25분 집중, 5분 휴식)을 도입하여 세션을 짧게 나누어 보세요." };
+    } else if (isLongSession && focusScore >= 70) {
+        return { title: "학습 패턴 코칭 (장기 집중)", content: "장시간 학습에도 높은 집중도를 유지하고 있습니다! 이 훌륭한 페이스를 유지하되, 세션 종료 후에는 반드시 가벼운 스트레칭으로 몸을 풀어주세요." };
+    } else if (!isLongSession && focusScore < 60) {
+        return { title: "학습 패턴 코칭 (단기 집중)", content: "짧은 세션임에도 집중력이 낮게 측정되었습니다. 본격적인 학습 시작 전 스마트폰 알림을 끄는 등 주변 환경을 먼저 통제하는 것을 권장합니다." };
+    } else {
+        return { title: "학습 패턴 코칭", content: "안정적인 집중도를 보여주고 있습니다. 지금처럼 짧고 굵은 몰입 습관을 계속 유지해 보세요!" };
+    }
+  }, [sessionMetrics]);
+
+  const getDiffText = (currentSecs: number, prevSecs: number | undefined, isReversedGood: boolean = false) => {
+    if (prevSecs === undefined || prevSecs === null) return null;
+    const diff = currentSecs - prevSecs;
+    const absDiff = Math.abs(Math.round(diff));
+    if (absDiff === 0) return { text: "이전과 동일", positive: true };
+    const isPositive = isReversedGood ? diff < 0 : diff > 0;
+    const m = Math.floor(absDiff / 60);
+    const s = Math.floor(absDiff % 60);
+    const timeStr = m > 0 ? `${m}m ${s}s` : `${s}s`;
+    return { text: `이전 대비 ${diff > 0 ? '+' : '-'}${timeStr}`, positive: isPositive };
+  };
+
+  if (loading) return <div className="p-8 text-center text-muted-foreground">세부 분석 리포트를 생성하는 중...</div>;
+  if (!report) return <div className="p-8 text-center text-destructive">리포트 데이터를 찾을 수 없습니다.</div>;
+
+  const { summary } = report;
 
   const formattedDate = new Date(summary.analyzed_at).toLocaleDateString("ko-KR", {
     year: "numeric",
@@ -287,7 +323,8 @@ function randomIntFromId(idStr: string, min: number, max: number) {
         <MetricCard 
           icon={<Clock className="w-5 h-5" />} 
           label="총 학습 시간" 
-          value={formatAdaptiveTime(sessionMetrics.totalSeconds)} 
+          value={formatAdaptiveTime(sessionMetrics.totalSeconds)}
+          change={getDiffText(sessionMetrics.totalSeconds, prevMetrics?.totalSecs)} 
           color="bg-blue-500" 
         />
         <MetricCard 
@@ -295,12 +332,15 @@ function randomIntFromId(idStr: string, min: number, max: number) {
           label="실제 집중 시간" 
           value={formatAdaptiveTime(sessionMetrics.actualFocusSeconds)} 
           subtitle={`세션의 ${sessionMetrics.focusScore}%`} 
+          change={getDiffText(sessionMetrics.actualFocusSeconds, prevMetrics?.focusSecs)}
           color="bg-green-500" 
         />
         <MetricCard 
           icon={<User className="w-5 h-5" />} 
           label="총 산만 시간" 
-          value={formatAdaptiveTime(gazeMetrics.totalSec + absentMetrics.totalSec + fidgetingMetrics.totalSec)} 
+          value={formatAdaptiveTime(sessionMetrics.totalSeconds - sessionMetrics.actualFocusSeconds)}
+          // notice 'true' at the end -> less distracted time = positive 
+          change={getDiffText((sessionMetrics.totalSeconds - sessionMetrics.actualFocusSeconds), prevMetrics?.distractSecs, true)}
           color="bg-orange-500" 
         />
       </div>
@@ -325,22 +365,6 @@ function randomIntFromId(idStr: string, min: number, max: number) {
             <Area type="monotone" dataKey="score" stroke="#1a667a" strokeWidth={3} fillOpacity={1} fill="url(#focusGradient)" />
           </AreaChart>
         </ResponsiveContainer>        
-      </div>
-
-      {/* Live Action Insights Feed */}
-      <div className="bg-gradient-to-br from-primary/5 to-accent/30 rounded-2xl border border-primary/20 p-6 shadow-sm">
-        <h3 className="text-xl font-bold text-foreground mb-4 flex items-center gap-2">
-          <Brain className="w-5 h-5 text-primary" /> AI 분석 피드백 리포트
-        </h3>
-        {insights.length === 0 ? (
-          <p className="text-sm text-muted-foreground">이 세션에서는 특별히 수집된 오동작 경고가 없습니다.</p>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {insights.map((feedbackText, idx) => (
-              <RecommendationCard key={idx} title={`행동 교정 인사이트 0${idx + 1}`} content={feedbackText} />
-            ))}
-          </div>
-        )}
       </div>
 
       {/* Grid Breakdowns */}
@@ -369,7 +393,7 @@ function randomIntFromId(idStr: string, min: number, max: number) {
           <div className="space-y-4">
             <DistractionItem 
               label="자리 이탈" 
-              // 🌟 REFACTORED: Pass the formatted adaptive time string directly
+              // Pass the formatted adaptive time string directly
               valueText={formatAdaptiveTime(absentMetrics.totalSec)} 
               percentage={absentMetrics.percent} 
               color="bg-orange-500" 
@@ -400,20 +424,17 @@ function randomIntFromId(idStr: string, min: number, max: number) {
         </div>
       </div>
 
-      {/* Live Action Insights Feed */}
+      {/* AI Insight Dashboard */}
       <div className="bg-gradient-to-br from-primary/5 to-accent/30 rounded-2xl border border-primary/20 p-6 shadow-sm">
-        <h3 className="text-xl font-bold text-foreground mb-4 flex items-center gap-2">
-          <Brain className="w-5 h-5 text-primary" /> AI 분석 피드백 리포트
+        <h3 className="text-xl font-bold text-foreground mb-5 flex items-center gap-2">
+          <Brain className="w-6 h-6 text-primary" /> 종합 AI 분석 피드백
         </h3>
-        {insights.length === 0 ? (
-          <p className="text-sm text-muted-foreground">이 세션에서는 특별히 수집된 오동작 경고가 없습니다.</p>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {insights.map((feedbackText, idx) => (
-              <RecommendationCard key={idx} title={`행동 교정 인사이트 0${idx + 1}`} content={feedbackText} />
-            ))}
-          </div>
-        )}
+        
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+          <RecommendationCard title={dbFeedbackInsight.title} content={dbFeedbackInsight.content} />
+          <RecommendationCard title={timeBasedInsight.title} content={timeBasedInsight.content} />
+          <RecommendationCard title={distractionInsight.title} content={distractionInsight.content} />
+        </div>
       </div>
 
       {/* Privacy Box */}
@@ -430,10 +451,18 @@ function randomIntFromId(idStr: string, min: number, max: number) {
   );
 }
 
-function MetricCard({ icon, label, value, subtitle, color }: { icon: React.ReactNode; label: string; value: string; subtitle?: string; color: string }) {
+function MetricCard({ icon, label, value, subtitle, color, change }: { icon: React.ReactNode; label: string; value: string; subtitle?: string; color: string; change?: { text: string, positive: boolean } | null }) {
   return (
-    <div className="bg-white rounded-xl border border-border p-5 hover:border-primary/30 transition-colors shadow-sm">
-      <div className={`inline-flex p-2 rounded-lg ${color} text-white mb-3 shadow-sm`}>{icon}</div>
+    <div className="bg-white rounded-xl border border-border p-5 hover:border-primary/30 transition-colors shadow-sm relative">
+      <div className="flex justify-between items-start mb-3">
+        <div className={`inline-flex p-2 rounded-lg ${color} text-white shadow-sm`}>{icon}</div>
+        {/* Render the comparison pill if data exists */}
+        {change && (
+          <span className={`text-[11px] font-bold px-2.5 py-1 rounded-md border ${change.positive ? "bg-emerald-50 text-emerald-600 border-emerald-100" : "bg-rose-50 text-rose-500 border-rose-100"}`}>
+            {change.text}
+          </span>
+        )}
+      </div>
       <div className="text-sm text-muted-foreground mb-1 font-medium">{label}</div>
       <div className="text-2xl font-bold text-foreground font-mono">{value}</div>
       {subtitle && <div className="text-xs text-muted-foreground mt-1 font-medium">{subtitle}</div>}
