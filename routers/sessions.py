@@ -46,7 +46,7 @@ def update_session(session_id: int, session_data: schemas.SessionUpdate, db: Ses
         raise HTTPException(status_code=404, detail="해당 세션을 찾을 수 없습니다.")
     
     # 2. 데이터 업데이트 (종료 시간 및 상태 반영)
-    session.end_time = session_data.end_time
+    session.end_time = datetime.now()
     session.status = session_data.status
     
     db.commit()
