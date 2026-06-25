@@ -28,7 +28,7 @@ interface SessionReportData {
     analyzed_at: string;
   };
   timeline: Array<{ t: number; state: string }>;
-  insights: string[]; // Maps your teammate's analysis_feedback texts
+  insights: string[];
   events: Array<{
     event_type: string;
     start_sec: number;
@@ -83,70 +83,74 @@ export function SessionDetail() {
   }, [allSessions, sessionId]);
 
   // Helper formatting logic
-  const formatMinutesDisplay = (minutes: number): string => {
-    const hours = Math.floor(minutes / 60);
-    const mins = minutes % 60;
-    return hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+  const formatAdaptiveTime = (totalSecs: number): string => {
+    if (totalSecs >= 3600) {
+      // 1 hour or more: Show Hours and Minutes
+      const hours = Math.floor(totalSecs / 3600);
+      const mins = Math.floor((totalSecs % 3600) / 60);
+      return `${hours}h ${mins}m`;
+    } else {
+      // Under 1 hour: Show Minutes and Seconds
+      const mins = Math.floor(totalSecs / 60);
+      const secs = Math.floor(totalSecs % 60);
+      return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+    }
   };
 
-  const parsedTimelineData = useMemo(() => {
-    if (!report?.events || !report?.timeline) return [];
+  const sessionMetrics = useMemo(() => {
+    if (!report) return { totalSeconds: 0, focusScore: 0, actualFocusSeconds: 0, secondBySecond: [] };
     
-    // 1. Determine total session length (fallback to max event end_sec if needed)
-    const totalSeconds = report.timeline.length > 0 
+    // Determine exact session length in seconds
+    const tSecs = report.timeline?.length > 0 
       ? report.timeline.length 
-      : Math.max(...report.events.map(e => e.end_sec), 0);
+      : Math.max(...(report.events?.map(e => e.end_sec) || [0]), 1);
       
-    if (totalSeconds === 0) return [];
-
-    // 2. Create a second-by-second baseline array (Default focus is 100%)
-    const secondBySecond = new Array(totalSeconds).fill(100);
-
-    // 3. Apply the event penalties to the exact seconds they occurred
-    report.events.forEach(event => {
+    // Baseline array: Assume 100% focus for every second
+    const secondBySecond = new Array(tSecs).fill(100);
+    
+    // Apply event penalties
+    report.events?.forEach(event => {
       const start = Math.floor(event.start_sec);
       const end = Math.floor(event.end_sec);
-      
-      // Convert distraction score (e.g., 0.7) to a focus penalty (70)
       const penalty = (event.score || 0) * 100;
       const resultingFocus = Math.max(0, 100 - penalty);
 
-      for (let i = start; i < end && i < totalSeconds; i++) {
-        // If events overlap (e.g., bad posture AND gazing away), take the lowest focus score
+      for (let i = start; i < end && i < tSecs; i++) {
         secondBySecond[i] = Math.min(secondBySecond[i], resultingFocus);
       }
     });
+    
+    // Calculate the average focus score mathematically
+    const totalScoreSum = secondBySecond.reduce((sum, score) => sum + score, 0);
+    const focusRatio = tSecs > 0 ? totalScoreSum / (tSecs * 100) : 0;
+    const focusScore = Math.round(focusRatio * 100);
+    const actualFocusSeconds = Math.round(tSecs * focusRatio);
+    
+    return { totalSeconds: tSecs, focusScore, actualFocusSeconds, secondBySecond };
+  }, [report]);
 
-    // 4. Bucket the data into dynamic chunks for a smooth, beautiful graph
-    // (e.g., break the whole session into 30 smooth data points regardless of total length)
+  const parsedTimelineData = useMemo(() => {
+    const { totalSeconds, secondBySecond } = sessionMetrics;
+    if (totalSeconds === 0) return [];
+
     const dataPointsCount = 30;
     const bucketSize = Math.max(1, Math.floor(totalSeconds / dataPointsCount));
 
     const bucketedData = [];
     for (let i = 0; i < totalSeconds; i += bucketSize) {
-      // Extract the chunk of seconds and calculate the true average
       const chunk = secondBySecond.slice(i, i + bucketSize);
       const avgScore = chunk.reduce((sum, val) => sum + val, 0) / chunk.length;
 
-      // Format the X-axis label nicely (MM:SS)
       const mins = Math.floor(i / 60);
       const secs = i % 60;
-      const timeLabel = `${mins}:${String(secs).padStart(2, "0")}`;
-
       bucketedData.push({
-        time: timeLabel,
+        time: `${mins}:${String(secs).padStart(2, "0")}`,
         score: Math.round(avgScore),
       });
     }
 
     return bucketedData;
-  }, [report]);
-
-  const peakFocusText = useMemo(() => {
-    if (parsedTimelineData.length === 0) return "세션 중반";
-    const peakPoint = [...parsedTimelineData].sort((a, b) => b.score - a.score)[0];
-    return `시작 후 약 ${peakPoint.time} 경`;
-  }, [parsedTimelineData]);
+  }, [sessionMetrics]);
 
   if (loading) return <div className="p-8 text-center text-muted-foreground">세부 분석 리포트를 생성하는 중...</div>;
   if (!report) return <div className="p-8 text-center text-destructive">리포트 데이터를 찾을 수 없습니다.</div>;
@@ -232,10 +236,10 @@ export function SessionDetail() {
 
   // 4. Feed the calculated 0-5 severity scores into the Radar Chart data
   const radarData = [
-    { metric: "자리 이탈", value: absentMetrics.score, fullMark: 5 },
-    { metric: "시선 분산", value: gazeMetrics.score, fullMark: 5 },
-    { metric: "자세 불량", value: postureMetrics.score, fullMark: 5 },
-    { metric: "과도한 움직임", value: fidgetingMetrics.score, fullMark: 5 },
+    { metric: "자리 이탈", value: absentMetrics.score, timeLabel: formatAdaptiveTime(absentMetrics.totalSec), fullMark: 5 },
+    { metric: "시선 분산", value: gazeMetrics.score, timeLabel: formatAdaptiveTime(gazeMetrics.totalSec), fullMark: 5 },
+    { metric: "자세 불량", value: postureMetrics.score, timeLabel: formatAdaptiveTime(postureMetrics.totalSec), fullMark: 5 },
+    { metric: "과도한 움직임", value: fidgetingMetrics.score, timeLabel: formatAdaptiveTime(fidgetingMetrics.totalSec), fullMark: 5 },
   ];
 
 // Simple deterministic helper to keep data uniform for mock sessions if database count is empty
@@ -274,16 +278,31 @@ function randomIntFromId(idStr: string, min: number, max: number) {
         </div>
         <div className="text-right">
           <div className="text-sm text-muted-foreground mb-1">전체 집중도</div>
-          <div className="text-4xl font-extrabold text-primary">{focusScore}%</div>
+          <div className="text-4xl font-extrabold text-primary">{sessionMetrics.focusScore}%</div>
         </div>
       </div>
 
       {/* Key Metrics Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <MetricCard icon={<Clock className="w-5 h-5" />} label="총 학습 시간" value={formatMinutesDisplay(estimatedTotalDurationMin)} color="bg-blue-500" />
-        <MetricCard icon={<Eye className="w-5 h-5" />} label="실제 집중 시간" value={formatMinutesDisplay(actualFocusTimeMin)} subtitle={`세션의 ${focusScore}%`} color="bg-green-500" />
-        <MetricCard icon={<User className="w-5 h-5" />} label="총 산만 시간" value={formatMinutesDisplay(gazeMetrics.timeMin + absentMetrics.timeMin + fidgetingMetrics.timeMin)} color="bg-orange-500" />
-        <MetricCard icon={<Activity className="w-5 h-5" />} label="집중도 점수" value={`${focusScore}%`} color="bg-primary" />
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <MetricCard 
+          icon={<Clock className="w-5 h-5" />} 
+          label="총 학습 시간" 
+          value={formatAdaptiveTime(sessionMetrics.totalSeconds)} 
+          color="bg-blue-500" 
+        />
+        <MetricCard 
+          icon={<Eye className="w-5 h-5" />} 
+          label="실제 집중 시간" 
+          value={formatAdaptiveTime(sessionMetrics.actualFocusSeconds)} 
+          subtitle={`세션의 ${sessionMetrics.focusScore}%`} 
+          color="bg-green-500" 
+        />
+        <MetricCard 
+          icon={<User className="w-5 h-5" />} 
+          label="총 산만 시간" 
+          value={formatAdaptiveTime(gazeMetrics.totalSec + absentMetrics.totalSec + fidgetingMetrics.totalSec)} 
+          color="bg-orange-500" 
+        />
       </div>
 
       {/* Timeline Chart */}
@@ -305,13 +324,23 @@ function randomIntFromId(idStr: string, min: number, max: number) {
             <Tooltip contentStyle={{ backgroundColor: "#fff", border: "1px solid #e5e5e5", borderRadius: "8px" }} formatter={(value: number) => [`${value}%`, "Focus Score"]} />
             <Area type="monotone" dataKey="score" stroke="#1a667a" strokeWidth={3} fillOpacity={1} fill="url(#focusGradient)" />
           </AreaChart>
-        </ResponsiveContainer>
-        
-        <div className="mt-4 p-4 bg-accent/30 rounded-lg border border-primary/20">
-          <p className="text-sm text-muted-foreground">
-            <strong className="text-foreground">인사이트:</strong> 세션 {peakFocusText}에 집중도가 최고조에 달했습니다. 높은 성과를 유지하려면 올바른 자세 유지를 의식하세요.
-          </p>
-        </div>
+        </ResponsiveContainer>        
+      </div>
+
+      {/* Live Action Insights Feed */}
+      <div className="bg-gradient-to-br from-primary/5 to-accent/30 rounded-2xl border border-primary/20 p-6 shadow-sm">
+        <h3 className="text-xl font-bold text-foreground mb-4 flex items-center gap-2">
+          <Brain className="w-5 h-5 text-primary" /> AI 분석 피드백 리포트
+        </h3>
+        {insights.length === 0 ? (
+          <p className="text-sm text-muted-foreground">이 세션에서는 특별히 수집된 오동작 경고가 없습니다.</p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {insights.map((feedbackText, idx) => (
+              <RecommendationCard key={idx} title={`행동 교정 인사이트 0${idx + 1}`} content={feedbackText} />
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Grid Breakdowns */}
@@ -323,8 +352,14 @@ function randomIntFromId(idStr: string, min: number, max: number) {
               <PolarGrid stroke="#e5e5e5" />
               <PolarAngleAxis dataKey="metric" tick={{ fill: "#888", fontSize: 12 }} />
               <PolarRadiusAxis angle={90} domain={[0, 5]} tickCount={6} tick={false} axisLine={false} />
-              <Radar name="Minutes" dataKey="value" stroke="#1a667a" fill="#1a667a" fillOpacity={0.5} strokeWidth={2} />
-              <Tooltip contentStyle={{ backgroundColor: "#fff", border: "1px solid #e5e5e5", borderRadius: "8px" }} />
+              <Radar name="산만함 지수" dataKey="value" stroke="#1a667a" fill="#1a667a" fillOpacity={0.5} strokeWidth={2} />
+              <Tooltip 
+                contentStyle={{ backgroundColor: "#fff", border: "1px solid #e5e5e5", borderRadius: "8px" }} 
+                formatter={(value: number, name: string, props: any) => [
+                  `${props.payload.timeLabel} (위험도: ${value}/5)`, 
+                  "누적 발생 시간"
+                ]}
+              />
             </RadarChart>
           </ResponsiveContainer>
         </div>
@@ -334,29 +369,30 @@ function randomIntFromId(idStr: string, min: number, max: number) {
           <div className="space-y-4">
             <DistractionItem 
               label="자리 이탈" 
-              value={absentMetrics.timeMin} 
-              total={estimatedTotalDurationMin} 
+              // 🌟 REFACTORED: Pass the formatted adaptive time string directly
+              valueText={formatAdaptiveTime(absentMetrics.totalSec)} 
+              percentage={absentMetrics.percent} 
               color="bg-orange-500" 
               description={`프레임 내 미감지 빈도: 총 ${absentMetrics.count}회`} 
             />
             <DistractionItem 
               label="시선 분산" 
-              value={gazeMetrics.timeMin} 
-              total={estimatedTotalDurationMin} 
+              valueText={formatAdaptiveTime(gazeMetrics.totalSec)} 
+              percentage={gazeMetrics.percent} 
               color="bg-yellow-500" 
               description={`외부 주시 및 시선 이탈 빈도: 총 ${gazeMetrics.count}회`} 
             />
             <DistractionItem 
               label="자세 불량" 
-              value={postureMetrics.timeMin} 
-              total={estimatedTotalDurationMin} 
+              valueText={formatAdaptiveTime(postureMetrics.totalSec)} 
+              percentage={postureMetrics.percent} 
               color="bg-red-500" 
               description={`거북목 및 구부정한 자세 감지: 총 ${postureMetrics.count}회`} 
             />
             <DistractionItem 
               label="과도한 움직임" 
-              value={fidgetingMetrics.timeMin} 
-              total={estimatedTotalDurationMin} 
+              valueText={formatAdaptiveTime(fidgetingMetrics.totalSec)} 
+              percentage={fidgetingMetrics.percent} 
               color="bg-purple-500" 
               description={`불안정한 움직임 감지: 총 ${fidgetingMetrics.count}회`} 
             />
@@ -364,7 +400,7 @@ function randomIntFromId(idStr: string, min: number, max: number) {
         </div>
       </div>
 
-      {/* AI Teammate's Live Action Insights Feed */}
+      {/* Live Action Insights Feed */}
       <div className="bg-gradient-to-br from-primary/5 to-accent/30 rounded-2xl border border-primary/20 p-6 shadow-sm">
         <h3 className="text-xl font-bold text-foreground mb-4 flex items-center gap-2">
           <Brain className="w-5 h-5 text-primary" /> AI 분석 피드백 리포트
@@ -405,8 +441,11 @@ function MetricCard({ icon, label, value, subtitle, color }: { icon: React.React
   );
 }
 
-function DistractionItem({ label, value, total, color, description, unit = "m" }: { label: string; value: number; total: number; color: string; description: string; unit?: string }) {
-  const percentage = total > 0 ? Math.min(Math.round((value / total) * 100), 100) : 0;
+function DistractionItem({ 
+  label, valueText, percentage, color, description 
+}: { 
+  label: string; valueText: string; percentage: number; color: string; description: string;
+}) {
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
@@ -415,7 +454,8 @@ function DistractionItem({ label, value, total, color, description, unit = "m" }
           <div className="text-xs text-muted-foreground">{description}</div>
         </div>
         <div className="text-right">
-          <div className="font-bold text-foreground text-sm font-mono">{value}{unit}</div>
+          {/* Displaying the formatted string directly */}
+          <div className="font-bold text-foreground text-sm font-mono">{valueText}</div>
           <div className="text-xs text-muted-foreground font-medium">{percentage}%</div>
         </div>
       </div>
