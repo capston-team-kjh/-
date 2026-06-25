@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from typing import List
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import boto3
 import json
 import models, schemas
@@ -46,7 +46,8 @@ def update_session(session_id: int, session_data: schemas.SessionUpdate, db: Ses
         raise HTTPException(status_code=404, detail="해당 세션을 찾을 수 없습니다.")
     
     # 2. 데이터 업데이트 (종료 시간 및 상태 반영)
-    session.end_time = datetime.now()
+    KST = timezone(timedelta(hours=9))
+    session.end_time = datetime.now(KST)
     session.status = session_data.status
     
     db.commit()
