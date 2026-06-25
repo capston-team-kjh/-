@@ -12,7 +12,7 @@ export function ActivityHeatmap({ rawSessions = [] }: HeatmapProps) {
 
   const availableYears = [currentYear, currentYear - 1, currentYear - 2];
 
-  // Map real database items onto specific dates instead of using random numbers!
+  // Map real database items onto specific dates instead of using random numbers
   const activityData = useMemo(() => {
     const data: { date: Date; count: number }[] = [];
     const startDate = new Date(selectedYear, 0, 1);
@@ -22,11 +22,11 @@ export function ActivityHeatmap({ rawSessions = [] }: HeatmapProps) {
     const sessionMap: { [key: string]: number } = {};
     rawSessions.forEach((s) => {
       try {
-        // 🌟 Read the raw YYYY-MM-DD string directly from the backend payload!
+        // Read the raw YYYY-MM-DD string directly from the backend payload
         const dateKey = s.date_raw; 
         
         if (dateKey) {
-          const hours = s.duration_min / 60;
+          const hours = Math.round((s.duration_min / 60 + Number.EPSILON) * 10) / 10;
           sessionMap[dateKey] = (sessionMap[dateKey] || 0) + hours;
         }
       } catch (e) {
@@ -36,7 +36,6 @@ export function ActivityHeatmap({ rawSessions = [] }: HeatmapProps) {
 
     const currentDate = new Date(startDate);
     while (currentDate <= endDate) {
-      // Extract year, month, and day based on local time instead of running .toISOString()
       const year = currentDate.getFullYear();
       const month = String(currentDate.getMonth() + 1).padStart(2, "0");
       const day = String(currentDate.getDate()).padStart(2, "0");
@@ -58,7 +57,7 @@ export function ActivityHeatmap({ rawSessions = [] }: HeatmapProps) {
 
   // Organize data by day of week for each week column
   const gridData = useMemo(() => {
-    // Find the starting Sunday (or Monday if you prefer)
+    // Find the starting Sunday
     const firstDate = activityData[0]?.date;
     if (!firstDate) return { weeks: [], monthLabels: [] };
     

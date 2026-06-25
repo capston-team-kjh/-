@@ -87,23 +87,6 @@ export function Landing() {
         </div>
       </section>
 
-      <section className="max-w-7xl mx-auto px-6 py-20 text-center">
-        <div className="max-w-2xl mx-auto space-y-6 bg-primary/5 rounded-2xl p-12 border border-primary/20">
-          <h2 className="text-3xl font-bold text-foreground">
-            학습을 한 단계 업그레이드할 준비가 되셨나요?
-          </h2>
-          <p className="text-lg text-muted-foreground">
-            이미 학업 목표를 달성하고 있는 수천 명의 학생들과 함께하세요.
-          </p>
-          <Link
-            to="/signup"
-            className="inline-block px-8 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-lg"
-          >
-            무료로 시작하기
-          </Link>
-        </div>
-      </section>
-
       <footer className="border-t border-border py-8">
         <div className="max-w-7xl mx-auto px-6 text-center text-muted-foreground">
           <p>© 2026 FocusAI. All rights reserved.</p>

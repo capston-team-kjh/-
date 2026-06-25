@@ -172,9 +172,6 @@ export function Settings() {
           <button onClick={()=>setView('password')} className="w-full md:w-auto px-6 py-3 border border-border rounded-lg hover:bg-accent transition-colors text-left">
             비밀번호 변경
           </button>
-          <button className="w-full md:w-auto px-6 py-3 border border-border rounded-lg hover:bg-accent transition-colors text-left">
-            내 데이터 다운로드
-          </button>
           <button className="w-full md:w-auto px-6 py-3 border border-destructive text-destructive rounded-lg hover:bg-destructive/10 transition-colors text-left">
             계정 삭제
           </button>
