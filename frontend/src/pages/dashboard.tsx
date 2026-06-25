@@ -23,7 +23,12 @@ export function Dashboard() {
         const getPastDateString = (daysAgo: number) => {
         const d = new Date();
         d.setDate(d.getDate() - daysAgo);
-        return d.toISOString().split("T")[0];
+        
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        
+        return `${year}-${month}-${day}`;
       };
 
       const startDate = getPastDateString(7);
@@ -145,7 +150,7 @@ export function Dashboard() {
             {recentSessions.slice(0,3).map((session) => (
               <Link 
                 key={session.session_id} 
-                to={`/app/reports/${session.session_id || session.id}`} //  Dynamically routes to the specific report ID
+                to={`/app/reports/${session.session_id || session.id}`} 
                 className="flex items-center justify-between p-4 rounded-xl border border-border bg-white hover:border-primary/40 hover:shadow-sm transition-all cursor-pointer group block"
               >
                 <div>
