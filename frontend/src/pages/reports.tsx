@@ -11,6 +11,13 @@ interface ReportItem {
   duration_sec: number;
   focus_score: number;
   eventSecs?: { gaze: number; posture: number; absent: number; fidget: number };
+
+  personal_feedback?: {
+    main_problem: string;
+    reason: string;
+    feedback: string;
+    next_action: string;
+  };
 }
 
 export function Reports() {
@@ -142,7 +149,17 @@ export function Reports() {
     if (worstHabit === "자리 이탈") recommendation = "이번 주에는'자리 이탈'이 가장 많이 기록되었습니다. 물이나 필기도구 등 필요한 물품을 미리 준비하여 세션 중 흐름이 끊기는 것을 방지하세요.";
     if (worstHabit === "과도한 움직임") recommendation = "이번 주에는 '과도한 움직임'이 가장 많이 기록되었습니다. 집중력이 떨어질 때는 무리해서 앉아있기보다 5분 정도 가벼운 스트레칭 후 다시 시작하는 것이 좋습니다.";
 
-    return { avgScore, worstHabit, recommendation, hasDistractions: maxSecs > 0 };
+    const latestSessionWithAI = [...weeklySessions]
+      .sort((a, b) => b.id - a.id)
+      .find(s => s.personal_feedback);
+
+    return { 
+      avgScore, 
+      worstHabit, 
+      recommendation, 
+      hasDistractions: maxSecs > 0,
+      aiFeedback: latestSessionWithAI?.personal_feedback // Pass the JSON down
+    };
   }, [sessionsList]);
 
   // Pagination Logic
@@ -220,15 +237,42 @@ export function Reports() {
           </div>
           
           <div className="bg-white/80 rounded-xl p-5 border border-primary/10">
-            <div className="flex items-start gap-4">
-              <AlertCircle className={`w-6 h-6 mt-0.5 ${weeklyRecap.hasDistractions ? "text-orange-500" : "text-emerald-500"}`} />
-              <div>
-                <h3 className="font-bold text-foreground mb-1 text-lg">
+            <div className="flex flex-col">
+              
+              {/* Header: Weekly Aggregate Stats */}
+              <div className="flex items-center gap-2 pb-3 mb-4 border-b border-border/50">
+                <AlertCircle className={`w-5 h-5 ${weeklyRecap.hasDistractions ? "text-orange-500" : "text-emerald-500"}`} />
+                <h3 className="font-bold text-foreground text-lg">
                   주간 평균 집중도: {weeklyRecap.avgScore}% 
-                  {weeklyRecap.hasDistractions && <span className="text-muted-foreground text-sm font-normal ml-2">| 주요 방해 요인: {weeklyRecap.worstHabit}</span>}
+                  {weeklyRecap.hasDistractions && <span className="text-muted-foreground text-sm font-normal ml-2">| 주간 최대 방해 요인: {weeklyRecap.worstHabit}</span>}
                 </h3>
-                <p className="text-muted-foreground leading-relaxed">{weeklyRecap.recommendation}</p>
               </div>
+
+              {/* render the AI JSON or the fallback text */}
+              {weeklyRecap.aiFeedback ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="bg-primary/5 p-4 rounded-lg border border-primary/20">
+                    <div className="text-sm font-bold text-primary mb-1">
+                      최근 세션 진단: {weeklyRecap.aiFeedback.main_problem}
+                    </div>
+                    <div className="text-sm text-muted-foreground">
+                      {weeklyRecap.aiFeedback.reason} {weeklyRecap.aiFeedback.feedback}
+                    </div>
+                  </div>
+                  <div className="bg-primary/5 p-4 rounded-lg border border-primary/20">
+                    <div className="text-sm font-bold text-primary mb-1 flex items-center gap-1">
+                      <Target className="w-4 h-4" /> AI 향후 학습 제안
+                    </div>
+                    <div className="text-sm text-muted-foreground font-medium">
+                      {weeklyRecap.aiFeedback.next_action}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                // Only shows up if the AI hasn't generated a JSON analysis yet
+                <p className="text-muted-foreground leading-relaxed">{weeklyRecap.recommendation}</p>
+              )}
+              
             </div>
           </div>
         </div>

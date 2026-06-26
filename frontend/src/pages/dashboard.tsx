@@ -9,11 +9,11 @@ export function Dashboard() {
   const [recentSessions, setRecentSessions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   
-  // Get user info from localStorage (saved during login)
+  // Get user info from localStorage
   const userId = localStorage.getItem("user_id");
   const userName = localStorage.getItem("name") || "사용자";
 
-  // 🌟 NEW: Universal Smart Time Formatter
+  // Time Formatter
   const formatAdaptiveTime = (totalSecs: number): string => {
     if (totalSecs >= 3600) {
       const hours = Math.floor(totalSecs / 3600);
@@ -92,7 +92,7 @@ export function Dashboard() {
         <StatCard
           icon={<Clock className="w-6 h-6" />}
           label="이번 주 학습"
-          value={`${reportData?.total_hours || 0} hrs`}
+          value={reportData ? formatAdaptiveTime(reportData.total_seconds) : "0s"}
           change={`${reportData?.active_days || 0}일 활동 중`}
           positive
         />
@@ -143,6 +143,10 @@ export function Dashboard() {
                   border: "1px solid #e5e5e5",
                   borderRadius: "8px",
                 }}
+                formatter={(value: number, name: string, props: any) => [
+                  formatAdaptiveTime(props.payload.seconds),
+                  "학습 시간"
+                ]}
               />
               <Area
                 type="monotone"
@@ -186,7 +190,6 @@ export function Dashboard() {
                       집중도: {session.focus_score}%
                     </div>
                   </div>
-                  {/* Subtle decorative arrow to emphasize clickability */}
                   <span className="text-muted-foreground opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all text-sm font-medium">
                     →
                   </span>

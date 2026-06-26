@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { ChevronDown } from "lucide-react";
 
 interface HeatmapProps {
-  rawSessions: Array<{date: string; date_raw: string; duration_min: number; focus_score: number }>;
+  rawSessions: Array<{date: string; date_raw: string; duration_min: number; duration_sec?: number; focus_score: number }>;
 }
 
 export function ActivityHeatmap({ rawSessions = [] }: HeatmapProps) {
@@ -12,25 +12,35 @@ export function ActivityHeatmap({ rawSessions = [] }: HeatmapProps) {
 
   const availableYears = [currentYear, currentYear - 1, currentYear - 2];
 
-  // Map real database items onto specific dates instead of using random numbers
+  // time formatter 
+  const formatAdaptiveTime = (totalSecs: number): string => {
+    if (totalSecs >= 3600) {
+      const hours = Math.floor(totalSecs / 3600);
+      const mins = Math.floor((totalSecs % 3600) / 60);
+      return `${hours}h ${mins}m`;
+    } else {
+      const mins = Math.floor(totalSecs / 60);
+      const secs = Math.floor(totalSecs % 60);
+      return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+    }
+  };
+
   const activityData = useMemo(() => {
     const data: { date: Date; count: number; focus: number }[] = [];
     const startDate = new Date(selectedYear, 0, 1);
     const endDate = new Date(selectedYear, 11, 31);
     
-    // Store both total hours and a weighted focus score
-    const sessionMap: { [key: string]: { hours: number; focusWeight: number } } = {};
+    const sessionMap: { [key: string]: { seconds: number; focusWeight: number } } = {};
     
     rawSessions.forEach((s) => {
       try {
         const dateKey = s.date_raw; 
         if (dateKey) {
-          const hours = s.duration_min / 60;
-          if (!sessionMap[dateKey]) sessionMap[dateKey] = { hours: 0, focusWeight: 0 };
+          const secs = s.duration_sec || (s.duration_min * 60);
+          if (!sessionMap[dateKey]) sessionMap[dateKey] = { seconds: 0, focusWeight: 0 };
           
-          sessionMap[dateKey].hours += hours;
-          // Weight the focus score by how long the session was
-          sessionMap[dateKey].focusWeight += ((s.focus_score || 0) * hours);
+          sessionMap[dateKey].seconds += secs;
+          sessionMap[dateKey].focusWeight += ((s.focus_score || 0) * secs);
         }
       } catch (e) {}
     });
@@ -43,12 +53,12 @@ export function ActivityHeatmap({ rawSessions = [] }: HeatmapProps) {
       const dateKey = `${year}-${month}-${day}`;
       
       const mapData = sessionMap[dateKey];
-      const actualHours = mapData ? mapData.hours : 0;
-      const avgFocus = mapData && mapData.hours > 0 ? Math.round(mapData.focusWeight / mapData.hours) : 0;
+      const actualSecs = mapData ? mapData.seconds : 0;
+      const avgFocus = mapData && mapData.seconds > 0 ? Math.round(mapData.focusWeight / mapData.seconds) : 0;
       
       data.push({
         date: new Date(currentDate),
-        count: actualHours,
+        count: actualSecs, 
         focus: avgFocus
       });
       
@@ -116,8 +126,8 @@ export function ActivityHeatmap({ rawSessions = [] }: HeatmapProps) {
 
   const getColor = (count: number) => {
     if (count === 0) return "bg-muted/30";
-    if (count <= 2) return "bg-[#b4dfe9]";
-    if (count <= 4) return "bg-[#5ab3c7]";
+    if (count <= 7200) return "bg-[#b4dfe9]"; 
+    if (count <= 14400) return "bg-[#5ab3c7]";
     return "bg-primary";
   };
 
@@ -209,7 +219,7 @@ export function ActivityHeatmap({ rawSessions = [] }: HeatmapProps) {
                         }`}
                         title={
                           day && day.count > 0
-                            ? `${day.date.toLocaleDateString()}: ${day.count.toFixed(1)}시간 | 집중도: ${day.focus}%`
+                            ? `${day.date.toLocaleDateString()}: ${formatAdaptiveTime(day.count)} | 집중도: ${day.focus}%`
                             : ""
                         }
                       />

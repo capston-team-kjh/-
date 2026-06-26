@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, BigInteger, Boolean
+from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, BigInteger, Boolean, JSON
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.mysql import LONGTEXT
 from sqlalchemy.sql import func
@@ -26,6 +26,7 @@ class FocusSession(Base):
     start_time = Column(DateTime, nullable=False, default=func.now())
     end_time = Column(DateTime, nullable=True)
     status = Column(String(20), default="active") # 상태: active, completed, canceled
+    duration_sec = Column(Integer, nullable=True)
 
     # 관계 설정
     user = relationship("User", back_populates="sessions")
@@ -75,6 +76,10 @@ class AnalysisFeedback(Base):
     session_id = Column(String(100), nullable=False) # VARCHAR(100) NN
     feedback_text = Column(LONGTEXT, nullable=False)   # LONGTEXT NN (Mapped to String in SQLAlchemy)
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now()) # TIMESTAMP with trigger
+    personal_feedback = Column(JSON, nullable=True)
+    feedback_source = Column(String(30), nullable=True)
+    feedback_version = Column(String(30), nullable=True)
+    feedback_created_at = Column(DateTime, nullable=True)
 
 
 class AnalysisSummary(Base):

@@ -35,6 +35,19 @@ interface SessionReportData {
     end_sec: number;
     score: number;
   }>;
+  personal_feedback?: {
+    main_problem: string;
+    reason: string;
+    feedback: string;
+    next_action: string;
+    worst_segments: Array<{
+      start_sec: number;
+      end_sec: number;
+      problem: string;
+      feedback: string;
+    }>;
+  };
+  feedback_source?: string;
 }
 
 export function SessionDetail() {
@@ -152,19 +165,6 @@ export function SessionDetail() {
     return bucketedData;
   }, [sessionMetrics]);
 
-  const prevMetrics = useMemo(() => {
-    if (!allSessions || allSessions.length === 0 || !sessionId) return null;
-    const currentIndex = allSessions.findIndex((s) => String(s.id) === String(sessionId));
-    if (currentIndex >= 0 && currentIndex < allSessions.length - 1) {
-        const p = allSessions[currentIndex + 1];
-        const pTotalSecs = (p.duration_min || 0) * 60;
-        const pFocusRatio = (p.focus_score || 0) / 100;
-        const pFocusSecs = pTotalSecs * pFocusRatio;
-        return { totalSecs: pTotalSecs, focusSecs: pFocusSecs, distractSecs: pTotalSecs - pFocusSecs };
-    }
-    return null;
-  }, [allSessions, sessionId]);
-
   const getEventMetrics = (eventTypes: string[]) => {
     // Safely check if report and events exist
     const matchedEvents = report?.events?.filter(e => eventTypes.includes(e.event_type)) || [];
@@ -176,8 +176,7 @@ export function SessionDetail() {
     const baseTotal = sessionMetrics.totalSeconds || 1; 
     const percent = Math.min(Math.round((totalSec / baseTotal) * 100), 100);
     
-    let score = 0;
-    if (percent > 0) score = 1;
+    let score = 1; 
     if (percent >= 5) score = 2;
     if (percent >= 15) score = 3;
     if (percent >= 25) score = 4;
@@ -206,8 +205,7 @@ export function SessionDetail() {
     const baseTotal = sessionMetrics.totalSeconds || 1;
     const percent = Math.min(Math.round((totalSec / baseTotal) * 100), 100);
     
-    let score = 0;
-    if (percent > 0) score = 1;
+    let score = 1; 
     if (percent >= 5) score = 2;
     if (percent >= 15) score = 3;
     if (percent >= 25) score = 4;
@@ -222,62 +220,11 @@ export function SessionDetail() {
   const fidgetingMetrics = getFidgetingMetrics();
 
   const radarData = [
-    { metric: "자리 이탈", value: absentMetrics.score, timeLabel: formatAdaptiveTime(absentMetrics.totalSec), fullMark: 5 },
-    { metric: "시선 분산", value: gazeMetrics.score, timeLabel: formatAdaptiveTime(gazeMetrics.totalSec), fullMark: 5 },
-    { metric: "자세 불량", value: postureMetrics.score, timeLabel: formatAdaptiveTime(postureMetrics.totalSec), fullMark: 5 },
-    { metric: "과도한 움직임", value: fidgetingMetrics.score, timeLabel: formatAdaptiveTime(fidgetingMetrics.totalSec), fullMark: 5 },
+    { metric: "자리 이탈", value: absentMetrics.score, baseMark: 1, timeLabel: formatAdaptiveTime(absentMetrics.totalSec), fullMark: 5 },
+    { metric: "시선 분산", value: gazeMetrics.score, baseMark: 1, timeLabel: formatAdaptiveTime(gazeMetrics.totalSec), fullMark: 5 },
+    { metric: "자세 불량", value: postureMetrics.score, baseMark: 1, timeLabel: formatAdaptiveTime(postureMetrics.totalSec), fullMark: 5 },
+    { metric: "과도한 움직임", value: fidgetingMetrics.score, baseMark: 1, timeLabel: formatAdaptiveTime(fidgetingMetrics.totalSec), fullMark: 5 },
   ];
-
-  // analyzed event insight
-  const distractionInsight = useMemo(() => {
-    const distractions = [
-        { name: "자리 이탈", metrics: absentMetrics, msg: "이번 세션은 '자리 이탈' 빈도가 가장 높습니다. 집중력이 깨지지 않도록 물이나 필요한 자료를 미리 책상에 준비하여 이동을 최소화하세요." },
-        { name: "시선 분산", metrics: gazeMetrics, msg: "이번 세션은 '시선 분산'이 자주 감지되었습니다. 스마트폰을 시야 밖으로 치우거나, 벽을 마주보고 앉는 등 시각적 자극 요소를 줄여보세요." },
-        { name: "자세 불량", metrics: postureMetrics, msg: "이번 세션은 '자세 불량'이 자주 감지되었습니다. 허리를 편 상태로 의자 깊숙이 앉는 습관을 들여보세요." },
-        { name: "과도한 움직임", metrics: fidgetingMetrics, msg: "이번 세션은 '불안정한 움직임'이 자주 감지되었습니다. 가벼운 스트레칭 후 다시 앉거나, 여건이 된다면 스탠딩 데스크를 활용해 보는 것도 좋은 방법입니다." }
-    ];
-    
-    distractions.sort((a, b) => b.metrics.totalSec - a.metrics.totalSec);
-    const worst = distractions[0];
-    if (worst.metrics.totalSec > 0) return { title: `우선 극복 과제: ${worst.name}`, content: worst.msg };
-    return { title: "방해 요소 없음", content: "감지된 주요 방해 요소가 없습니다! 아주 훌륭한 학습 환경과 자세를 갖추고 있습니다." };
-  }, [absentMetrics, gazeMetrics, postureMetrics, fidgetingMetrics]);
-
-  // feedback from the DB
-  const dbFeedbackInsight = useMemo(() => {
-    if (report?.insights && report.insights.length > 0) {
-        return { title: "AI 세션 요약", content: report.insights[0] };
-    }
-    return { title: "AI 세션 요약", content: "이 세션에서는 특별히 수집된 오동작 경고가 없습니다." };
-  }, [report]);
-
-  // timeline insight
-  const timeBasedInsight = useMemo(() => {
-    const { totalSeconds, focusScore } = sessionMetrics;
-    const isLongSession = totalSeconds > 1800; 
-
-    if (isLongSession && focusScore < 70) {
-        return { title: "학습 패턴 코칭 (장기 집중)", content: "30분 이상 학습 시 집중도가 급격히 저하되는 패턴이 감지되었습니다. '뽀모도로 기법'(25분 집중, 5분 휴식)을 도입하여 세션을 짧게 나누어 보세요." };
-    } else if (isLongSession && focusScore >= 70) {
-        return { title: "학습 패턴 코칭 (장기 집중)", content: "장시간 학습에도 높은 집중도를 유지하고 있습니다! 이 훌륭한 페이스를 유지하되, 세션 종료 후에는 반드시 가벼운 스트레칭으로 몸을 풀어주세요." };
-    } else if (!isLongSession && focusScore < 60) {
-        return { title: "학습 패턴 코칭 (단기 집중)", content: "짧은 세션임에도 집중력이 낮게 측정되었습니다. 본격적인 학습 시작 전 스마트폰 알림을 끄는 등 주변 환경을 먼저 통제하는 것을 권장합니다." };
-    } else {
-        return { title: "학습 패턴 코칭", content: "안정적인 집중도를 보여주고 있습니다. 지금처럼 짧고 굵은 몰입 습관을 계속 유지해 보세요!" };
-    }
-  }, [sessionMetrics]);
-
-  const getDiffText = (currentSecs: number, prevSecs: number | undefined, isReversedGood: boolean = false) => {
-    if (prevSecs === undefined || prevSecs === null) return null;
-    const diff = currentSecs - prevSecs;
-    const absDiff = Math.abs(Math.round(diff));
-    if (absDiff === 0) return { text: "이전과 동일", positive: true };
-    const isPositive = isReversedGood ? diff < 0 : diff > 0;
-    const m = Math.floor(absDiff / 60);
-    const s = Math.floor(absDiff % 60);
-    const timeStr = m > 0 ? `${m}m ${s}s` : `${s}s`;
-    return { text: `이전 대비 ${diff > 0 ? '+' : '-'}${timeStr}`, positive: isPositive };
-  };
 
   if (loading) return <div className="p-8 text-center text-muted-foreground">세부 분석 리포트를 생성하는 중...</div>;
   if (!report) return <div className="p-8 text-center text-destructive">리포트 데이터를 찾을 수 없습니다.</div>;
@@ -324,7 +271,6 @@ export function SessionDetail() {
           icon={<Clock className="w-5 h-5" />} 
           label="총 학습 시간" 
           value={formatAdaptiveTime(sessionMetrics.totalSeconds)}
-          change={getDiffText(sessionMetrics.totalSeconds, prevMetrics?.totalSecs)} 
           color="bg-blue-500" 
         />
         <MetricCard 
@@ -332,15 +278,12 @@ export function SessionDetail() {
           label="실제 집중 시간" 
           value={formatAdaptiveTime(sessionMetrics.actualFocusSeconds)} 
           subtitle={`세션의 ${sessionMetrics.focusScore}%`} 
-          change={getDiffText(sessionMetrics.actualFocusSeconds, prevMetrics?.focusSecs)}
           color="bg-green-500" 
         />
         <MetricCard 
           icon={<User className="w-5 h-5" />} 
           label="총 산만 시간" 
           value={formatAdaptiveTime(sessionMetrics.totalSeconds - sessionMetrics.actualFocusSeconds)}
-          // notice 'true' at the end -> less distracted time = positive 
-          change={getDiffText((sessionMetrics.totalSeconds - sessionMetrics.actualFocusSeconds), prevMetrics?.distractSecs, true)}
           color="bg-orange-500" 
         />
       </div>
@@ -371,18 +314,43 @@ export function SessionDetail() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-white rounded-2xl border border-border p-6 shadow-sm">
           <h3 className="text-xl font-semibold mb-4">산만함 분석</h3>
+          <p className="text-sm text-muted-foreground mb-4">
+            가장 안쪽의 점선 영역은 정상 범위를 의미합니다. 그래프가 바깥으로 뻗어나갈수록 해당 요소로 인한 방해 시간이 길었음을 나타냅니다.
+          </p>
           <ResponsiveContainer width="100%" height={350}>
             <RadarChart data={radarData}>
               <PolarGrid stroke="#e5e5e5" />
               <PolarAngleAxis dataKey="metric" tick={{ fill: "#888", fontSize: 12 }} />
               <PolarRadiusAxis angle={90} domain={[0, 5]} tickCount={6} tick={false} axisLine={false} />
-              <Radar name="산만함 지수" dataKey="value" stroke="#1a667a" fill="#1a667a" fillOpacity={0.5} strokeWidth={2} />
+
+              <Radar 
+                name="정상(안전) 범위" 
+                dataKey="baseMark" 
+                stroke="#10b981" 
+                fill="none" 
+                strokeWidth={2} 
+                strokeDasharray="5 5" 
+              />
+              {/* Data layer */}
+              <Radar name="산만함 감지" dataKey="value" stroke="#1a667a" fill="#1a667a" fillOpacity={0.5} strokeWidth={2} />
+              
+  
+              
               <Tooltip 
-                contentStyle={{ backgroundColor: "#fff", border: "1px solid #e5e5e5", borderRadius: "8px" }} 
-                formatter={(value: number, name: string, props: any) => [
-                  `${props.payload.timeLabel} (위험도: ${value}/5)`, 
-                  "누적 발생 시간"
-                ]}
+                content={({ active, payload }) => {
+                  if (active && payload && payload.length) {
+                    const data = payload.find(p => p.dataKey === "value");
+                    if (data) {
+                      return (
+                        <div className="bg-white border border-[#e5e5e5] p-3 rounded-lg shadow-sm">
+                          <p className="font-bold text-sm text-foreground mb-1">{data.payload.metric}</p>
+                          <p className="text-sm text-primary font-medium">누적 발생 시간: {data.payload.timeLabel}</p>
+                        </div>
+                      );
+                    }
+                  }
+                  return null;
+                }}
               />
             </RadarChart>
           </ResponsiveContainer>
@@ -424,18 +392,57 @@ export function SessionDetail() {
         </div>
       </div>
 
-      {/* AI Insight Dashboard */}
-      <div className="bg-gradient-to-br from-primary/5 to-accent/30 rounded-2xl border border-primary/20 p-6 shadow-sm">
-        <h3 className="text-xl font-bold text-foreground mb-5 flex items-center gap-2">
-          <Brain className="w-6 h-6 text-primary" /> 종합 AI 분석 피드백
-        </h3>
-        
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-          <RecommendationCard title={dbFeedbackInsight.title} content={dbFeedbackInsight.content} />
-          <RecommendationCard title={timeBasedInsight.title} content={timeBasedInsight.content} />
-          <RecommendationCard title={distractionInsight.title} content={distractionInsight.content} />
+      {/* 백엔드 AI JSON 데이터를 활용한 스마트 피드백 영역 */}
+      {report?.personal_feedback && (
+        <div className="bg-gradient-to-br from-primary/5 to-accent/30 rounded-2xl border border-primary/20 p-6 shadow-sm mb-6">
+          <div className="flex items-center justify-between mb-5">
+            <h3 className="text-xl font-bold text-foreground flex items-center gap-2">
+              <Brain className="w-6 h-6 text-primary" /> AI 맞춤형 세션 코칭
+            </h3>
+            {report.feedback_source === "ai_api" && (
+              <span className="px-2 py-1 bg-primary/10 text-primary text-xs rounded-md font-medium">
+                AI 분석 완료
+              </span>
+            )}
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-5">
+            <RecommendationCard 
+              title={`주요 문제: ${report.personal_feedback.main_problem}`} 
+              content={report.personal_feedback.reason} 
+            />
+            <RecommendationCard 
+              title="향후 학습 제안" 
+              content={report.personal_feedback.next_action} 
+            />
+          </div>
+
+          <div className="bg-white/80 rounded-xl p-5 border border-primary/10 shadow-sm">
+            <h4 className="font-semibold text-sm mb-2 text-primary">상세 피드백</h4>
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              {report.personal_feedback.feedback}
+            </p>
+          </div>
+          
+          {/* 최악의 구간(worst_segments)이 존재할 경우 렌더링 */}
+          {report.personal_feedback.worst_segments && report.personal_feedback.worst_segments.length > 0 && (
+            <div className="mt-5 space-y-3">
+              <h4 className="font-semibold text-sm text-foreground">⚠️ 집중력 저하 주요 구간</h4>
+              {report.personal_feedback.worst_segments.map((segment, idx) => (
+                <div key={idx} className="flex items-start gap-3 bg-white p-3 rounded-lg border border-border">
+                  <div className="text-xs font-mono font-bold text-orange-500 bg-orange-50 px-2 py-1 rounded">
+                    {formatAdaptiveTime(segment.start_sec)} - {formatAdaptiveTime(segment.end_sec)}
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium">{segment.problem}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">{segment.feedback}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-      </div>
+      )}
 
       {/* Privacy Box */}
       <div className="bg-white rounded-xl border border-border p-4 shadow-sm flex items-start gap-3">
