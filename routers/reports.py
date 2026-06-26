@@ -131,7 +131,7 @@ def get_recent_results(
 
     return {"items": items}
 
-# Detailed Report Endpoint for an Individual Session (/app/reports/:id)
+# Detailed Report Endpoint for an Individual Session
 @router.get("/session/{session_id}")
 def get_individual_session_report(
     session_id: str,
@@ -192,7 +192,7 @@ def get_analytics_list(db: Session = Depends(get_db), user_id: int = Header(alia
         duration_sec = (session.end_time - session.start_time).total_seconds() if session.end_time else 0
         duration_min = max(int(duration_sec // 60), 1)
         
-        # 2. Fetch related timeline and events to calculate TRUE metrics
+        # 2. Fetch related timeline and events to calculate metrics
         timeline_len = db.query(models.AnalysisTimeline).filter(models.AnalysisTimeline.session_id == str(session.id)).count()
         events = db.query(models.AnalysisEvent).filter(models.AnalysisEvent.session_id == str(session.id)).all()
         
