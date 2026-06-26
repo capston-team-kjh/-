@@ -13,6 +13,19 @@ export function Dashboard() {
   const userId = localStorage.getItem("user_id");
   const userName = localStorage.getItem("name") || "사용자";
 
+  // 🌟 NEW: Universal Smart Time Formatter
+  const formatAdaptiveTime = (totalSecs: number): string => {
+    if (totalSecs >= 3600) {
+      const hours = Math.floor(totalSecs / 3600);
+      const mins = Math.floor((totalSecs % 3600) / 60);
+      return `${hours}h ${mins}m`;
+    } else {
+      const mins = Math.floor(totalSecs / 60);
+      const secs = Math.floor(totalSecs % 60);
+      return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+    }
+  };
+
   useEffect(() => {
     if (!userId) return;
 
@@ -92,7 +105,11 @@ export function Dashboard() {
         <StatCard
           icon={<Target className="w-6 h-6" />} 
           label="최근 세션"
-          value={`${recentSessions.length > 0 ? recentSessions[0].duration_min : 0} min`}
+          value={
+            recentSessions.length > 0 
+              ? formatAdaptiveTime([...recentSessions].sort((a, b) => b.id - a.id)[0].duration_sec) 
+              : "0s"
+          }
         />
         <StatCard
           icon={<Calendar className="w-6 h-6" />}
@@ -147,9 +164,9 @@ export function Dashboard() {
             </Link>
           </div>
           <div className="space-y-3">
-            {recentSessions.slice(0,3).map((session) => (
+            {[...recentSessions].sort((a, b) => b.id - a.id).slice(0, 3).map((session) => (
               <Link 
-                key={session.session_id} 
+                key={session.session_id || session.id} 
                 to={`/app/reports/${session.session_id || session.id}`} 
                 className="flex items-center justify-between p-4 rounded-xl border border-border bg-white hover:border-primary/40 hover:shadow-sm transition-all cursor-pointer group block"
               >
@@ -164,7 +181,7 @@ export function Dashboard() {
                 </div>
                 <div className="text-right flex items-center gap-4">
                   <div>
-                    <div className="font-bold text-primary">{session.duration_min}분</div>
+                    <div className="font-bold text-primary">{formatAdaptiveTime(session.duration_sec)}</div>
                     <div className="text-xs text-muted-foreground font-medium">
                       집중도: {session.focus_score}%
                     </div>

@@ -124,6 +124,7 @@ def get_recent_results(
             "date_raw": s.start_time.strftime("%Y-%m-%d"),
             "start_time": s.start_time.strftime("%H:%M"),
             "duration_min": duration_min,
+            "duration_sec": int(duration_sec),
             "focus_score": focus_score,
             "status": s.status
         })
@@ -178,44 +179,58 @@ def get_individual_session_report(
     }
 
 @router.get("/list")
-def get_all_historical_reports(
-    db: Session = Depends(get_db),
-    x_user_id: int = Header(..., alias="X-User-Id")
-):
-    """유저의 모든 완료된 세션 기록 리스트와 매칭되는 AI 분석 서머리 데이터를 가져옵니다."""
-    # Fetch all matching sessions in reverse chronological order
-    sessions = db.query(models.FocusSession).filter(
-        models.FocusSession.user_id == x_user_id,
-        models.FocusSession.status == "completed"
-    ).order_by(models.FocusSession.start_time.desc()).all()
-
-    # Get absolute timeline ordering to calculate true relative sequence display indices
-    all_user_sessions = db.query(models.FocusSession.id).filter(
-        models.FocusSession.user_id == x_user_id,
-        models.FocusSession.status == "completed"
-    ).order_by(models.FocusSession.start_time.asc()).all()
+def get_analytics_list(db: Session = Depends(get_db), user_id: int = Header(alias="X-User-Id")):
+    """
+    Returns the list of sessions with SERVER-SIDE calculated true focus scores 
+    and aggregated distraction times (eventSecs) for the frontend weekly coaching engine.
+    """
+    sessions = db.query(models.FocusSession).filter(models.FocusSession.user_id == user_id).all()
     
-    display_index_map = {s_row.id: idx + 1 for idx, s_row in enumerate(all_user_sessions)}
-
-    items = []
-    for s in sessions:
-        duration_min = 0
-        if s.end_time:
-            duration_min = int((s.end_time - s.start_time).total_seconds() / 60)
-            
-        analysis = db.query(models.AnalysisSummary).filter(
-            models.AnalysisSummary.session_id == str(s.id)
-        ).first()
+    result_items = []
+    for idx, session in enumerate(sessions):
+        # 1. Base session data
+        duration_sec = (session.end_time - session.start_time).total_seconds() if session.end_time else 0
+        duration_min = max(int(duration_sec // 60), 1)
         
-        focus_score = round(float((analysis.focus_ratio or 0) * 100), 1) if analysis else 0.0
+        # 2. Fetch related timeline and events to calculate TRUE metrics
+        timeline_len = db.query(models.AnalysisTimeline).filter(models.AnalysisTimeline.session_id == str(session.id)).count()
+        events = db.query(models.AnalysisEvent).filter(models.AnalysisEvent.session_id == str(session.id)).all()
+        
+        t_secs = timeline_len if timeline_len > 0 else max([int(e.end_sec) for e in events] + [1])
+        
+        # 3. Server-side Score Calculation & Event Tallying
+        second_by_second = [100] * t_secs
+        event_secs = {"gaze": 0, "posture": 0, "absent": 0, "fidget": 0}
+        
+        for e in events:
+            start = int(e.start_sec)
+            end = int(e.end_sec)
+            duration = end - start
+            penalty = (e.score or 0) * 100
+            
+            # Tally up event durations for the weekly coaching cards
+            if e.event_type == "gaze_side": event_secs["gaze"] += duration
+            elif e.event_type == "bad_posture": event_secs["posture"] += duration
+            elif e.event_type == "absent": event_secs["absent"] += duration
+            elif e.event_type in ["fidgeting", "overhead_no_activity"]: event_secs["fidget"] += duration
+            
+            # Apply penalties for true score
+            resulting_focus = max(0, 100 - penalty)
+            for i in range(start, min(end, t_secs)):
+                second_by_second[i] = min(second_by_second[i], resulting_focus)
+                
+        true_score = round(sum(second_by_second) / (t_secs * 100) * 100) if t_secs > 0 else 0
 
-        items.append({
-            "id": s.id,
-            "display_index": display_index_map.get(s.id, 1),
-            "date": s.start_time.strftime("%b %d, %Y"),
-            "date_raw": s.start_time.strftime("%Y-%m-%d"),
+        # 4. Append the fully processed object
+        result_items.append({
+            "id": session.id,
+            "display_index": idx + 1,
+            "date": session.start_time.strftime("%b %d, %Y"),
+            "date_raw": session.start_time.strftime("%Y-%m-%d"),
             "duration_min": duration_min,
-            "focus_score": focus_score
+            "duration_sec": int(duration_sec),
+            "focus_score": true_score,
+            "eventSecs": event_secs
         })
-
-    return {"items": items}
+        
+    return {"items": result_items}

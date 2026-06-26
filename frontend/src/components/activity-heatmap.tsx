@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { ChevronDown } from "lucide-react";
 
 interface HeatmapProps {
-  rawSessions: Array<{date: string; date_raw: string; duration_min: number; }>;
+  rawSessions: Array<{date: string; date_raw: string; duration_min: number; focus_score: number }>;
 }
 
 export function ActivityHeatmap({ rawSessions = [] }: HeatmapProps) {
@@ -14,24 +14,25 @@ export function ActivityHeatmap({ rawSessions = [] }: HeatmapProps) {
 
   // Map real database items onto specific dates instead of using random numbers
   const activityData = useMemo(() => {
-    const data: { date: Date; count: number }[] = [];
+    const data: { date: Date; count: number; focus: number }[] = [];
     const startDate = new Date(selectedYear, 0, 1);
     const endDate = new Date(selectedYear, 11, 31);
     
-    // Create a fast-lookup map of your real database dates: {"2026-06-19": total_hours}
-    const sessionMap: { [key: string]: number } = {};
+    // Store both total hours and a weighted focus score
+    const sessionMap: { [key: string]: { hours: number; focusWeight: number } } = {};
+    
     rawSessions.forEach((s) => {
       try {
-        // Read the raw YYYY-MM-DD string directly from the backend payload
         const dateKey = s.date_raw; 
-        
         if (dateKey) {
-          const hours = Math.round((s.duration_min / 60 + Number.EPSILON) * 10) / 10;
-          sessionMap[dateKey] = (sessionMap[dateKey] || 0) + hours;
+          const hours = s.duration_min / 60;
+          if (!sessionMap[dateKey]) sessionMap[dateKey] = { hours: 0, focusWeight: 0 };
+          
+          sessionMap[dateKey].hours += hours;
+          // Weight the focus score by how long the session was
+          sessionMap[dateKey].focusWeight += ((s.focus_score || 0) * hours);
         }
-      } catch (e) {
-        // Guard tracking block
-      }
+      } catch (e) {}
     });
 
     const currentDate = new Date(startDate);
@@ -39,15 +40,16 @@ export function ActivityHeatmap({ rawSessions = [] }: HeatmapProps) {
       const year = currentDate.getFullYear();
       const month = String(currentDate.getMonth() + 1).padStart(2, "0");
       const day = String(currentDate.getDate()).padStart(2, "0");
-      
-      // Format as a standard "YYYY-MM-DD" string matching your database values
       const dateKey = `${year}-${month}-${day}`;
       
-      const actualHours = sessionMap[dateKey] || 0;
+      const mapData = sessionMap[dateKey];
+      const actualHours = mapData ? mapData.hours : 0;
+      const avgFocus = mapData && mapData.hours > 0 ? Math.round(mapData.focusWeight / mapData.hours) : 0;
       
       data.push({
         date: new Date(currentDate),
         count: actualHours,
+        focus: avgFocus
       });
       
       currentDate.setDate(currentDate.getDate() + 1);
@@ -64,10 +66,10 @@ export function ActivityHeatmap({ rawSessions = [] }: HeatmapProps) {
     const startDay = firstDate.getDay(); // 0 = Sunday, 1 = Monday, etc.
     
     // Create 7 rows (one for each day of week) x N columns (weeks)
-    const weeks: ({ date: Date; count: number } | null)[][] = [];
+    const weeks: ({ date: Date; count: number; focus: number } | null)[][] = [];
     
     // Fill empty days at the beginning to align with day of week
-    let currentWeek: ({ date: Date; count: number } | null)[] = new Array(7).fill(null);
+    let currentWeek: ({ date: Date; count: number; focus: number } | null)[] = new Array(7).fill(null);
     
     activityData.forEach((day) => {
       const dayOfWeek = day.date.getDay();
@@ -206,8 +208,8 @@ export function ActivityHeatmap({ rawSessions = [] }: HeatmapProps) {
                           day ? "hover:ring-2 hover:ring-primary/50 transition-all cursor-pointer" : ""
                         }`}
                         title={
-                          day
-                            ? `${day.date.toLocaleDateString()}: ${day.count} hours`
+                          day && day.count > 0
+                            ? `${day.date.toLocaleDateString()}: ${day.count.toFixed(1)}시간 | 집중도: ${day.focus}%`
                             : ""
                         }
                       />
