@@ -37,6 +37,145 @@ pip install -r requirements.txt
 uvicorn main:app --reload
 ```
 
+---
+
+## AI worker 최종 시연 실행 방법
+
+현재 AI worker는 `ai/worker.py`가 AWS SQS 메시지를 받아 S3 영상을 다운로드하고, chunk별 분석 결과를 `AI_CHUNK_RESULT_DIR`에 임시 저장한 뒤 마지막 chunk에서만 최종 결과 1개를 RDS에 직접 저장하는 구조다. `RESULT_SINK=rds`가 기본값이며, 기존 백엔드 HTTP POST 방식은 `RESULT_SINK=post`를 설정했을 때만 사용하는 옵션이다.
+
+실제 AWS 키, SQS URL, S3 버킷명, RDS 주소와 비밀번호는 코드나 이미지에 넣지 않고 `.env` 또는 실행 환경변수로 주입한다.
+
+### 1. 로컬 Python 실행
+
+```terminal
+cd C:\Projects\졸작우승기원\-
+py -3 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -r ai\requirements.txt
+copy .env.example .env
+```
+
+`.env`의 placeholder 값을 실제 실행 환경 값으로 바꾼 뒤 worker를 실행한다.
+
+```terminal
+.\.venv\Scripts\python.exe ai\worker.py
+.\.venv\Scripts\python.exe ai\worker.py --once
+```
+
+로컬 파일로 기존 분석만 확인할 때는 다음처럼 실행한다.
+
+```terminal
+$env:SAMPLING_FPS="1"
+.\.venv\Scripts\python.exe ai\run_local.py --session-id LOCAL_TEST_001 --video "C:\path\to\video.mp4" --camera-type merged --mode focus_analysis --out output.json
+```
+
+### 2. Docker build
+
+```terminal
+cd C:\Projects\졸작우승기원\-
+docker build -t focus-ai-worker .
+```
+
+### 3. Docker run
+
+```terminal
+docker run --rm --env-file .env focus-ai-worker
+docker run --rm --env-file .env focus-ai-worker --once
+```
+
+sample message 파일로 실행할 때:
+
+```terminal
+docker run --rm --env-file .env focus-ai-worker --sample-message ai/sample_messages/chunk_1.json
+docker run --rm --env-file .env focus-ai-worker --sample-message ai/sample_messages/chunk_3_final.json
+```
+
+### 4. Docker에서 AWS 인증 주입
+
+`.env`에 `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`을 넣거나, 로컬 AWS CLI profile을 읽기 전용으로 마운트한다. ECS/EC2에서 실행할 때는 코드에 AWS 키를 넣지 말고 IAM Role을 사용한다.
+
+Windows CMD:
+
+```terminal
+docker run --rm --env-file .env -v "%USERPROFILE%\.aws:/root/.aws:ro" -e AWS_PROFILE=default focus-ai-worker
+```
+
+PowerShell:
+
+```terminal
+docker run --rm --env-file .env -v "$env:USERPROFILE\.aws:/root/.aws:ro" -e AWS_PROFILE=default focus-ai-worker
+```
+
+### 5. .env 값
+
+```terminal
+AWS_ACCESS_KEY_ID=키
+AWS_SECRET_ACCESS_KEY=키
+AWS_REGION=ap-northeast-2
+SQS_QUEUE_URL=주소
+S3_DOWNLOAD_DIR=/tmp/videos
+AI_CHUNK_RESULT_DIR=ai/tmp
+SAMPLING_FPS=1
+RESULT_SINK=rds
+
+RDS_HOST=DB주소
+RDS_PORT=3306
+RDS_USER=아이디
+RDS_PASSWORD=비밀번호
+RDS_DATABASE=DB이름
+ANALYSIS_RESULT_TABLE=analysis_summary
+ANALYSIS_FEEDBACK_TABLE=analysis_feedback
+```
+
+`RESULT_SINK=rds`는 마지막 chunk 처리 시 RDS에 직접 저장한다. 예전 백엔드 POST 방식이 필요할 때만 `RESULT_SINK=post`와 `BACKEND_RESULT_API_URL=주소`를 함께 설정한다.
+
+### 6. SQS 메시지 형식
+
+일반 chunk:
+
+```json
+{
+  "session_id": 12,
+  "user_id": 3,
+  "s3_bucket": "버킷명",
+  "s3_key": "uploads/session_12/chunk_1.webm",
+  "camera_type": "merged",
+  "mode": "focus_analysis",
+  "chunk_index": 1,
+  "is_final_chunk": false
+}
+```
+
+마지막 chunk:
+
+```json
+{
+  "session_id": 12,
+  "user_id": 3,
+  "s3_bucket": "버킷명",
+  "s3_key": "uploads/session_12/chunk_3.webm",
+  "camera_type": "merged",
+  "mode": "focus_analysis",
+  "chunk_index": 3,
+  "is_final_chunk": true
+}
+```
+
+필수 필드는 `session_id`, `user_id`, `s3_bucket`, `s3_key`, `camera_type`, `mode`, `chunk_index`, `is_final_chunk`이다. `camera_type`은 `front`, `overhead`, `merged` 중 하나이고, `mode`는 `absent`, `dummy`, `focus_analysis` 중 하나다.
+
+worker는 non-final chunk에서는 chunk 결과만 저장하고 SQS 메시지를 삭제한다. 마지막 chunk에서는 `chunk_index` 순서의 결과를 합쳐 최종 결과 1개만 RDS에 저장한 뒤 성공 시 SQS 메시지를 삭제한다.
+
+### 7. 검증 명령
+
+```terminal
+py -3 -m py_compile ai\worker.py
+py -3 -m unittest discover -s ai\tests
+docker build -t focus-ai-worker .
+docker run --rm --env-file .env focus-ai-worker --once
+```
+
+Docker 이미지의 기본 실행 대상은 `ai/worker.py`이고, `--once`, `--sample-message` 같은 CLI 인자는 `docker run` 뒤에 그대로 전달할 수 있다.
+
 ### 2. 프론트엔드 ( React + Vite )
 
 ---

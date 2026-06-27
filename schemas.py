@@ -56,6 +56,7 @@ class SessionResponse(BaseModel):
     user_id: int
     start_time: datetime
     end_time: Optional[datetime] = None  # 아직 종료되지 않은 세션은 None일 수 있음
+    duration_sec: Optional[int] = None
     status: str
 
     class Config:

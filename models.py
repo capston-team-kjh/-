@@ -24,6 +24,7 @@ class FocusSession(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     start_time = Column(DateTime, nullable=False, default=func.now())
     end_time = Column(DateTime, nullable=True)
+    duration_sec = Column(Integer, nullable=True)
     status = Column(String(20), default="active") # 상태: active, completed, canceled
 
     # 관계 설정
