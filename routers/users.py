@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
+from pydantic import BaseModel
 
 # 최상위 경로에 있는 모듈들 불러오기
 import models, schemas
@@ -14,6 +15,9 @@ router = APIRouter(
 
 # 비밀번호 암호화 도구 설정
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+class DeleteAccountRequest(BaseModel):
+    password: str
 
 def get_password_hash(password: str):
     """비밀번호를 안전한 해시 문자열로 변환합니다."""
@@ -99,3 +103,32 @@ def update_user_password(user_id: int, pw_data: schemas.UserPasswordUpdate, db: 
     db_user.password_hash = get_password_hash(pw_data.new_password)
     db.commit()
     return {"message": "비밀번호가 성공적으로 변경되었습니다."}
+
+@router.delete("/{user_id}")
+def delete_user_account(user_id: int, request: DeleteAccountRequest, db: Session = Depends(get_db)):
+    """유저 계정과 해당 유저가 생성한 모든 데이터를 영구 삭제 (비밀번호 확인 필수)"""
+    
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="유저를 찾을 수 없습니다.")
+        
+    # Verify the password before destroying data
+    if not pwd_context.verify(request.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="비밀번호가 일치하지 않습니다.")
+    
+    # 1. Find all sessions owned by this user
+    sessions = db.query(models.FocusSession).filter(models.FocusSession.user_id == user_id).all()
+    session_ids = [str(s.id) for s in sessions]
+    
+    # 2. Wipe all AI data associated with them in bulk
+    if session_ids:
+        db.query(models.AnalysisTimeline).filter(models.AnalysisTimeline.session_id.in_(session_ids)).delete(synchronize_session=False)
+        db.query(models.AnalysisEvent).filter(models.AnalysisEvent.session_id.in_(session_ids)).delete(synchronize_session=False)
+        db.query(models.AnalysisFeedback).filter(models.AnalysisFeedback.session_id.in_(session_ids)).delete(synchronize_session=False)
+        db.query(models.AnalysisSummary).filter(models.AnalysisSummary.session_id.in_(session_ids)).delete(synchronize_session=False)
+
+    # 3. Delete the user
+    db.delete(user)
+    db.commit()
+    
+    return {"detail": "계정 및 모든 데이터가 영구 삭제되었습니다."}

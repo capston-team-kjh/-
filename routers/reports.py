@@ -79,7 +79,13 @@ def get_dashboard_summary(
     ).all()
 
     if not sessions:
-        return {"total_hours": 0.0, "avg_focus_score": 0, "active_days": 0, "weekly_chart_data": []}
+        return {
+            "total_hours": 0.0,
+            "total_seconds": 0,
+            "avg_focus_score": 0,
+            "active_days": 0,
+            "weekly_chart_data": []
+        }
 
     total_seconds = 0
     total_score_weight = 0
@@ -224,3 +230,23 @@ def get_analytics_list(db: Session = Depends(get_db), user_id: int = Header(alia
         })
         
     return {"items": result_items}
+
+@router.delete("/session/{session_id}")
+def delete_individual_session(session_id: str, db: Session = Depends(get_db)):
+    """특정 세션과 관련된 모든 AI 분석 데이터 및 로그를 영구 삭제합니다."""
+    # 1. Check if session exists
+    session = db.query(models.FocusSession).filter(models.FocusSession.id == int(session_id)).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
+    
+    # 2. Manually delete all AI data tied to this session string
+    db.query(models.AnalysisTimeline).filter(models.AnalysisTimeline.session_id == session_id).delete(synchronize_session=False)
+    db.query(models.AnalysisEvent).filter(models.AnalysisEvent.session_id == session_id).delete(synchronize_session=False)
+    db.query(models.AnalysisFeedback).filter(models.AnalysisFeedback.session_id == session_id).delete(synchronize_session=False)
+    db.query(models.AnalysisSummary).filter(models.AnalysisSummary.session_id == session_id).delete(synchronize_session=False)
+    
+    # 3. Delete the core session
+    db.delete(session)
+    db.commit()
+    
+    return {"detail": "세션 및 관련 데이터가 성공적으로 삭제되었습니다."}

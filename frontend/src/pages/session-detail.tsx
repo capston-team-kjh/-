@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
-import { useParams, Link } from "react-router";
-import { ArrowLeft, Calendar, Clock, Eye, User, Activity, Brain } from "lucide-react";
+import { useParams, Link, useNavigate } from "react-router";
+import { ArrowLeft, Calendar, Clock, Eye, User, Brain, Trash2 } from "lucide-react";
 import {
   RadarChart,
   Radar,
@@ -57,6 +57,31 @@ export function SessionDetail() {
   const [loading, setLoading] = useState(true);
 
   const userId = localStorage.getItem("user_id"); 
+  const navigate = useNavigate();
+
+  // Handle Session Deletion
+  const handleDeleteSession = async () => {
+    const confirmDelete = window.confirm(
+      "이 세션을 삭제하시겠습니까?\n관련된 모든 타임라인과 AI 분석 데이터가 영구적으로 삭제됩니다."
+    );
+
+    if (!confirmDelete) return;
+
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/analytics/session/${sessionId}`, {
+        method: "DELETE",
+      });
+
+      if (response.ok) {
+        alert("세션이 삭제되었습니다.");
+        navigate("/app/reports"); // Send them back to the reports page
+      } else {
+        alert("세션 삭제에 실패했습니다.");
+      }
+    } catch (error) {
+      console.error("Failed to delete session:", error);
+    }
+  };
 
   useEffect(() => {
     if (!sessionId || !userId) return;
@@ -453,6 +478,16 @@ export function SessionDetail() {
           <h4 className="font-semibold text-sm mb-1">개인정보 보호 안내</h4>
           <p className="text-sm text-muted-foreground">본 시스템은 듀얼 카메라 영상 프레임을 가공하여 통계 가치 데이터만 데이터베이스에 안전하게 보관하며 분석용 영상 조각은 소멸 처리합니다.</p>
         </div>
+      </div>
+      {/* Delete Session */}
+      <div className="flex justify-end pt-4">
+        <button 
+          onClick={handleDeleteSession}
+          className="flex items-center gap-2 px-4 py-2 text-sm text-destructive bg-destructive/5 hover:bg-destructive/10 border border-transparent hover:border-destructive/20 rounded-lg transition-colors"
+        >
+          <Trash2 className="w-4 h-4" />
+          세션 삭제
+        </button>
       </div>
     </div>
   );

@@ -92,7 +92,7 @@ export function Dashboard() {
         <StatCard
           icon={<Clock className="w-6 h-6" />}
           label="이번 주 학습"
-          value={reportData ? formatAdaptiveTime(reportData.total_seconds) : "0s"}
+          value={reportData ? formatAdaptiveTime(reportData.total_seconds || 0) : "0s"}
           change={`${reportData?.active_days || 0}일 활동 중`}
           positive
         />
