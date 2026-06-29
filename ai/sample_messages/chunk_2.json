@@ -1,0 +1,10 @@
+{
+  "session_id": 12,
+  "user_id": 3,
+  "s3_bucket": "버킷명",
+  "s3_key": "uploads/session_12/chunk_2.webm",
+  "camera_type": "merged",
+  "mode": "focus_analysis",
+  "chunk_index": 2,
+  "is_final_chunk": false
+}

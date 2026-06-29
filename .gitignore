@@ -15,12 +15,18 @@ node_modules/
 
 # Local outputs
 output.json
-
-# test videos
-/upload
+.env
+tmp/
+ai/output/
+ai/downloads/
+ai/outputs/
+ai/local_outputs/
+ai/manual_review_queue/
 
 # Environment variables
-.env
 .env.local
 .env.production
 .env.development
+
+# test videos
+/upload
