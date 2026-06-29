@@ -5,9 +5,13 @@ from pathlib import Path
 from typing import Any, Union
 
 import yaml
+from dotenv import load_dotenv
 
 AI_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = AI_DIR.parent
 DEFAULT_CONFIG_PATH = AI_DIR / "config" / "default.yaml"
+
+load_dotenv(PROJECT_ROOT / ".env")
 
 
 def _env_int(name: str, default_value: int) -> int:
@@ -45,30 +49,32 @@ def run_analysis(
     config_path: Union[str, os.PathLike[str]] = DEFAULT_CONFIG_PATH,
 ) -> dict[str, Any]:
     from focus_ai.analyze import analyze_absent, analyze_dummy, analyze_merged_video
+    from focus_ai.vision import validate_analysis_with_vision
 
     config = load_analyze_config(config_path)
 
     if mode == "dummy":
-        return analyze_dummy(
+        result = analyze_dummy(
+            session_id=session_id,
+            video_path=str(video_path),
+            camera_type=camera_type,
+            config=config,
+        )
+    elif camera_type == "merged":
+        result = analyze_merged_video(
+            session_id=session_id,
+            video_path=str(video_path),
+            config=config,
+        )
+    else:
+        result = analyze_absent(
             session_id=session_id,
             video_path=str(video_path),
             camera_type=camera_type,
             config=config,
         )
 
-    if camera_type == "merged":
-        return analyze_merged_video(
-            session_id=session_id,
-            video_path=str(video_path),
-            config=config,
-        )
-
-    return analyze_absent(
-        session_id=session_id,
-        video_path=str(video_path),
-        camera_type=camera_type,
-        config=config,
-    )
+    return validate_analysis_with_vision(video_path, result)
 
 
 def main():
@@ -76,7 +82,7 @@ def main():
     parser.add_argument("--session-id", required=True)
     parser.add_argument("--video", required=True)
     parser.add_argument("--camera-type", choices=["front", "overhead", "merged"], default="front")
-    parser.add_argument("--mode", choices=["dummy", "absent"], default="absent")
+    parser.add_argument("--mode", choices=["dummy", "absent", "focus_analysis"], default="absent")
     parser.add_argument("--config", default=str(DEFAULT_CONFIG_PATH))
     parser.add_argument("--out", default="output.json")
     args = parser.parse_args()

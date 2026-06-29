@@ -56,7 +56,6 @@ class SessionResponse(BaseModel):
     user_id: int
     start_time: datetime
     end_time: Optional[datetime] = None  # 아직 종료되지 않은 세션은 None일 수 있음
-    duration_sec: Optional[int] = None
     status: str
 
     class Config:
@@ -100,6 +99,59 @@ class FocusAnalyzeResponse(BaseModel):
     body_score: float
     is_absent: bool
     created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+#AI 
+#=================================================
+
+# 1. Event Tracking Log Data
+class AnalysisEventResponse(BaseModel):
+    id: int
+    session_id: str
+    event_type: Optional[str] = None
+    start_sec: Optional[float] = None
+    end_sec: Optional[float] = None
+    score: Optional[float] = None
+
+    class Config:
+        from_attributes = True
+
+# 2. Custom AI Feedback Insights
+class AnalysisFeedbackResponse(BaseModel):
+    id: int
+    session_id: str
+    feedback_text: str
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+# 3. Macro Metrics Session Score Summary
+class AnalysisSummaryResponse(BaseModel):
+    id: int
+    session_id: str
+    focus_ratio: Optional[float] = None
+    absent_count: Optional[int] = None
+    absent_total_sec: Optional[float] = None
+    away_count: Optional[int] = None
+    away_total_sec: Optional[float] = None
+    bad_posture_ratio: Optional[float] = None
+    processing_time_sec: Optional[float] = None
+    camera_type: Optional[str] = None
+    version: Optional[str] = None
+    analyzed_at: datetime
+
+    class Config:
+        from_attributes = True
+
+# 4. Chronological Focus Trend Timeline Chart Array
+class AnalysisTimelineResponse(BaseModel):
+    id: int
+    session_id: str
+    t: Optional[float] = None
+    state: Optional[str] = None
 
     class Config:
         from_attributes = True

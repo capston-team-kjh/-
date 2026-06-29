@@ -30,9 +30,14 @@ _install_import_stubs()
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from focus_ai.analyze import (  # noqa: E402
+    AnalyzeConfig,
     build_time_patterns,
     _create_events_from_states,
     _decide_hybrid_state,
+    _eye_closed_with_hysteresis,
+    _filter_segments_by_duration,
+    _low_motion_for_segments,
+    _open_eye_baseline,
     _predict_model_state,
     classify_missing_face_state,
     resolve_front_absence_with_overhead,
@@ -40,6 +45,39 @@ from focus_ai.analyze import (  # noqa: E402
 
 
 class TimePatternsTest(unittest.TestCase):
+    def test_drowsy_defaults_require_ten_seconds_and_personal_ear(self) -> None:
+        config = AnalyzeConfig()
+
+        self.assertEqual(config.long_eye_closure_min_sec, 10)
+        self.assertEqual(config.drowsy_min_duration_sec, 10)
+        self.assertAlmostEqual(config.ear_baseline_ratio, 0.58)
+
+    def test_eye_closure_hysteresis_requires_both_eyes(self) -> None:
+        right = _eye_closed_with_hysteresis([0.20, 0.10, 0.11, 0.18], 0.12, 0.15)
+        left = _eye_closed_with_hysteresis([0.20, 0.10, None, 0.10], 0.12, 0.15)
+        both = [right[index] and left[index] for index in range(len(right))]
+
+        self.assertEqual(right, [False, True, True, False])
+        self.assertEqual(left, [False, True, False, True])
+        self.assertEqual(both, [False, True, False, False])
+
+    def test_long_eye_closure_rejects_nine_seconds(self) -> None:
+        self.assertFalse(any(_filter_segments_by_duration([True] * 9, min_duration_sec=10)))
+        self.assertTrue(all(_filter_segments_by_duration([True] * 10, min_duration_sec=10)))
+
+    def test_low_head_motion_is_required_for_closed_segment(self) -> None:
+        closed = [True] * 10
+        still = _low_motion_for_segments(closed, [None] + [0.01] * 9, 3, 0.035)
+        moving = _low_motion_for_segments(closed, [None] + [0.08] * 9, 3, 0.035)
+
+        self.assertTrue(all(still))
+        self.assertFalse(any(moving))
+
+    def test_open_eye_baseline_uses_upper_samples(self) -> None:
+        baseline = _open_eye_baseline([0.08, 0.09, 0.10, 0.20, 0.21, 0.22])
+
+        self.assertAlmostEqual(baseline, 0.215)
+
     def test_builds_segments_and_insights(self) -> None:
         timeline = (
             [{"t": t, "state": "focus", "states": ["focus"]} for t in range(0, 240)]

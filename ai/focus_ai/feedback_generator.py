@@ -186,6 +186,13 @@ def _recommendation_for(main_problem: str, summary: dict[str, Any], time_pattern
         )
 
     if main_problem == "unknown":
+        unknown_sec = _to_float(summary.get("unknown_total_sec"))
+        total_sec = _to_float(summary.get("duration_sec", summary.get("total_time_sec")))
+        if total_sec > 0 and unknown_sec / total_sec < 0.05:
+            return (
+                "전체 집중 흐름은 안정적입니다. 짧은 인식 불안정 구간만 있었으므로 "
+                "현재 카메라 위치를 유지하고 같은 문제가 반복될 때만 조명과 각도를 점검해 보세요."
+            )
         return (
             "인식 불안정 비중이 높습니다. 얼굴이 화면 하단/가장자리로 벗어나지 않도록 전면 카메라 높이와 거리, 머리카락/안경 반사를 먼저 조정해 보세요."
             + (f" 비교적 나은 기준 구간은 {best_text}입니다." if best_text else "")
@@ -861,6 +868,31 @@ def _high_metric(seconds: float, count: float, total_seconds: float, ratio: floa
     return seconds >= min_seconds or count >= min_count
 
 
+def _timeline_union_seconds(
+    analysis_result: dict[str, Any],
+    states: set[str],
+    flags: set[str],
+) -> float:
+    timeline = analysis_result.get("timeline")
+    if not isinstance(timeline, list):
+        return 0.0
+
+    matched_seconds = 0
+    for item in timeline:
+        if not isinstance(item, dict):
+            continue
+
+        state = str(item.get("state") or "")
+        item_flags = item.get("flags")
+        if not isinstance(item_flags, dict):
+            item_flags = {}
+
+        if state in states or any(bool(item_flags.get(flag)) for flag in flags):
+            matched_seconds += 1
+
+    return float(matched_seconds)
+
+
 def _rule_based_personal_feedback(analysis_result: dict[str, Any]) -> dict[str, Any]:
     summary = analysis_result.get("summary")
     if not isinstance(summary, dict):
@@ -904,8 +936,22 @@ def _rule_based_personal_feedback(analysis_result: dict[str, Any]) -> dict[str, 
             )
         )
 
-    drowsy_total = max(drowsy_sec, eye_closed_sec)
-    if _high_metric(drowsy_total, long_eye_closure_count, total_seconds, 0.05, 60.0, 2.0):
+    timeline = analysis_result.get("timeline")
+    has_manual_review = isinstance(timeline, list) and any(
+        isinstance(row, dict) and row.get("decision_source") == "codex_manual_review"
+        for row in timeline
+    )
+    if has_manual_review:
+        drowsy_total = _timeline_union_seconds(
+            analysis_result,
+            states={"drowsy", "sleep_suspect"},
+            flags=set(),
+        )
+        closure_count_for_feedback = 0.0
+    else:
+        drowsy_total = max(drowsy_sec, eye_closed_sec)
+        closure_count_for_feedback = long_eye_closure_count
+    if _high_metric(drowsy_total, closure_count_for_feedback, total_seconds, 0.05, 60.0, 2.0):
         severity = (drowsy_total / total_seconds if total_seconds > 0 else 0.0) + long_eye_closure_count * 0.03
         candidates.append(
             (
@@ -917,7 +963,20 @@ def _rule_based_personal_feedback(analysis_result: dict[str, Any]) -> dict[str, 
             )
         )
 
-    posture_total = bad_posture_sec + head_down_sec + head_tilt_sec
+    if has_manual_review:
+        posture_total = _timeline_union_seconds(
+            analysis_result,
+            states={"bad_posture"},
+            flags=set(),
+        )
+    else:
+        posture_total = _timeline_union_seconds(
+            analysis_result,
+            states={"bad_posture"},
+            flags={"bad_posture", "head_down", "head_tilt"},
+        )
+        if posture_total <= 0:
+            posture_total = max(bad_posture_sec, head_down_sec, head_tilt_sec)
     if _high_metric(posture_total, _summary_metric(summary, "bad_posture_count"), total_seconds, 0.10, 180.0, 5.0):
         severity = posture_total / total_seconds if total_seconds > 0 else posture_total / 600.0
         candidates.append(

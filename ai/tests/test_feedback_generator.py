@@ -9,10 +9,55 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from focus_ai.feedback_generator import generate_personal_feedback  # noqa: E402
+from focus_ai.feedback_generator import generate_feedback, generate_personal_feedback  # noqa: E402
 
 
 class PersonalFeedbackTest(unittest.TestCase):
+    def test_codex_correction_overrides_stale_raw_eye_and_posture_flags(self) -> None:
+        timeline = [
+            {
+                "t": t,
+                "state": "focus",
+                "decision_source": "codex_manual_review" if 20 <= t < 30 else "rule",
+                "flags": {"eye_closed": True, "head_down": True, "head_tilt": True},
+            }
+            for t in range(60)
+        ]
+        analysis_result = {
+            "status": "success",
+            "meta": {"duration_sec": 60},
+            "summary": {
+                "focus_score": 100,
+                "focus_total_sec": 60,
+                "drowsy_total_sec": 0,
+                "eye_closed_total_sec": 60,
+                "long_eye_closure_count": 3,
+                "bad_posture_total_sec": 0,
+                "head_down_total_sec": 60,
+                "head_tilt_total_sec": 60,
+            },
+            "timeline": timeline,
+            "events": [],
+        }
+
+        with patch.dict(os.environ, {}, clear=True):
+            feedback = generate_personal_feedback(analysis_result)
+
+        self.assertEqual(feedback["main_problem"], "집중 패턴 안정")
+
+    def test_tiny_unknown_ratio_does_not_claim_recognition_is_high(self) -> None:
+        feedback = generate_feedback(
+            {
+                "focus_score": 100,
+                "duration_sec": 275,
+                "focus_total_sec": 274,
+                "present_total_sec": 275,
+                "unknown_total_sec": 1,
+            }
+        )
+
+        self.assertNotIn("비중이 높습니다", feedback["recommendation"])
+
     def test_detects_late_study_focus_decline_without_api_key(self) -> None:
         segments = [
             {
@@ -88,6 +133,41 @@ class PersonalFeedbackTest(unittest.TestCase):
 
         self.assertEqual(feedback["main_problem"], "시선이탈 증가")
         self.assertIn("주변 방해 요소", feedback["feedback"])
+
+    def test_overlapping_posture_flags_are_not_double_counted(self) -> None:
+        timeline = [
+            {
+                "t": t,
+                "state": "bad_posture" if t < 30 else "focus",
+                "flags": {
+                    "bad_posture": t < 30,
+                    "head_down": t < 30,
+                    "head_tilt": t < 30,
+                },
+            }
+            for t in range(100)
+        ]
+        analysis_result = {
+            "status": "success",
+            "meta": {"duration_sec": 100},
+            "summary": {
+                "focus_score": 70,
+                "focus_total_sec": 70,
+                "bad_posture_total_sec": 30,
+                "head_down_total_sec": 30,
+                "head_tilt_total_sec": 30,
+                "bad_posture_count": 1,
+            },
+            "timeline": timeline,
+            "events": [],
+        }
+
+        with patch.dict(os.environ, {}, clear=True):
+            feedback = generate_personal_feedback(analysis_result)
+
+        self.assertEqual(feedback["main_problem"], "자세불량 또는 고개 숙임")
+        self.assertIn("30초", feedback["reason"])
+        self.assertNotIn("1분 30초", feedback["reason"])
 
 if __name__ == "__main__":
     unittest.main()

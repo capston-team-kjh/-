@@ -29,6 +29,7 @@ DEFAULT_POST_TIMEOUT_SECONDS = 30
 DEFAULT_RESULT_SINK = "rds"
 DEFAULT_ANALYSIS_RESULT_TABLE = "analysis_summary"
 DEFAULT_ANALYSIS_FEEDBACK_TABLE = "analysis_feedback"
+FEEDBACK_VALIDATOR_VERSION = "feedback-validator-v1"
 
 VALID_CAMERA_TYPES = {"front", "overhead", "merged"}
 VALID_ANALYSIS_MODES = {"absent", "dummy", "focus_analysis"}
@@ -267,6 +268,10 @@ def _run_existing_analysis(job: dict[str, Any], video_path: Path) -> dict[str, A
         mode=analysis_mode,
         config_path=DEFAULT_CONFIG_PATH,
     )
+    from codex_review import prepare_chunk_review, review_enabled
+
+    if review_enabled():
+        result = prepare_chunk_review(job, video_path, result)
     elapsed_sec = int(time.time() - started_at)
     LOGGER.info(
         "analysis finished: session_id=%s, chunk_index=%s, status=%s, elapsed_sec=%s",
@@ -653,6 +658,126 @@ def _personal_feedback_from_result(result: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
+def _feedback_fields_changed(
+    current: Any,
+    canonical: dict[str, Any],
+    fields: tuple[str, ...],
+) -> list[str]:
+    if not isinstance(current, dict):
+        return list(fields)
+
+    return [
+        field
+        for field in fields
+        if _json_safe(current.get(field)) != _json_safe(canonical.get(field))
+    ]
+
+
+def _validate_and_correct_feedback(result: dict[str, Any]) -> dict[str, Any]:
+    """Rebuild feedback from final evidence and correct inconsistent fields."""
+    summary = result.get("summary") if isinstance(result.get("summary"), dict) else {}
+    timeline = result.get("timeline") if isinstance(result.get("timeline"), list) else []
+    events = result.get("events") if isinstance(result.get("events"), list) else []
+    meta = result.get("meta") if isinstance(result.get("meta"), dict) else {}
+    duration_sec = _int_or_none(meta.get("duration_sec"))
+
+    _ensure_ai_import_path()
+    from focus_ai.analyze import build_time_patterns
+    from focus_ai.feedback_generator import (
+        _rule_based_personal_feedback,
+        build_feedback_evidence,
+        generate_feedback,
+        generate_personal_feedback_payload,
+    )
+
+    canonical_time_patterns = build_time_patterns(
+        timeline=timeline,
+        interval_sec=300,
+        duration_sec=duration_sec,
+    )
+    canonical_feedback = generate_feedback(summary, canonical_time_patterns)
+    canonical_evidence = build_feedback_evidence(
+        summary,
+        canonical_time_patterns,
+        events,
+        timeline,
+    )
+
+    comparison_result = dict(result)
+    comparison_result["time_patterns"] = canonical_time_patterns
+    comparison_result["feedback"] = canonical_feedback
+    comparison_result["feedback_evidence"] = canonical_evidence
+    rule_personal_feedback = _rule_based_personal_feedback(comparison_result)
+    generated_payload = generate_personal_feedback_payload(comparison_result)
+    generated_personal = generated_payload.get("personal_feedback")
+
+    validated_personal = dict(rule_personal_feedback)
+    generated_source = str(generated_payload.get("feedback_source") or "rule_based")
+    if (
+        isinstance(generated_personal, dict)
+        and generated_personal.get("main_problem") == rule_personal_feedback.get("main_problem")
+    ):
+        for field in ("feedback", "next_action"):
+            value = generated_personal.get(field)
+            if isinstance(value, str) and value.strip():
+                validated_personal[field] = value.strip()
+    else:
+        generated_source = "rule_based"
+
+    corrected_fields: list[str] = []
+    issues: list[str] = []
+
+    if _json_safe(result.get("time_patterns")) != _json_safe(canonical_time_patterns):
+        corrected_fields.append("time_patterns")
+        issues.append("time_patterns_not_based_on_final_timeline")
+
+    feedback_changes = _feedback_fields_changed(
+        result.get("feedback"),
+        canonical_feedback,
+        ("summary_text", "weak_point", "recommendation"),
+    )
+    if feedback_changes:
+        corrected_fields.extend(f"feedback.{field}" for field in feedback_changes)
+        issues.append("feedback_text_not_aligned_with_final_summary")
+
+    personal_changes = _feedback_fields_changed(
+        result.get("personal_feedback"),
+        validated_personal,
+        ("main_problem", "reason", "feedback", "next_action", "worst_segments"),
+    )
+    if personal_changes:
+        corrected_fields.extend(f"personal_feedback.{field}" for field in personal_changes)
+        issues.append("personal_feedback_not_aligned_with_evidence")
+
+    result["time_patterns"] = canonical_time_patterns
+    result["feedback"] = canonical_feedback
+    result["feedback_evidence"] = canonical_evidence
+    result["personal_feedback"] = validated_personal
+    result["feedback_source"] = f"{generated_source}_validated"
+    result["feedback_version"] = "feedback-v2-validated"
+    result["feedback_validation"] = {
+        "status": "corrected" if corrected_fields else "valid",
+        "validator_version": FEEDBACK_VALIDATOR_VERSION,
+        "issues": list(dict.fromkeys(issues)),
+        "corrected_fields": list(dict.fromkeys(corrected_fields)),
+        "validated_at_unix": int(time.time()),
+        "evidence": {
+            "duration_sec": duration_sec,
+            "focus_score": _number_or_none(summary.get("focus_score")),
+            "main_problem": canonical_evidence.get("main_problem"),
+            "worst_segment": canonical_evidence.get("worst_segment"),
+        },
+    }
+
+    LOGGER.info(
+        "feedback validation complete: session_id=%s, status=%s, corrected_fields=%s",
+        result.get("session_id"),
+        result["feedback_validation"]["status"],
+        len(result["feedback_validation"]["corrected_fields"]),
+    )
+    return result
+
+
 def _merge_chunk_results(
     chunks: list[dict[str, Any]],
     final_job: dict[str, Any],
@@ -662,10 +787,24 @@ def _merge_chunk_results(
     total_time = 0.0
     processing_time = 0.0
     version = ""
+    chunk_vision_validations: list[tuple[int, float, dict[str, Any]]] = []
+    chunk_codex_reviews: list[tuple[int, float, dict[str, Any]]] = []
 
     for chunk in chunks:
         result = chunk["analysis_result"]
         meta = result.get("meta") if isinstance(result.get("meta"), dict) else {}
+
+        vision_validation = result.get("vision_validation")
+        if isinstance(vision_validation, dict):
+            chunk_vision_validations.append(
+                (int(chunk["chunk_index"]), total_time, vision_validation)
+            )
+
+        codex_review = result.get("codex_manual_review")
+        if isinstance(codex_review, dict):
+            chunk_codex_reviews.append(
+                (int(chunk["chunk_index"]), total_time, codex_review)
+            )
 
         merged_timeline.extend(_offset_timeline(result.get("timeline"), total_time))
         merged_events.extend(_offset_events(result.get("events"), total_time))
@@ -694,13 +833,20 @@ def _merge_chunk_results(
             "version": version,
         },
     }
+    _ensure_ai_import_path()
+    from focus_ai.vision.validator import merge_vision_validations
+
+    result["vision_validation"] = merge_vision_validations(chunk_vision_validations)
+    if chunk_codex_reviews:
+        from codex_review import merge_chunk_reviews
+
+        result["codex_manual_review"] = merge_chunk_reviews(chunk_codex_reviews)
     LOGGER.info(
         "chunk results merged: session_id=%s, chunks=%s, duration_sec=%s",
         final_job["session_id"],
         len(chunks),
         result["meta"]["duration_sec"],
     )
-    _personal_feedback_from_result(result)
     return result
 
 
@@ -745,9 +891,13 @@ def _build_backend_result_payload(
         },
         "timeline": _json_safe(analysis_result.get("timeline") or []),
         "events": _json_safe(analysis_result.get("events") or []),
+        "feedback": _json_safe(analysis_result.get("feedback") or {}),
+        "time_patterns": _json_safe(analysis_result.get("time_patterns") or {}),
         "personal_feedback": _json_safe(_personal_feedback_from_result(analysis_result)),
         "feedback_source": str(analysis_result.get("feedback_source") or "rule_based"),
         "feedback_version": str(analysis_result.get("feedback_version") or "feedback-v1"),
+        "feedback_validation": _json_safe(analysis_result.get("feedback_validation") or {}),
+        "vision_validation": _json_safe(analysis_result.get("vision_validation") or {}),
     }
     return payload
 
@@ -905,17 +1055,10 @@ def _feedback_from_result(result: dict[str, Any]) -> dict[str, Any]:
 
 
 def _feedback_lines_from_result(result: dict[str, Any]) -> list[str]:
-    time_patterns = _time_patterns_from_result(result)
-    insights = _text_list(time_patterns.get("insights"))
-    if insights:
-        return insights
-
     feedback = _feedback_from_result(result)
     lines: list[str] = []
     for key in ("summary_text", "weak_point", "recommendation"):
         lines.extend(_text_list(feedback.get(key)))
-    if lines:
-        return lines
 
     personal_feedback = result.get("personal_feedback")
     if isinstance(personal_feedback, dict):
@@ -937,7 +1080,9 @@ def _feedback_lines_from_result(result: dict[str, Any]) -> list[str]:
                 elif feedback:
                     lines.append(feedback)
 
-    return lines
+    time_patterns = _time_patterns_from_result(result)
+    lines.extend(_text_list(time_patterns.get("insights")))
+    return list(dict.fromkeys(lines))
 
 
 def _feedback_row_from_result(session_id: str, result: dict[str, Any]) -> dict[str, Any]:
@@ -946,12 +1091,19 @@ def _feedback_row_from_result(session_id: str, result: dict[str, Any]) -> dict[s
     if personal_feedback:
         personal_feedback_json = json.dumps(_json_safe(personal_feedback), ensure_ascii=False)
 
+    validation = result.get("feedback_validation")
+    if not isinstance(validation, dict):
+        validation = {}
+
     return {
         "session_id": session_id,
         "feedback_text": "\n".join(_feedback_lines_from_result(result)),
         "personal_feedback": personal_feedback_json,
         "feedback_source": str(result.get("feedback_source") or "rule_based"),
         "feedback_version": str(result.get("feedback_version") or "feedback-v1"),
+        "validation_status": str(validation.get("status") or "not_validated"),
+        "validation_details": json.dumps(_json_safe(validation), ensure_ascii=False) if validation else None,
+        "validator_version": str(validation.get("validator_version") or ""),
     }
 
 
@@ -1062,6 +1214,9 @@ def _ensure_analysis_tables(cursor: Any, summary_table: str, feedback_table: str
             personal_feedback JSON NULL,
             feedback_source VARCHAR(30) NULL,
             feedback_version VARCHAR(30) NULL,
+            validation_status VARCHAR(30) NULL,
+            validation_details JSON NULL,
+            validator_version VARCHAR(40) NULL,
             feedback_created_at DATETIME NULL,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
         )
@@ -1096,6 +1251,18 @@ def _ensure_feedback_table_shape(cursor: Any, feedback_table: str) -> None:
     if "feedback_created_at" not in columns:
         cursor.execute(f"ALTER TABLE {feedback_table} ADD COLUMN feedback_created_at DATETIME NULL AFTER feedback_version")
         columns.add("feedback_created_at")
+
+    if "validation_status" not in columns:
+        cursor.execute(f"ALTER TABLE {feedback_table} ADD COLUMN validation_status VARCHAR(30) NULL AFTER feedback_version")
+        columns.add("validation_status")
+
+    if "validation_details" not in columns:
+        cursor.execute(f"ALTER TABLE {feedback_table} ADD COLUMN validation_details JSON NULL AFTER validation_status")
+        columns.add("validation_details")
+
+    if "validator_version" not in columns:
+        cursor.execute(f"ALTER TABLE {feedback_table} ADD COLUMN validator_version VARCHAR(40) NULL AFTER validation_details")
+        columns.add("validator_version")
 
     for legacy_text_column in ("insights_json", "summary_text", "weak_point", "recommendation"):
         if legacy_text_column in columns:
@@ -1172,6 +1339,9 @@ def _replace_analysis_rows(
             personal_feedback,
             feedback_source,
             feedback_version,
+            validation_status,
+            validation_details,
+            validator_version,
             feedback_created_at
         ) VALUES (
             %(session_id)s,
@@ -1179,6 +1349,9 @@ def _replace_analysis_rows(
             %(personal_feedback)s,
             %(feedback_source)s,
             %(feedback_version)s,
+            %(validation_status)s,
+            %(validation_details)s,
+            %(validator_version)s,
             CURRENT_TIMESTAMP
         )
         ON DUPLICATE KEY UPDATE
@@ -1186,6 +1359,9 @@ def _replace_analysis_rows(
             personal_feedback = VALUES(personal_feedback),
             feedback_source = VALUES(feedback_source),
             feedback_version = VALUES(feedback_version),
+            validation_status = VALUES(validation_status),
+            validation_details = VALUES(validation_details),
+            validator_version = VALUES(validator_version),
             feedback_created_at = VALUES(feedback_created_at),
             updated_at = CURRENT_TIMESTAMP
         """,
@@ -1263,6 +1439,19 @@ def _result_sink() -> str:
 
 
 def _store_final_result(final_result: dict[str, Any], final_job: dict[str, Any], sink: str) -> None:
+    _validate_and_correct_feedback(final_result)
+
+    from codex_review import queue_final_review, review_enabled
+
+    if review_enabled():
+        review_path = queue_final_review(final_result, final_job, sink)
+        LOGGER.info(
+            "final result queued for Codex review; RDS save deferred: session_id=%s, path=%s",
+            final_result.get("session_id"),
+            review_path,
+        )
+        return
+
     if sink == "rds":
         _save_result_to_rds(final_result)
         return

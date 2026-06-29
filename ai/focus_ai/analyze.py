@@ -128,19 +128,23 @@ class AnalyzeConfig:
     drowsy_ear_threshold: float = 0.16
     drowsy_head_drop_threshold: float = 0.75
     drowsy_head_tilt_threshold: float = 0.12
-    drowsy_score_threshold: float = 0.90
-    drowsy_min_duration_sec: int = 2
+    drowsy_min_duration_sec: int = 10
 
     # baseline / 보정
-    baseline_duration_sec: int = 5
-    ear_baseline_ratio: float = 0.72
+    baseline_duration_sec: int = 30
+    ear_baseline_ratio: float = 0.58
+    ear_reopen_baseline_ratio: float = 0.72
+    drowsy_ear_reopen_threshold: float = 0.20
     face_head_down_threshold: float = 0.72
     face_head_down_offset: float = 0.10
     pose_head_drop_margin: float = 0.10
 
     # blink / long eye closure
     blink_max_duration_sec: int = 1
-    long_eye_closure_min_sec: int = 2
+    long_eye_closure_min_sec: int = 10
+    drowsy_head_motion_window_sec: int = 3
+    drowsy_head_motion_threshold: float = 0.035
+    drowsy_activity_window_sec: int = 3
 
     # 상태 최소 지속 시간(초)
     gaze_side_min_duration_sec: int = 2
@@ -152,7 +156,7 @@ class AnalyzeConfig:
     classifier_model_path: str = "ai/models/state_classifier.pkl"
     classifier_confidence_threshold: float = 0.65
 
-    version: str = "ai-0.2.4"
+    version: str = "ai-0.2.5"
 
 
 def _unique_keep_order(items: List[str]) -> List[str]:
@@ -907,6 +911,17 @@ def analyze_merged_video(
         int(overhead_result.get("meta", {}).get("duration_sec", 0)),
     )
 
+    overhead_activity_by_sec = [
+        has_overhead_activity(overhead_timeline.get(t))
+        for t in range(duration_sec)
+    ]
+
+    def _has_nearby_overhead_activity(t: int) -> bool:
+        window = max(0, int(config.drowsy_activity_window_sec))
+        start = max(0, t - window)
+        end = min(duration_sec, t + window + 1)
+        return any(overhead_activity_by_sec[start:end])
+
     final_timeline = []
     for t in range(duration_sec):
         front_item = front_timeline.get(t, {"state": "focus", "states": ["focus"], "flags": {}})
@@ -925,6 +940,7 @@ def analyze_merged_video(
             "overhead_activity": False,
             "overhead_person_trace": False,
         }
+        drowsy_suppressed_by_activity = False
 
         if front_state == "absent":
             absence_resolution = resolve_front_absence_with_overhead(
@@ -936,7 +952,11 @@ def analyze_merged_video(
             )
             final_state = absence_resolution["state"]
         elif front_state == "drowsy":
-            final_state = "drowsy"
+            drowsy_suppressed_by_activity = _has_nearby_overhead_activity(t)
+            if drowsy_suppressed_by_activity:
+                final_state = "bad_posture" if front_flags.get("head_down", False) else "focus"
+            else:
+                final_state = "drowsy"
         elif front_state == "gaze_side":
             final_state = "gaze_side"
         elif front_state == "gaze_down":
@@ -968,6 +988,11 @@ def analyze_merged_video(
 
             merged_states = _unique_keep_order(merged_states)
 
+        if drowsy_suppressed_by_activity:
+            merged_states = [state for state in merged_states if state != "drowsy"]
+            if final_state != "focus":
+                merged_states.append(final_state)
+
         if final_state != "absent":
             if overhead_flags.get("page_turn", False):
                 merged_states.append("page_turn")
@@ -981,6 +1006,18 @@ def analyze_merged_video(
         decision_source = front_item.get("decision_source", "rule")
         if front_state == "absent" and final_state != "absent":
             decision_source = "rule_absence_resolved"
+        elif drowsy_suppressed_by_activity:
+            decision_source = "rule_drowsy_suppressed_by_activity"
+
+        drowsy_evidence = dict(front_item.get("drowsy_evidence") or {})
+        drowsy_evidence.update(
+            {
+                "overhead_activity_nearby": _has_nearby_overhead_activity(t),
+                "low_hand_page_activity": not _has_nearby_overhead_activity(t),
+                "activity_window_sec": int(config.drowsy_activity_window_sec),
+                "suppressed_by_activity": drowsy_suppressed_by_activity,
+            }
+        )
 
         final_timeline.append(
             {
@@ -1002,7 +1039,7 @@ def analyze_merged_video(
                     "head_down": front_flags.get("head_down", False),
                     "head_tilt": front_flags.get("head_tilt", False),
                     "raw_drowsy": front_flags.get("raw_drowsy", False) or sleep_suspect,
-                    "drowsy": front_flags.get("drowsy", False) or final_state == "drowsy",
+                    "drowsy": final_state == "drowsy" or sleep_suspect,
                     "page_turn": overhead_flags.get("page_turn", False),
                     "pen_fidget": overhead_flags.get("pen_fidget", False),
                     "restless_hand": overhead_flags.get("restless_hand", False),
@@ -1013,6 +1050,7 @@ def analyze_merged_video(
                     "overhead_activity": bool(absence_resolution.get("overhead_activity", False)),
                     "overhead_person_trace": bool(absence_resolution.get("overhead_person_trace", False)),
                 },
+                "drowsy_evidence": drowsy_evidence,
             }
         )
 
@@ -1073,6 +1111,7 @@ def analyze_merged_video(
             "source_effective_fps": round(float(fps), 4),
             "source_decoded_frames": int(decoded_timing["decoded_frame_count"]),
             "camera_role_detection": camera_role_detection,
+            "drowsy_config": front_result.get("meta", {}).get("drowsy_config", {}),
         },
         "summary": {
             "focus_ratio": round(float(focus_ratio), 4),
@@ -1310,6 +1349,93 @@ def _median_valid(values: List[Optional[float]], max_sec: int) -> Optional[float
     return float(statistics.median(valid))
 
 
+def _open_eye_baseline(values: List[Optional[float]]) -> Optional[float]:
+    """Estimate a personal open-eye EAR from the upper third of valid samples."""
+    valid = sorted(float(v) for v in values if v is not None and float(v) > 0)
+    if not valid:
+        return None
+    upper_count = max(1, int(round(len(valid) * 0.35)))
+    return float(statistics.median(valid[-upper_count:]))
+
+
+def _eye_closed_with_hysteresis(
+    values: List[Optional[float]],
+    close_threshold: float,
+    reopen_threshold: float,
+) -> List[bool]:
+    closed = False
+    result: List[bool] = []
+    for value in values:
+        if value is None:
+            closed = False
+        elif closed:
+            closed = float(value) < float(reopen_threshold)
+        else:
+            closed = float(value) <= float(close_threshold)
+        result.append(closed)
+    return result
+
+
+def _segment_duration_by_sec(flags_by_sec: List[bool]) -> List[int]:
+    durations = [0] * len(flags_by_sec)
+    t = 0
+    while t < len(flags_by_sec):
+        if not flags_by_sec[t]:
+            t += 1
+            continue
+        start = t
+        while t < len(flags_by_sec) and flags_by_sec[t]:
+            t += 1
+        duration = t - start
+        for index in range(start, t):
+            durations[index] = duration
+    return durations
+
+
+def _head_motion_by_sec(
+    face_down: List[Optional[float]],
+    face_tilt: List[Optional[float]],
+    pose_drop: List[Optional[float]],
+    pose_tilt: List[Optional[float]],
+) -> List[Optional[float]]:
+    result: List[Optional[float]] = [None] * len(face_down)
+    previous: Optional[tuple[float, float]] = None
+    for t in range(len(face_down)):
+        primary = (face_down[t], face_tilt[t])
+        fallback = (pose_drop[t], pose_tilt[t])
+        values = primary if all(value is not None for value in primary) else fallback
+        if not all(value is not None for value in values):
+            previous = None
+            continue
+        current = (float(values[0]), float(values[1]))
+        if previous is not None:
+            result[t] = abs(current[0] - previous[0]) + abs(current[1] - previous[1])
+        previous = current
+    return result
+
+
+def _low_motion_for_segments(
+    segment_flags: List[bool],
+    motion_by_sec: List[Optional[float]],
+    minimum_samples: int,
+    threshold: float,
+) -> List[bool]:
+    result = [False] * len(segment_flags)
+    t = 0
+    while t < len(segment_flags):
+        if not segment_flags[t]:
+            t += 1
+            continue
+        start = t
+        while t < len(segment_flags) and segment_flags[t]:
+            t += 1
+        values = [value for value in motion_by_sec[start:t] if value is not None]
+        if len(values) >= max(2, int(minimum_samples)) and (sum(values) / len(values)) <= float(threshold):
+            for index in range(start, t):
+                result[index] = True
+    return result
+
+
 def _filter_segments_by_duration(
     flags_by_sec: List[bool],
     min_duration_sec: Optional[int] = None,
@@ -1544,6 +1670,8 @@ def _get_drowsy_face_features(landmarks: List[Any]) -> Dict[str, Any]:
             face_head_down_ratio = (float(nose.y) - eye_mid_y) / face_height
 
     return {
+        "right_ear": right_ear,
+        "left_ear": left_ear,
         "avg_ear": avg_ear,
         "face_head_down_ratio": face_head_down_ratio,
         "face_head_tilt_ratio": face_head_tilt_ratio,
@@ -2271,6 +2399,8 @@ def analyze_absent(
     raw_drowsy_seen_by_sec = [False] * max(duration_sec, 0)
     drowsy_seen_by_sec = [False] * max(duration_sec, 0)
 
+    right_ear_by_sec: List[Optional[float]] = [None] * max(duration_sec, 0)
+    left_ear_by_sec: List[Optional[float]] = [None] * max(duration_sec, 0)
     avg_ear_by_sec: List[Optional[float]] = [None] * max(duration_sec, 0)
     face_head_down_ratio_by_sec: List[Optional[float]] = [None] * max(duration_sec, 0)
     face_head_tilt_ratio_by_sec: List[Optional[float]] = [None] * max(duration_sec, 0)
@@ -2279,6 +2409,15 @@ def analyze_absent(
 
     blink_seen_by_sec = [False] * max(duration_sec, 0)
     long_eye_closure_seen_by_sec = [False] * max(duration_sec, 0)
+    eye_closure_duration_by_sec = [0] * max(duration_sec, 0)
+    head_motion_by_sec: List[Optional[float]] = [None] * max(duration_sec, 0)
+    low_head_motion_seen_by_sec = [False] * max(duration_sec, 0)
+    right_ear_baseline: Optional[float] = None
+    left_ear_baseline: Optional[float] = None
+    right_close_threshold: Optional[float] = None
+    left_close_threshold: Optional[float] = None
+    right_reopen_threshold: Optional[float] = None
+    left_reopen_threshold: Optional[float] = None
 
     raw_page_turn_seen_by_sec = [False] * max(duration_sec, 0)
     page_turn_seen_by_sec = [False] * max(duration_sec, 0)
@@ -2408,6 +2547,8 @@ def analyze_absent(
 
                         if config.enable_drowsy:
                             drowsy_face = _get_drowsy_face_features(landmarks)
+                            right_ear_by_sec[sec] = drowsy_face["right_ear"]
+                            left_ear_by_sec[sec] = drowsy_face["left_ear"]
                             avg_ear_by_sec[sec] = drowsy_face["avg_ear"]
                             face_head_down_ratio_by_sec[sec] = drowsy_face["face_head_down_ratio"]
                             face_head_tilt_ratio_by_sec[sec] = drowsy_face["face_head_tilt_ratio"]
@@ -2471,15 +2612,45 @@ def analyze_absent(
     if config.enable_drowsy and duration_sec > 0:
         baseline_sec = min(int(config.baseline_duration_sec), duration_sec)
 
-        ear_baseline = _median_valid(avg_ear_by_sec, baseline_sec)
+        right_ear_baseline = _open_eye_baseline(right_ear_by_sec)
+        left_ear_baseline = _open_eye_baseline(left_ear_by_sec)
         face_head_down_baseline = _median_valid(face_head_down_ratio_by_sec, baseline_sec)
 
-        effective_ear_threshold = float(config.drowsy_ear_threshold)
-        if ear_baseline is not None:
-            effective_ear_threshold = min(
-                float(config.drowsy_ear_threshold),
-                float(ear_baseline) * float(config.ear_baseline_ratio),
+        right_close_threshold = float(config.drowsy_ear_threshold)
+        left_close_threshold = float(config.drowsy_ear_threshold)
+        right_reopen_threshold = float(config.drowsy_ear_reopen_threshold)
+        left_reopen_threshold = float(config.drowsy_ear_reopen_threshold)
+        if right_ear_baseline is not None:
+            right_close_threshold = min(
+                right_close_threshold,
+                float(right_ear_baseline) * float(config.ear_baseline_ratio),
             )
+            right_reopen_threshold = min(
+                right_reopen_threshold,
+                float(right_ear_baseline) * float(config.ear_reopen_baseline_ratio),
+            )
+        if left_ear_baseline is not None:
+            left_close_threshold = min(
+                left_close_threshold,
+                float(left_ear_baseline) * float(config.ear_baseline_ratio),
+            )
+            left_reopen_threshold = min(
+                left_reopen_threshold,
+                float(left_ear_baseline) * float(config.ear_reopen_baseline_ratio),
+            )
+        right_reopen_threshold = max(right_reopen_threshold, right_close_threshold + 0.01)
+        left_reopen_threshold = max(left_reopen_threshold, left_close_threshold + 0.01)
+
+        right_eye_closed_by_sec = _eye_closed_with_hysteresis(
+            right_ear_by_sec,
+            right_close_threshold,
+            right_reopen_threshold,
+        )
+        left_eye_closed_by_sec = _eye_closed_with_hysteresis(
+            left_ear_by_sec,
+            left_close_threshold,
+            left_reopen_threshold,
+        )
 
         effective_face_head_down_threshold = float(config.face_head_down_threshold)
         if face_head_down_baseline is not None:
@@ -2489,14 +2660,14 @@ def analyze_absent(
             )
 
         for t in range(duration_sec):
-            avg_ear = avg_ear_by_sec[t]
             face_head_down_ratio = face_head_down_ratio_by_sec[t]
             face_head_tilt_ratio = face_head_tilt_ratio_by_sec[t]
             pose_head_drop_ratio = pose_head_drop_ratio_by_sec[t]
             pose_head_tilt_ratio = pose_head_tilt_ratio_by_sec[t]
 
-            if avg_ear is not None and avg_ear <= effective_ear_threshold:
-                eye_closed_seen_by_sec[t] = True
+            eye_closed_seen_by_sec[t] = (
+                right_eye_closed_by_sec[t] and left_eye_closed_by_sec[t]
+            )
 
             face_head_down = (
                 face_head_down_ratio is not None
@@ -2533,20 +2704,25 @@ def analyze_absent(
             eye_closed_seen_by_sec,
             min_duration_sec=int(config.long_eye_closure_min_sec),
         )
+        eye_closure_duration_by_sec = _segment_duration_by_sec(eye_closed_seen_by_sec)
+        head_motion_by_sec = _head_motion_by_sec(
+            face_head_down_ratio_by_sec,
+            face_head_tilt_ratio_by_sec,
+            pose_head_drop_ratio_by_sec,
+            pose_head_tilt_ratio_by_sec,
+        )
+        low_head_motion_seen_by_sec = _low_motion_for_segments(
+            long_eye_closure_seen_by_sec,
+            head_motion_by_sec,
+            int(config.drowsy_head_motion_window_sec),
+            float(config.drowsy_head_motion_threshold),
+        )
 
         for t in range(duration_sec):
-            drowsy_score = 0.0
-
-            if long_eye_closure_seen_by_sec[t]:
-                drowsy_score += 0.55
-            if head_down_seen_by_sec[t]:
-                drowsy_score += 0.20
-            if head_tilt_seen_by_sec[t]:
-                drowsy_score += 0.10
-
             if (
-                (long_eye_closure_seen_by_sec[t] and head_down_seen_by_sec[t])
-                or drowsy_score >= float(config.drowsy_score_threshold)
+                long_eye_closure_seen_by_sec[t]
+                and head_down_seen_by_sec[t]
+                and low_head_motion_seen_by_sec[t]
             ):
                 raw_drowsy_seen_by_sec[t] = True
 
@@ -2846,6 +3022,23 @@ def analyze_absent(
                 "unknown": states[t] == "unknown",
                 "absent": states[t] == "absent",
             },
+            "drowsy_evidence": {
+                "right_ear": round(float(right_ear_by_sec[t]), 5) if right_ear_by_sec[t] is not None else None,
+                "left_ear": round(float(left_ear_by_sec[t]), 5) if left_ear_by_sec[t] is not None else None,
+                "avg_ear": round(float(avg_ear_by_sec[t]), 5) if avg_ear_by_sec[t] is not None else None,
+                "right_open_baseline": round(float(right_ear_baseline), 5) if right_ear_baseline is not None else None,
+                "left_open_baseline": round(float(left_ear_baseline), 5) if left_ear_baseline is not None else None,
+                "right_close_threshold": round(float(right_close_threshold), 5) if right_close_threshold is not None else None,
+                "left_close_threshold": round(float(left_close_threshold), 5) if left_close_threshold is not None else None,
+                "right_reopen_threshold": round(float(right_reopen_threshold), 5) if right_reopen_threshold is not None else None,
+                "left_reopen_threshold": round(float(left_reopen_threshold), 5) if left_reopen_threshold is not None else None,
+                "both_eyes_closed": eye_closed_seen_by_sec[t],
+                "continuous_eye_closed_sec": int(eye_closure_duration_by_sec[t]),
+                "head_motion": round(float(head_motion_by_sec[t]), 5) if head_motion_by_sec[t] is not None else None,
+                "low_head_motion": low_head_motion_seen_by_sec[t],
+                "minimum_eye_closed_sec": int(config.long_eye_closure_min_sec),
+                "rule": "both_eyes_closed_10s_and_low_head_motion",
+            },
         }
         for t in range(duration_sec)
     ]
@@ -2863,6 +3056,15 @@ def analyze_absent(
             "version": config.version,
             "warnings": warnings,
             "model_path": model_path,
+            "drowsy_config": {
+                "both_eyes_required": True,
+                "minimum_eye_closed_sec": int(config.long_eye_closure_min_sec),
+                "ear_baseline_ratio": float(config.ear_baseline_ratio),
+                "ear_reopen_baseline_ratio": float(config.ear_reopen_baseline_ratio),
+                "head_motion_threshold": float(config.drowsy_head_motion_threshold),
+                "activity_window_sec": int(config.drowsy_activity_window_sec),
+                "reading_state_enabled": False,
+            },
         },
         "summary": {
             "focus_ratio": float(focus_ratio),

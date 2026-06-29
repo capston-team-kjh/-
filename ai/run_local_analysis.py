@@ -39,6 +39,10 @@ else:
         config,
     )
 
+from focus_ai.vision import validate_analysis_with_vision
+
+result = validate_analysis_with_vision(VIDEO_PATH, result)
+
 output_dir = Path("local_outputs")
 output_dir.mkdir(exist_ok=True)
 

@@ -108,7 +108,7 @@ class WorkerMessageValidationTest(unittest.TestCase):
 
 
 class WorkerFeedbackRowTest(unittest.TestCase):
-    def test_feedback_row_keeps_only_feedback_text(self) -> None:
+    def test_feedback_row_keeps_complete_validated_feedback_text(self) -> None:
         result = {
             "time_patterns": {
                 "interval_sec": 300,
@@ -137,10 +137,73 @@ class WorkerFeedbackRowTest(unittest.TestCase):
             row["session_id"],
             "S001",
         )
-        self.assertEqual(row["feedback_text"], "lowest focus window\ndrowsy was frequent")
+        self.assertIn("overall summary", row["feedback_text"])
+        self.assertIn("weak point", row["feedback_text"])
+        self.assertIn("recommendation", row["feedback_text"])
+        self.assertIn("lowest focus window", row["feedback_text"])
+        self.assertIn("drowsy was frequent", row["feedback_text"])
         self.assertIsNotNone(row["personal_feedback"])
         self.assertEqual(row["feedback_source"], "rule_based")
         self.assertEqual(row["feedback_version"], "feedback-v1")
+        self.assertEqual(row["validation_status"], "not_validated")
+
+    def test_validator_corrects_feedback_to_match_final_timeline(self) -> None:
+        timeline = []
+        for t in range(100):
+            state = "focus" if t < 70 else "drowsy"
+            timeline.append(
+                {
+                    "t": t,
+                    "state": state,
+                    "states": [state],
+                    "flags": {"drowsy": state == "drowsy"},
+                }
+            )
+
+        result = {
+            "session_id": "S_VALIDATION",
+            "status": "success",
+            "meta": {"duration_sec": 100},
+            "summary": {
+                "focus_score": 70,
+                "focus_total_sec": 70,
+                "present_total_sec": 100,
+                "drowsy_total_sec": 30,
+                "drowsy_count": 1,
+                "absent_total_sec": 0,
+                "bad_posture_total_sec": 0,
+                "gaze_away_total_sec": 0,
+            },
+            "timeline": timeline,
+            "events": [{"type": "drowsy", "start_sec": 70, "end_sec": 100}],
+            "feedback": {
+                "summary_text": "집중 점수는 10점입니다.",
+                "weak_point": "자리비움이 가장 큰 문제입니다.",
+                "recommendation": "카메라를 조정하세요.",
+            },
+            "personal_feedback": {
+                "main_problem": "집중 패턴 안정",
+                "reason": "문제가 없습니다.",
+                "feedback": "그대로 유지하세요.",
+                "next_action": "없음",
+                "worst_segments": [],
+            },
+        }
+
+        with patch.dict(os.environ, {"AI_FEEDBACK_DISABLE_API": "true"}, clear=False):
+            worker._validate_and_correct_feedback(result)
+
+        self.assertEqual(result["feedback_validation"]["status"], "corrected")
+        self.assertIn("70점", result["feedback"]["summary_text"])
+        self.assertEqual(result["personal_feedback"]["main_problem"], "졸음 또는 눈 감김 반복")
+        self.assertEqual(result["personal_feedback"]["worst_segments"][0]["start_sec"], 0)
+        self.assertEqual(result["feedback_source"], "rule_based_validated")
+        self.assertEqual(result["feedback_version"], "feedback-v2-validated")
+
+        with patch.dict(os.environ, {"AI_FEEDBACK_DISABLE_API": "true"}, clear=False):
+            worker._validate_and_correct_feedback(result)
+
+        self.assertEqual(result["feedback_validation"]["status"], "valid")
 
 
 class WorkerChunkFlowTest(unittest.TestCase):
@@ -195,8 +258,32 @@ class WorkerChunkFlowTest(unittest.TestCase):
             self.assertEqual(final_result["events"][0]["start_sec"], 8)
             self.assertEqual(final_result["events"][0]["end_sec"], 12.0)
 
+    def test_codex_review_mode_defers_rds_save(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            env = {
+                "CODEX_MANUAL_REVIEW_ENABLED": "true",
+                "CODEX_MANUAL_REVIEW_DIR": temp_dir,
+                "AI_FEEDBACK_DISABLE_API": "true",
+            }
+            result = _analysis_result(10, 10)
+            job = worker._parse_message_body(_message(is_final_chunk=True))
+            with patch.dict(os.environ, env, clear=False):
+                with patch.object(worker, "_validate_and_correct_feedback", return_value=result):
+                    with patch.object(worker, "_save_result_to_rds") as save_result:
+                        worker._store_final_result(result, job, "rds")
+
+            save_result.assert_not_called()
+            pending = Path(temp_dir) / "session_12" / "pending_result.json"
+            self.assertTrue(pending.exists())
+
     def test_backend_payload_includes_personal_feedback(self) -> None:
         result = _analysis_result(10, 8)
+        result["vision_validation"] = {
+            "vision_enabled": True,
+            "status": "dry_run",
+            "sampled_frame_count": 20,
+            "estimated_cost_usd": 0.00352,
+        }
         result["personal_feedback"] = {
             "main_problem": "시선이탈 증가",
             "reason": "시선이탈 시간이 많았습니다.",
@@ -212,6 +299,7 @@ class WorkerChunkFlowTest(unittest.TestCase):
         self.assertEqual(payload["personal_feedback"]["main_problem"], "시선이탈 증가")
         self.assertEqual(payload["feedback_source"], "rule_based")
         self.assertEqual(payload["feedback_version"], "feedback-v1")
+        self.assertEqual(payload["vision_validation"]["sampled_frame_count"], 20)
 
     def test_missing_rds_env_reports_required_variable(self) -> None:
         with patch.dict(os.environ, {}, clear=True):
