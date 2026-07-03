@@ -30,31 +30,8 @@ class FocusSession(Base):
 
     # 관계 설정
     user = relationship("User", back_populates="sessions")
-    logs = relationship("FocusLog", back_populates="session", cascade="all, delete-orphan")
 
 
-class FocusLog(Base):
-    __tablename__ = "focus_logs"
-
-    id = Column(BigInteger, primary_key=True, index=True, autoincrement=True)
-    session_id = Column(Integer, ForeignKey("focus_sessions.id"), nullable=False)
-    timestamp = Column(DateTime, nullable=False, default=func.now())
-    focus_score = Column(Float, nullable=False)
-    state = Column(String(50), nullable=False) # 상태: focused, drowsy, away 등
-
-    # 관계 설정
-    session = relationship("FocusSession", back_populates="logs")
-
- # 눈동자, 안면인식, 몸 움직임, 자리이탈
-class FocusAnalysis(Base):
-    __tablename__ = "focus_analysis"
-
-    id = Column(Integer, primary_key=True, index=True)
-    eye_score = Column(Float, nullable=False)
-    head_score = Column(Float, nullable=False)
-    body_score = Column(Float, nullable=False)
-    is_absent = Column(Boolean, default=False, nullable=False)
-    created_at = Column(DateTime, default=func.now())
 
 
 # AI Analysis Models
