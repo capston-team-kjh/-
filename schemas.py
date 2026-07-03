@@ -62,47 +62,7 @@ class SessionResponse(BaseModel):
     class Config:
         from_attributes = True
 
-# ==========================================
-# 3. FocusLog (실시간 집중도 로그) 스키마
-# ==========================================
 
-# 실시간 로그 데이터 기록 요청
-class LogCreate(BaseModel):
-    session_id: int
-    focus_score: float
-    state: str
-
-# 로그 데이터 응답
-class LogResponse(BaseModel):
-    id: int
-    session_id: int
-    timestamp: datetime
-    focus_score: float
-    state: str
-
-    class Config:
-        from_attributes = True
-
-# ==========================================
-# 4. FocusAnalyzeCreate 조건 점수 스키마
-# ==========================================
-
-class FocusAnalyzeCreate(BaseModel):
-    eye_score: float = Field(..., ge=0, le=100, description="눈동자 집중도 점수 (0~100)")
-    head_score: float = Field(..., ge=0, le=100, description="안면 자세 점수 (0~100)")
-    body_score: float = Field(..., ge=0, le=100, description="신체 움직임 점수 (0~100)")
-    is_absent: bool = Field(..., description="자리 이탈 여부 (True: 이탈, False: 자리 있음)")
-
-class FocusAnalyzeResponse(BaseModel):
-    id: int
-    eye_score: float
-    head_score: float
-    body_score: float
-    is_absent: bool
-    created_at: datetime
-
-    class Config:
-        from_attributes = True
 
 #AI 
 #=================================================
