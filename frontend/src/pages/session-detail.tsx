@@ -18,6 +18,7 @@ import {
 
 interface SessionReportData {
   summary: {
+    focus_score: number;
     session_id: string;
     focus_ratio: number;
     absent_count: number;
@@ -135,6 +136,20 @@ export function SessionDetail() {
     }
   };
 
+  //State weights from focus_score.py
+  const STATE_WEIGHTS: Record<string, number> = {
+    "focus": 100,
+    "bad_posture": 60,
+    "gaze_away": 40,
+    "gaze_side": 40, // UI alias for gaze_away
+    "gaze_down": 40, // UI alias for gaze_away
+    "unknown": 50,
+    "present_unknown": 50,
+    "drowsy": 20,
+    "sleep_suspect": 20,
+    "absent": 0,
+  };
+
   const sessionMetrics = useMemo(() => {
     if (!report) return { totalSeconds: 0, focusScore: 0, actualFocusSeconds: 0, secondBySecond: [] };
     
@@ -146,23 +161,19 @@ export function SessionDetail() {
     // Baseline array: Assume 100% focus for every second
     const secondBySecond = new Array(tSecs).fill(100);
     
-    // Apply event penalties
-    report.events?.forEach(event => {
-      const start = Math.floor(event.start_sec);
-      const end = Math.floor(event.end_sec);
-      const penalty = (event.score || 0) * 100;
-      const resultingFocus = Math.max(0, 100 - penalty);
-
-      for (let i = start; i < end && i < tSecs; i++) {
-        secondBySecond[i] = Math.min(secondBySecond[i], resultingFocus);
+    report.timeline?.forEach(item => {
+      const timeIndex = Math.floor(item.t);
+      if (timeIndex < tSecs) {
+        // Look up the score for this specific state, default to 100 if missing
+        secondBySecond[timeIndex] = STATE_WEIGHTS[item.state] ?? 100;
       }
     });
     
-    // Calculate the average focus score mathematically
-    const totalScoreSum = secondBySecond.reduce((sum, score) => sum + score, 0);
-    const focusRatio = tSecs > 0 ? totalScoreSum / (tSecs * 100) : 0;
-    const focusScore = Math.round(focusRatio * 100);
-    const actualFocusSeconds = Math.round(tSecs * focusRatio);
+    // Calculate actual focus seconds (only counting time where state === "focus")
+    const actualFocusSeconds = report.timeline?.filter(t => t.state === "focus").length || 0;
+
+    // If the backend hasn't exposed it yet, fallback to a ratio, but rely on the DB.
+    const focusScore = report.summary.focus_score || Math.round(report.summary.focus_ratio * 100) || 0;
     
     return { totalSeconds: tSecs, focusScore, actualFocusSeconds, secondBySecond };
   }, [report]);
