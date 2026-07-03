@@ -30,3 +30,5 @@ ai/manual_review_queue/
 
 # test videos
 /upload
+
+seed_mock_data.py 
