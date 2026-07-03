@@ -16,41 +16,36 @@ router = APIRouter(
 )
 def get_true_session_metrics(db: Session, session: models.FocusSession):
     """
-    session-detail.tsx와 100% 동일한 기준으로 세션 시간과 집중도를 계산하는 마스터 함수입니다.
-    DB의 단순 시작/종료 시간이 아닌, AI가 실제 분석한 타임라인(t_secs)을 절대적인 기준으로 사용합니다.
+    세션 시간과 집중도를 계산합니다.
+    AI가 AnalysisSummary에 저장한 focus_ratio를 직접 100분율로 변환하여 사용합니다.
     """
-    # 1. 기본 DB 시간 (Fallback용)
-    db_duration = session.duration_sec or (int((session.end_time - session.start_time).total_seconds()) if session.end_time else 0)
+    # 1. Get accurate duration directly from the SQL injection fix
+    t_secs = session.duration_sec or (int((session.end_time - session.start_time).total_seconds()) if session.end_time else 0)
+    t_secs = max(t_secs, 1) # Prevent divide-by-zero errors
     
-    # 2. AI 데이터 조회
-    timeline_len = db.query(models.AnalysisTimeline).filter(models.AnalysisTimeline.session_id == str(session.id)).count()
+    # 2. Fetch the AI's official summary for this session
+    summary = db.query(models.AnalysisSummary).filter(models.AnalysisSummary.session_id == str(session.id)).first()
+    
+    # 3. Calculate the true score using the AI's ratio
+    # If the summary exists, multiply the ratio by 100. If it's still analyzing, default to 0.
+    true_score = round((summary.focus_ratio or 0) * 100) if summary else 0
+    
+    # 4. We still need to calculate event_secs because the React UI uses this to find the "Worst Habit"
     events = db.query(models.AnalysisEvent).filter(models.AnalysisEvent.session_id == str(session.id)).all()
-    
-    # 3. AI 기반 실제 분석 시간 (t_secs) 추출
-    t_secs = timeline_len if timeline_len > 0 else (max([int(e.end_sec) for e in events] + [0]) if events else db_duration)
-    t_secs = max(t_secs, 1) # 0으로 나누기 방지
-    
-    # 4. 1초 단위 집중도 및 방해 요소 누적 계산
-    second_by_second = [100] * t_secs
     event_secs = {"gaze": 0, "posture": 0, "absent": 0, "fidget": 0}
     
     for e in events:
-        start = int(e.start_sec or 0)
-        end = int(e.end_sec or 0)
-        duration = end - start
-        penalty = (e.score or 0) * 100
+        duration = int(e.end_sec or 0) - int(e.start_sec or 0)
         
-        if e.event_type == "gaze_side": event_secs["gaze"] += duration
-        elif e.event_type == "bad_posture": event_secs["posture"] += duration
-        elif e.event_type == "absent": event_secs["absent"] += duration
-        elif e.event_type in ["fidgeting", "overhead_no_activity"]: event_secs["fidget"] += duration
-        
-        resulting_focus = max(0, 100 - penalty)
-        for i in range(start, min(end, t_secs)):
-            second_by_second[i] = min(second_by_second[i], resulting_focus)
+        if e.event_type == "gaze_side": 
+            event_secs["gaze"] += duration
+        elif e.event_type == "bad_posture": 
+            event_secs["posture"] += duration
+        elif e.event_type == "absent": 
+            event_secs["absent"] += duration
+        elif e.event_type in ["fidgeting", "overhead_no_activity"]: 
+            event_secs["fidget"] += duration
             
-    true_score = round(sum(second_by_second) / (t_secs * 100) * 100)
-    
     return {
         "duration_sec": t_secs,
         "duration_min": max(t_secs // 60, 1),

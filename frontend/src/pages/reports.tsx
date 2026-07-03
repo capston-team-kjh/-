@@ -296,28 +296,53 @@ export function Reports() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {/* paginatedSessions */}
-                {paginatedSessions.map((session) => (
-                  <tr key={session.id} className="hover:bg-accent/20 transition-colors group">
-                    <td className="py-4 text-sm text-muted-foreground">{session.date}</td>
-                    <td className="py-4 text-sm font-semibold text-foreground">세션 #{session.display_index}</td>
-                    <td className="py-4 text-sm text-foreground">{formatAdaptiveTime(session.duration_sec)}</td>
-                    <td className="py-4">
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1 max-w-[100px] bg-muted rounded-full h-2">
-                          <div className="bg-primary rounded-full h-2" style={{ width: `${session.focus_score}%` }} />
-                        </div>
-                        <span className="text-sm font-bold text-foreground font-mono">{session.focus_score}%</span>
-                      </div>
-                    </td>
-                    <td className="py-4 text-right">
-                      <Link to={`/app/reports/${session.id}`} className="inline-flex items-center gap-1 text-sm text-primary hover:underline font-medium">
-                        <span className="opacity-0 group-hover:opacity-100 transition-opacity text-xs">세부 분석 보기</span>
-                        <ChevronRight className="w-4 h-4 text-primary" />
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
+                {paginatedSessions.map((session) => {
+                  // If the AI hasn't attached the JSON feedback yet, the SQS worker is still running
+                  const isAnalyzing = !session.personal_feedback;
+
+                  return (
+                    <tr key={session.id} className="hover:bg-accent/20 transition-colors group">
+                      <td className="py-4 text-sm text-muted-foreground">{session.date}</td>
+                      <td className="py-4 text-sm font-semibold text-foreground">세션 #{session.display_index}</td>
+                      <td className="py-4 text-sm text-foreground">{formatAdaptiveTime(session.duration_sec)}</td>
+                      <td className="py-4">
+                        {isAnalyzing ? (
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 max-w-[100px] bg-muted rounded-full h-2 overflow-hidden">
+                              {/* Animated pulse bar for analyzing state */}
+                              <div className="bg-muted-foreground/30 rounded-full h-2 w-full animate-pulse" />
+                            </div>
+                            <span className="text-sm font-medium text-muted-foreground">분석 중...</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 max-w-[100px] bg-muted rounded-full h-2">
+                              <div className="bg-primary rounded-full h-2" style={{ width: `${session.focus_score}%` }} />
+                            </div>
+                            <span className="text-sm font-bold text-foreground font-mono">{session.focus_score}%</span>
+                          </div>
+                        )}
+                      </td>
+                      <td className="py-4 text-right">
+                        {isAnalyzing ? (
+                          // Block navigation and show an alert instead of a Link
+                          <button 
+                            onClick={() => alert("AI가 세션 데이터를 분석 중입니다. 몇 분 후 다시 확인해 주세요.")}
+                            className="inline-flex items-center gap-1 text-sm text-muted-foreground cursor-not-allowed font-medium"
+                          >
+                            <span>리포트 대기 중</span>
+                            <Clock className="w-4 h-4" />
+                          </button>
+                        ) : (
+                          <Link to={`/app/reports/${session.id}`} className="inline-flex items-center gap-1 text-sm text-primary hover:underline font-medium">
+                            <span className="opacity-0 group-hover:opacity-100 transition-opacity text-xs">세부 분석 보기</span>
+                            <ChevronRight className="w-4 h-4 text-primary" />
+                          </Link>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}
