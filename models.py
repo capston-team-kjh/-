@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, BigInteger, Boolean, JSON
+from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, BigInteger, Boolean, JSON, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.mysql import LONGTEXT
 from sqlalchemy.sql import func
@@ -101,6 +101,8 @@ class AnalysisSummary(Base):
 
 class AnalysisTimeline(Base):
     __tablename__ = "analysis_timeline"
+
+    __table_args__ = (UniqueConstraint('session_id', 't', name='uix_session_id_t'),)
 
     id = Column(BigInteger, primary_key=True, index=True, autoincrement=True) # BIGINT + AI
     session_id = Column(String(100), nullable=False) # VARCHAR(100) NN

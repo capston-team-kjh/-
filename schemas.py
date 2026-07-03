@@ -1,6 +1,6 @@
 from pydantic import BaseModel, EmailStr, Field
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 
 # ==========================================
 # 1. User (회원) 스키마
@@ -57,6 +57,7 @@ class SessionResponse(BaseModel):
     start_time: datetime
     end_time: Optional[datetime] = None  # 아직 종료되지 않은 세션은 None일 수 있음
     status: str
+    duration_sec: Optional[int] = None
 
     class Config:
         from_attributes = True
@@ -124,6 +125,10 @@ class AnalysisFeedbackResponse(BaseModel):
     session_id: str
     feedback_text: str
     updated_at: datetime
+    personal_feedback: Optional[Dict[str, Any]] = None  
+    feedback_source: Optional[str] = None               
+    feedback_version: Optional[str] = None            
+    feedback_created_at: Optional[datetime] = None   
 
     class Config:
         from_attributes = True
