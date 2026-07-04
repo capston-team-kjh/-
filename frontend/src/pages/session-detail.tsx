@@ -155,7 +155,7 @@ export function SessionDetail() {
     
     // Determine exact session length in seconds
     const tSecs = report.timeline?.length > 0 
-      ? report.timeline.length 
+      ? Math.floor(Math.max(...report.timeline.map(item => item.t))) + 1 
       : Math.max(...(report.events?.map(e => e.end_sec) || [0]), 1);
       
     // Baseline array: Assume 100% focus for every second
