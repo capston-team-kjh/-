@@ -260,6 +260,21 @@ class TrainingScenePrepInventoryTests(unittest.TestCase):
                 {"clip.mp4", "types.mts"},
             )
 
+    def test_discovery_uses_fast_rg_listing_when_runner_is_available(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            expected = root / "clip.mp4"
+            calls: list[list[str]] = []
+
+            def fake_runner(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+                calls.append(command)
+                return subprocess.CompletedProcess(command, 0, stdout=f"{expected}\n", stderr="")
+
+            paths = discover_media_candidates(root, runner=fake_runner)
+
+            self.assertEqual(paths, [expected])
+            self.assertEqual(calls[0][:4], ["rg", "--files", "--hidden", "--no-ignore"])
+
     def test_inventory_marks_exact_focusai_duplicate(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             project = Path(temp_dir) / "project"

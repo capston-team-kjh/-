@@ -6,6 +6,7 @@ import os
 import re
 import csv
 import json
+import subprocess
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Iterable, Sequence
@@ -478,7 +479,37 @@ def read_review_decisions(path: Path) -> list[ReviewedScene]:
     return rows
 
 
-def discover_media_candidates(root: Path) -> list[Path]:
+def discover_media_candidates(
+    root: Path,
+    *,
+    runner: Any = subprocess.run,
+) -> list[Path]:
+    command = ["rg", "--files", "--hidden", "--no-ignore", "--no-messages", str(root)]
+    for extension in sorted(VIDEO_EXTENSIONS):
+        command.extend(["-g", f"*{extension}"])
+    try:
+        completed = runner(
+            command,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+        )
+    except FileNotFoundError:
+        completed = None
+    if completed is not None:
+        if completed.returncode not in {0, 1} and not completed.stdout.strip():
+            raise RuntimeError(f"rg media discovery failed: {completed.stderr.strip()}")
+        return sorted(
+            {
+                Path(line.strip())
+                for line in completed.stdout.splitlines()
+                if line.strip() and Path(line.strip()).suffix.lower() in VIDEO_EXTENSIONS
+            },
+            key=lambda path: str(path).lower(),
+        )
+
     candidates: list[Path] = []
 
     def ignore_error(_: OSError) -> None:
