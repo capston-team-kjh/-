@@ -1,12 +1,22 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
+from pathlib import Path
+
+import cv2
+import numpy as np
 
 from ai.training_scene_prep import (
     ReviewedScene,
     clip_filename,
+    extract_clip,
     group_timeline_candidates,
+    probe_video,
+    sha256_file,
     shortage_rows,
+    write_overview_sheets,
+    write_scene_contact_sheet,
 )
 
 
@@ -93,6 +103,90 @@ class TrainingScenePrepCoreTests(unittest.TestCase):
             labels,
             {"focus", "drowsy", "gaze_down", "gaze_side", "unknown"},
         )
+
+
+def _write_synthetic_video(
+    path: Path,
+    *,
+    fps: int,
+    seconds: int,
+    width: int,
+    height: int,
+) -> None:
+    writer = cv2.VideoWriter(
+        str(path),
+        cv2.VideoWriter_fourcc(*"MJPG"),
+        fps,
+        (width, height),
+    )
+    if not writer.isOpened():
+        raise RuntimeError("could not create synthetic video")
+    for index in range(fps * seconds):
+        frame = np.full((height, width, 3), index % 255, dtype=np.uint8)
+        writer.write(frame)
+    writer.release()
+
+
+class TrainingScenePrepMediaTests(unittest.TestCase):
+    def test_extract_clip_round_trip(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "source.avi"
+            output = root / "clip.mp4"
+            _write_synthetic_video(source, fps=10, seconds=5, width=64, height=48)
+
+            extract_clip(source, output, start_sec=1.0, end_sec=4.0)
+            meta = probe_video(output)
+
+            self.assertTrue(meta.opened)
+            self.assertLessEqual(abs(meta.duration_sec - 3.0), 0.2)
+            self.assertEqual((meta.width, meta.height), (64, 48))
+
+    def test_overview_sheet_is_readable(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "source.avi"
+            _write_synthetic_video(source, fps=10, seconds=12, width=64, height=48)
+
+            pages = write_overview_sheets(
+                source,
+                root / "sheets",
+                source_id="synthetic",
+                every_sec=5,
+                frames_per_page=3,
+            )
+
+            self.assertEqual(len(pages), 1)
+            self.assertIsNotNone(cv2.imread(str(pages[0])))
+
+    def test_scene_contact_sheet_is_readable(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "source.avi"
+            output = root / "candidate.jpg"
+            _write_synthetic_video(source, fps=10, seconds=12, width=64, height=48)
+
+            written = write_scene_contact_sheet(
+                source,
+                output,
+                source_id="synthetic",
+                start_sec=2,
+                end_sec=10,
+                sample_count=5,
+            )
+
+            self.assertEqual(written, output)
+            self.assertIsNotNone(cv2.imread(str(output)))
+
+    def test_sha256_file_matches_known_value(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "value.bin"
+            path.write_bytes(b"abc")
+
+            self.assertEqual(
+                sha256_file(path),
+                "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+            )
 
 
 if __name__ == "__main__":
