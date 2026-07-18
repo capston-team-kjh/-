@@ -330,6 +330,31 @@ class TrainingScenePrepInventoryTests(unittest.TestCase):
             self.assertEqual(records[1].disposition, "duplicate")
             self.assertEqual(records[1].duplicate_of, records[0].path)
 
+    def test_project_source_wins_over_external_session54_duplicate(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            project = root / "graduation" / "-"
+            video_dir = project / "ai" / "tmp" / "videos"
+            video_dir.mkdir(parents=True)
+            project_source = video_dir / "54_8_chunk_1_value.avi"
+            external = root / "session_54_full.webm"
+            _write_synthetic_video(project_source, fps=5, seconds=1, width=32, height=24)
+            shutil.copyfile(project_source, external)
+
+            records = build_inventory_records(
+                [external, project_source],
+                project_root=project,
+                output_root=root / "output",
+            )
+            by_path = {record.path: record for record in records}
+
+            self.assertEqual(by_path[str(project_source.resolve())].disposition, "focusai")
+            self.assertEqual(by_path[str(external.resolve())].disposition, "duplicate")
+            self.assertEqual(
+                by_path[str(external.resolve())].duplicate_of,
+                str(project_source.resolve()),
+            )
+
     def test_analysis_path_maps_session_chunk_and_s002(self) -> None:
         project = Path(r"C:\project")
         output = Path(r"C:\output")

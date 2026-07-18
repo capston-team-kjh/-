@@ -7,7 +7,7 @@ import re
 import csv
 import json
 import subprocess
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
@@ -442,7 +442,7 @@ def classify_candidate(path: Path, *, project_root: Path) -> CandidateClassifica
     )
     if any(resolved.is_relative_to(directory) for directory in focus_dirs):
         return CandidateClassification("focusai", "focusai_project_source")
-    if resolved == Path(r"C:\Projects\session_54_full.webm"):
+    if path.name.lower() == "session_54_full.webm":
         return CandidateClassification("focusai", "focusai_duplicate_candidate")
     return CandidateClassification("excluded", "non_focus_media_asset")
 
@@ -568,7 +568,6 @@ def build_inventory_records(
     output_root: Path,
 ) -> list[InventoryRecord]:
     records: list[InventoryRecord] = []
-    seen_focus_hashes: dict[str, str] = {}
     for path in sorted(paths, key=lambda item: str(item).lower()):
         classification = classify_candidate(path, project_root=project_root)
         digest = sha256_file(path)
@@ -580,12 +579,6 @@ def build_inventory_records(
         disposition = classification.disposition
         reason = classification.reason
         duplicate_of = ""
-        if disposition == "focusai" and digest in seen_focus_hashes:
-            disposition = "duplicate"
-            reason = "exact_duplicate"
-            duplicate_of = seen_focus_hashes[digest]
-        elif disposition == "focusai":
-            seen_focus_hashes[digest] = str(path.resolve())
         source_id = source_id_for_path(path)
         analysis_path = analysis_path_for_source(
             path,
@@ -610,6 +603,33 @@ def build_inventory_records(
                 analysis_json=str(analysis_path.resolve()),
             )
         )
+
+    focus_by_hash: dict[str, list[int]] = {}
+    for index, record in enumerate(records):
+        if record.disposition == "focusai":
+            focus_by_hash.setdefault(record.sha256, []).append(index)
+    reason_priority = {
+        "focusai_project_source": 0,
+        "focusai_duplicate_candidate": 1,
+    }
+    for indices in focus_by_hash.values():
+        canonical_index = min(
+            indices,
+            key=lambda index: (
+                reason_priority.get(records[index].reason, 9),
+                records[index].path.lower(),
+            ),
+        )
+        canonical_path = records[canonical_index].path
+        for index in indices:
+            if index == canonical_index:
+                continue
+            records[index] = replace(
+                records[index],
+                disposition="duplicate",
+                reason="exact_duplicate",
+                duplicate_of=canonical_path,
+            )
     return records
 
 
