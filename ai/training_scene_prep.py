@@ -296,11 +296,17 @@ def extract_clip(
 
 
 def _frame_at(capture: cv2.VideoCapture, timestamp: float) -> np.ndarray:
-    capture.set(cv2.CAP_PROP_POS_MSEC, max(0.0, timestamp) * 1000.0)
-    ok, frame = capture.read()
-    if not ok:
-        raise RuntimeError(f"could not decode frame at {timestamp:.3f}s")
-    return frame
+    attempted: set[float] = set()
+    for offset in (0.0, -1.0, 1.0, -2.0, 2.0, -5.0, 5.0, -10.0):
+        target = max(0.0, float(timestamp) + offset)
+        if target in attempted:
+            continue
+        attempted.add(target)
+        capture.set(cv2.CAP_PROP_POS_MSEC, target * 1000.0)
+        ok, frame = capture.read()
+        if ok:
+            return frame
+    raise RuntimeError(f"could not decode a nearby frame at {timestamp:.3f}s")
 
 
 def _contact_tile(frame: np.ndarray, caption: str, *, tile_width: int = 320) -> np.ndarray:

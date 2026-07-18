@@ -13,6 +13,7 @@ import cv2
 import numpy as np
 
 from ai.training_scene_prep import (
+    _frame_at,
     ReviewedScene,
     analysis_path_for_source,
     build_inventory_records,
@@ -145,6 +146,29 @@ def _write_synthetic_video(
 
 
 class TrainingScenePrepMediaTests(unittest.TestCase):
+    def test_frame_seek_retries_one_second_earlier(self) -> None:
+        class FlakyCapture:
+            def __init__(self) -> None:
+                self.targets: list[float] = []
+                self.read_count = 0
+
+            def set(self, _: int, value: float) -> bool:
+                self.targets.append(value)
+                return True
+
+            def read(self) -> tuple[bool, np.ndarray | None]:
+                self.read_count += 1
+                if self.read_count == 1:
+                    return False, None
+                return True, np.zeros((8, 8, 3), dtype=np.uint8)
+
+        capture = FlakyCapture()
+
+        frame = _frame_at(capture, 590)
+
+        self.assertEqual(frame.shape, (8, 8, 3))
+        self.assertEqual(capture.targets, [590000.0, 589000.0])
+
     def test_extract_clip_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
