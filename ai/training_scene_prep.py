@@ -414,6 +414,8 @@ def write_scene_contact_sheet(
 def classify_candidate(path: Path, *, project_root: Path) -> CandidateClassification:
     suffix = path.suffix.lower()
     if suffix == ".mts":
+        if "node_modules" in {part.lower() for part in path.parts}:
+            return CandidateClassification("excluded", "typescript_mts")
         prefix = path.read_bytes()[:4096]
         text = prefix.decode("utf-8", errors="ignore").lstrip()
         code_markers = (

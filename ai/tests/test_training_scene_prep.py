@@ -218,6 +218,17 @@ class TrainingScenePrepInventoryTests(unittest.TestCase):
             self.assertEqual(classification.disposition, "excluded")
             self.assertEqual(classification.reason, "typescript_mts")
 
+    def test_comment_leading_node_modules_mts_is_typescript(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            code = root / "node_modules" / "date-fns" / "addDays.d.mts"
+            code.parent.mkdir(parents=True)
+            code.write_text("/** @name addDays */\nexport declare function addDays(): void;", encoding="utf-8")
+
+            classification = classify_candidate(code, project_root=root)
+
+            self.assertEqual(classification.reason, "typescript_mts")
+
     def test_unknown_review_label_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "review_decisions.csv"
