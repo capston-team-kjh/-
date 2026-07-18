@@ -560,6 +560,14 @@ class TrainingScenePrepInventoryTests(unittest.TestCase):
             self.assertTrue((output / "manifests" / "clips_manifest.csv").is_file())
             self.assertTrue((output / "manifests" / "scene_balance.csv").is_file())
             self.assertTrue((output / "shortage_report.md").is_file())
+            self.assertIn(
+                "FocusAI 부족 장면 보고서",
+                (output / "shortage_report.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "FocusAI 학습 장면 준비 결과",
+                (output / "README.md").read_text(encoding="utf-8"),
+            )
             self.assertEqual(verification["errors"], [])
 
     def test_verify_detects_changed_source(self) -> None:
