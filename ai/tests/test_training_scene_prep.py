@@ -170,6 +170,35 @@ class TrainingScenePrepMediaTests(unittest.TestCase):
         self.assertEqual(frame.shape, (8, 8, 3))
         self.assertEqual(capture.targets, [590000.0, 589000.0])
 
+    def test_frame_seek_falls_back_to_sequential_decode(self) -> None:
+        class SequentialOnlyCapture:
+            def __init__(self) -> None:
+                self.sequential = False
+                self.position_resets = 0
+
+            def set(self, property_id: int, _: float) -> bool:
+                if property_id == cv2.CAP_PROP_POS_FRAMES:
+                    self.sequential = True
+                    self.position_resets += 1
+                return True
+
+            def get(self, property_id: int) -> float:
+                if property_id == cv2.CAP_PROP_FPS:
+                    return 2.0
+                return 0.0
+
+            def read(self) -> tuple[bool, np.ndarray | None]:
+                if not self.sequential:
+                    return False, None
+                return True, np.zeros((8, 8, 3), dtype=np.uint8)
+
+        capture = SequentialOnlyCapture()
+
+        frame = _frame_at(capture, 3)
+
+        self.assertEqual(frame.shape, (8, 8, 3))
+        self.assertEqual(capture.position_resets, 1)
+
     def test_extract_clip_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

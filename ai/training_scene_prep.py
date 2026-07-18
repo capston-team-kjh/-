@@ -306,6 +306,18 @@ def _frame_at(capture: cv2.VideoCapture, timestamp: float) -> np.ndarray:
         ok, frame = capture.read()
         if ok:
             return frame
+
+    fps = float(capture.get(cv2.CAP_PROP_FPS) or 0.0)
+    if fps > 0 and capture.set(cv2.CAP_PROP_POS_FRAMES, 0.0):
+        target_frame = max(0, int(round(float(timestamp) * fps)))
+        last_frame: np.ndarray | None = None
+        for _ in range(target_frame + 1):
+            ok, frame = capture.read()
+            if not ok:
+                break
+            last_frame = frame
+        if last_frame is not None:
+            return last_frame
     raise RuntimeError(f"could not decode a nearby frame at {timestamp:.3f}s")
 
 
