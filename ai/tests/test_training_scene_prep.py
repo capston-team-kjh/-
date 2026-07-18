@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 import tempfile
 import unittest
 import shutil
@@ -199,6 +200,28 @@ class TrainingScenePrepMediaTests(unittest.TestCase):
 
             self.assertEqual(len(pages), 1)
             self.assertIsNotNone(cv2.imread(str(pages[0])))
+
+    def test_overview_sheet_honors_decoded_duration_limit(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "source.avi"
+            _write_synthetic_video(source, fps=10, seconds=12, width=64, height=48)
+            sheet_dir = root / "sheets"
+            sheet_dir.mkdir()
+            stale = sheet_dir / "limited__overview_999.jpg"
+            stale.write_bytes(b"stale")
+
+            pages = write_overview_sheets(
+                source,
+                sheet_dir,
+                source_id="limited",
+                every_sec=1,
+                frames_per_page=3,
+                duration_limit_sec=2,
+            )
+
+            self.assertEqual(len(pages), 1)
+            self.assertFalse(stale.exists())
 
     def test_scene_contact_sheet_is_readable(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -469,7 +492,14 @@ class TrainingScenePrepInventoryTests(unittest.TestCase):
             self.assertGreaterEqual(summary["overview_page_count"], 1)
             self.assertEqual(len(rows), 1)
             self.assertEqual(rows[0]["suggested_label"], "gaze_side")
-            self.assertTrue(Path(rows[0]["sheet_path"]).is_file())
+            candidate_sheet = Path(rows[0]["sheet_path"])
+            self.assertTrue(candidate_sheet.is_file())
+
+            old_timestamp = 946684800
+            os.utime(candidate_sheet, (old_timestamp, old_timestamp))
+            run_sheets(project_root=project, output_root=output, every_sec=2)
+
+            self.assertEqual(int(candidate_sheet.stat().st_mtime), old_timestamp)
 
     def test_extract_and_verify_write_traceable_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

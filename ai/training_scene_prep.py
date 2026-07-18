@@ -335,6 +335,7 @@ def write_overview_sheets(
     source_id: str,
     every_sec: float = 10.0,
     frames_per_page: int = 30,
+    duration_limit_sec: float | None = None,
 ) -> list[Path]:
     meta = probe_video(source_path)
     if not meta.opened or meta.duration_sec <= 0:
@@ -342,9 +343,15 @@ def write_overview_sheets(
     if every_sec <= 0 or frames_per_page <= 0:
         raise ValueError("sampling interval and page size must be positive")
 
-    timestamps = [float(value) for value in np.arange(0.0, meta.duration_sec, every_sec)]
+    review_duration = meta.duration_sec
+    if duration_limit_sec is not None and duration_limit_sec > 0:
+        review_duration = min(review_duration, float(duration_limit_sec))
+    timestamps = [float(value) for value in np.arange(0.0, review_duration, every_sec)]
     capture = cv2.VideoCapture(str(source_path))
     output_dir.mkdir(parents=True, exist_ok=True)
+    source_token = _ascii_token(source_id)
+    for stale in output_dir.glob(f"{source_token}__overview_*.jpg"):
+        stale.unlink()
     pages: list[Path] = []
     try:
         for page_index in range(0, len(timestamps), frames_per_page):
@@ -363,7 +370,7 @@ def write_overview_sheets(
                     row * tile_height : (row + 1) * tile_height,
                     column * tile_width : (column + 1) * tile_width,
                 ] = tile
-            page_path = output_dir / f"{_ascii_token(source_id)}__overview_{len(pages) + 1:03d}.jpg"
+            page_path = output_dir / f"{source_token}__overview_{len(pages) + 1:03d}.jpg"
             if not cv2.imwrite(str(page_path), page, [cv2.IMWRITE_JPEG_QUALITY, 88]):
                 raise RuntimeError(f"could not write contact sheet: {page_path}")
             pages.append(page_path)
@@ -753,19 +760,23 @@ def run_sheets(
     missing_analysis: list[str] = []
     for record in records:
         source_path = Path(record.path)
+        analysis_path = Path(record.analysis_json)
+        analysis_duration = 0.0
+        timeline: list[dict[str, Any]] = []
+        if analysis_path.is_file():
+            analysis_duration, timeline = load_analysis_timeline(analysis_path)
         overview_pages = write_overview_sheets(
             source_path,
             output / "contact_sheets" / "overview" / record.source_id,
             source_id=record.source_id,
             every_sec=every_sec,
+            duration_limit_sec=analysis_duration or record.duration_sec,
         )
         overview_count += len(overview_pages)
 
-        analysis_path = Path(record.analysis_json)
         if not analysis_path.is_file():
             missing_analysis.append(record.source_id)
             continue
-        analysis_duration, timeline = load_analysis_timeline(analysis_path)
         candidates = group_timeline_candidates(
             record.source_id,
             timeline,
@@ -779,13 +790,15 @@ def run_sheets(
                 f"{int(candidate.start_sec):06d}-{int(candidate.end_sec):06d}.jpg"
             )
             sheet_path = output / "contact_sheets" / "candidates" / sheet_name
-            write_scene_contact_sheet(
-                source_path,
-                sheet_path,
-                source_id=record.source_id,
-                start_sec=candidate.start_sec,
-                end_sec=candidate.end_sec,
-            )
+            existing_sheet = cv2.imread(str(sheet_path)) if sheet_path.is_file() else None
+            if existing_sheet is None:
+                write_scene_contact_sheet(
+                    source_path,
+                    sheet_path,
+                    source_id=record.source_id,
+                    start_sec=candidate.start_sec,
+                    end_sec=candidate.end_sec,
+                )
             candidate_rows.append(
                 {
                     "source_id": record.source_id,
