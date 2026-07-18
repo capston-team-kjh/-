@@ -4,7 +4,9 @@ import hashlib
 import math
 import os
 import re
-from dataclasses import dataclass
+import csv
+import json
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
@@ -52,6 +54,51 @@ class VideoMeta:
     width: int
     height: int
     frame_count: int
+
+
+@dataclass(frozen=True)
+class CandidateClassification:
+    disposition: str
+    reason: str
+
+
+@dataclass(frozen=True)
+class InventoryRecord:
+    path: str
+    extension: str
+    size_bytes: int
+    sha256: str
+    opened: bool
+    duration_sec: float
+    fps: float
+    width: int
+    height: int
+    disposition: str
+    reason: str
+    duplicate_of: str
+    source_id: str
+    analysis_json: str
+
+
+VIDEO_EXTENSIONS = {
+    ".mp4",
+    ".mov",
+    ".mkv",
+    ".avi",
+    ".webm",
+    ".m4v",
+    ".mpg",
+    ".mpeg",
+    ".wmv",
+    ".flv",
+    ".mts",
+    ".m2ts",
+    ".3gp",
+    ".vob",
+    ".ogv",
+    ".asf",
+    ".mxf",
+}
 
 
 def _ascii_token(value: str) -> str:
@@ -361,3 +408,566 @@ def write_scene_contact_sheet(
     if not cv2.imwrite(str(output_path), page, [cv2.IMWRITE_JPEG_QUALITY, 90]):
         raise RuntimeError(f"could not write contact sheet: {output_path}")
     return output_path
+
+
+def classify_candidate(path: Path, *, project_root: Path) -> CandidateClassification:
+    suffix = path.suffix.lower()
+    if suffix == ".mts":
+        prefix = path.read_bytes()[:4096]
+        text = prefix.decode("utf-8", errors="ignore").lstrip()
+        code_markers = (
+            "import ",
+            "export ",
+            "/// <reference",
+            "#!/usr/bin/env node",
+            "declare ",
+        )
+        if any(text.startswith(marker) for marker in code_markers):
+            return CandidateClassification("excluded", "typescript_mts")
+
+    resolved = path.resolve()
+    project = project_root.resolve()
+    focus_dirs = (
+        project / "ai" / "tmp" / "videos",
+        project / "ai" / "downloads",
+    )
+    if any(resolved.is_relative_to(directory) for directory in focus_dirs):
+        return CandidateClassification("focusai", "focusai_project_source")
+    if resolved == Path(r"C:\Projects\session_54_full.webm"):
+        return CandidateClassification("focusai", "focusai_duplicate_candidate")
+    return CandidateClassification("excluded", "non_focus_media_asset")
+
+
+def read_review_decisions(path: Path) -> list[ReviewedScene]:
+    allowed_dispositions = {"ready", "rule_validation", "needs_review"}
+    rows: list[ReviewedScene] = []
+    with path.open("r", newline="", encoding="utf-8-sig") as file:
+        for line_number, raw in enumerate(csv.DictReader(file), start=2):
+            label = str(raw.get("label") or "").strip()
+            disposition = str(raw.get("disposition") or "").strip()
+            if label not in ALLOWED_LABELS:
+                raise ValueError(f"line {line_number}: unknown label {label!r}")
+            if disposition not in allowed_dispositions:
+                raise ValueError(f"line {line_number}: unknown disposition {disposition!r}")
+            if disposition == "ready" and label not in READY_LABELS:
+                raise ValueError(f"line {line_number}: {label} cannot be ready")
+            if disposition == "rule_validation" and label not in {"absent", "bad_posture"}:
+                raise ValueError(f"line {line_number}: {label} is not a rule-validation label")
+            try:
+                start_sec = float(raw.get("start_sec") or 0)
+                end_sec = float(raw.get("end_sec") or 0)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"line {line_number}: invalid time range") from exc
+            if end_sec <= start_sec:
+                raise ValueError(f"line {line_number}: invalid time range {start_sec}-{end_sec}")
+            source_id = str(raw.get("source_id") or "").strip()
+            cue = str(raw.get("cue") or "").strip()
+            if not source_id or not cue:
+                raise ValueError(f"line {line_number}: source_id and cue are required")
+            rows.append(
+                ReviewedScene(
+                    source_id=source_id,
+                    start_sec=start_sec,
+                    end_sec=end_sec,
+                    label=label,
+                    cue=cue,
+                    disposition=disposition,
+                    notes=str(raw.get("notes") or "").strip(),
+                )
+            )
+    return rows
+
+
+def discover_media_candidates(root: Path) -> list[Path]:
+    candidates: list[Path] = []
+
+    def ignore_error(_: OSError) -> None:
+        return None
+
+    for directory, _, filenames in os.walk(root, topdown=True, onerror=ignore_error, followlinks=False):
+        parent = Path(directory)
+        for name in filenames:
+            path = parent / name
+            if path.suffix.lower() in VIDEO_EXTENSIONS:
+                candidates.append(path)
+    return sorted(candidates, key=lambda path: str(path).lower())
+
+
+def source_id_for_path(path: Path) -> str:
+    if path.name.lower() == "s002_test.mp4":
+        return "S002_test"
+    match = re.match(r"^(\d+)_\d+_chunk_(\d+)_", path.name, flags=re.IGNORECASE)
+    if match:
+        return f"session{match.group(1)}_chunk{match.group(2)}"
+    return _ascii_token(path.stem)
+
+
+def analysis_path_for_source(
+    path: Path,
+    *,
+    project_root: Path,
+    output_root: Path,
+) -> Path:
+    if path.name.lower() == "s002_test.mp4":
+        return output_root / "analysis" / "S002_test.json"
+    match = re.match(r"^(\d+)_\d+_chunk_(\d+)_", path.name, flags=re.IGNORECASE)
+    if match:
+        return (
+            project_root
+            / "ai"
+            / "tmp"
+            / f"session_{match.group(1)}"
+            / f"chunk_{match.group(2)}_result.json"
+        )
+    return output_root / "analysis" / f"{_ascii_token(path.stem)}.json"
+
+
+def build_inventory_records(
+    paths: Iterable[Path],
+    *,
+    project_root: Path,
+    output_root: Path,
+) -> list[InventoryRecord]:
+    records: list[InventoryRecord] = []
+    seen_focus_hashes: dict[str, str] = {}
+    for path in sorted(paths, key=lambda item: str(item).lower()):
+        classification = classify_candidate(path, project_root=project_root)
+        digest = sha256_file(path)
+        meta = (
+            VideoMeta(False, 0.0, 0.0, 0, 0, 0)
+            if classification.reason == "typescript_mts"
+            else probe_video(path)
+        )
+        disposition = classification.disposition
+        reason = classification.reason
+        duplicate_of = ""
+        if disposition == "focusai" and digest in seen_focus_hashes:
+            disposition = "duplicate"
+            reason = "exact_duplicate"
+            duplicate_of = seen_focus_hashes[digest]
+        elif disposition == "focusai":
+            seen_focus_hashes[digest] = str(path.resolve())
+        source_id = source_id_for_path(path)
+        analysis_path = analysis_path_for_source(
+            path,
+            project_root=project_root,
+            output_root=output_root,
+        )
+        records.append(
+            InventoryRecord(
+                path=str(path.resolve()),
+                extension=path.suffix.lower(),
+                size_bytes=path.stat().st_size,
+                sha256=digest,
+                opened=meta.opened,
+                duration_sec=round(meta.duration_sec, 6),
+                fps=round(meta.fps, 6),
+                width=meta.width,
+                height=meta.height,
+                disposition=disposition,
+                reason=reason,
+                duplicate_of=duplicate_of,
+                source_id=source_id,
+                analysis_json=str(analysis_path.resolve()),
+            )
+        )
+    return records
+
+
+INVENTORY_FIELDS = tuple(InventoryRecord.__dataclass_fields__)
+
+
+def write_inventory_csv(records: Iterable[InventoryRecord], path: Path) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="", encoding="utf-8-sig") as file:
+        writer = csv.DictWriter(file, fieldnames=INVENTORY_FIELDS)
+        writer.writeheader()
+        for record in records:
+            writer.writerow(asdict(record))
+    return path
+
+
+def read_inventory_csv(path: Path) -> list[InventoryRecord]:
+    records: list[InventoryRecord] = []
+    with path.open("r", newline="", encoding="utf-8-sig") as file:
+        for raw in csv.DictReader(file):
+            records.append(
+                InventoryRecord(
+                    path=str(raw["path"]),
+                    extension=str(raw["extension"]),
+                    size_bytes=int(raw["size_bytes"]),
+                    sha256=str(raw["sha256"]),
+                    opened=str(raw["opened"]).lower() == "true",
+                    duration_sec=float(raw["duration_sec"]),
+                    fps=float(raw["fps"]),
+                    width=int(raw["width"]),
+                    height=int(raw["height"]),
+                    disposition=str(raw["disposition"]),
+                    reason=str(raw["reason"]),
+                    duplicate_of=str(raw["duplicate_of"]),
+                    source_id=str(raw["source_id"]),
+                    analysis_json=str(raw["analysis_json"]),
+                )
+            )
+    return records
+
+
+def ensure_safe_output_root(output_root: Path, *, project_root: Path) -> Path:
+    output = output_root.resolve()
+    project = project_root.resolve()
+    if output == project or output.is_relative_to(project) or project.is_relative_to(output):
+        raise ValueError(f"output root must be separate from the project root: {output}")
+    return output
+
+
+def run_inventory(
+    *,
+    computer_root: Path,
+    project_root: Path,
+    output_root: Path,
+) -> dict[str, Any]:
+    output = ensure_safe_output_root(output_root, project_root=project_root)
+    candidates = [
+        path
+        for path in discover_media_candidates(computer_root)
+        if not path.resolve().is_relative_to(output)
+    ]
+    records = build_inventory_records(
+        candidates,
+        project_root=project_root,
+        output_root=output,
+    )
+    write_inventory_csv(records, output / "manifests" / "source_inventory.csv")
+    unique_focus = [record for record in records if record.disposition == "focusai"]
+    return {
+        "candidate_count": len(records),
+        "typescript_mts_count": sum(record.reason == "typescript_mts" for record in records),
+        "focusai_path_count": sum(
+            record.disposition in {"focusai", "duplicate"} for record in records
+        ),
+        "unique_focusai_count": len(unique_focus),
+        "duplicate_count": sum(record.disposition == "duplicate" for record in records),
+        "unique_duration_sec": round(sum(record.duration_sec for record in unique_focus), 3),
+    }
+
+
+def load_analysis_timeline(path: Path) -> tuple[float, list[dict[str, Any]]]:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if isinstance(data.get("analysis_result"), dict):
+        data = data["analysis_result"]
+    meta = data.get("meta") if isinstance(data.get("meta"), dict) else {}
+    duration = float(meta.get("duration_sec") or meta.get("video_duration_sec") or 0)
+    front = data.get("front_result") if isinstance(data.get("front_result"), dict) else {}
+    timeline = front.get("timeline") if isinstance(front.get("timeline"), list) else None
+    if timeline is None:
+        timeline = data.get("timeline") if isinstance(data.get("timeline"), list) else []
+    return duration, [item for item in timeline if isinstance(item, dict)]
+
+
+CANDIDATE_FIELDS = (
+    "source_id",
+    "source_path",
+    "start_sec",
+    "end_sec",
+    "suggested_label",
+    "evidence_flags",
+    "sheet_path",
+    "analysis_json",
+)
+
+
+def run_sheets(
+    *,
+    project_root: Path,
+    output_root: Path,
+    every_sec: float = 10.0,
+) -> dict[str, Any]:
+    output = ensure_safe_output_root(output_root, project_root=project_root)
+    inventory_path = output / "manifests" / "source_inventory.csv"
+    records = [
+        record
+        for record in read_inventory_csv(inventory_path)
+        if record.disposition == "focusai"
+    ]
+    candidate_rows: list[dict[str, Any]] = []
+    overview_count = 0
+    missing_analysis: list[str] = []
+    for record in records:
+        source_path = Path(record.path)
+        overview_pages = write_overview_sheets(
+            source_path,
+            output / "contact_sheets" / "overview" / record.source_id,
+            source_id=record.source_id,
+            every_sec=every_sec,
+        )
+        overview_count += len(overview_pages)
+
+        analysis_path = Path(record.analysis_json)
+        if not analysis_path.is_file():
+            missing_analysis.append(record.source_id)
+            continue
+        analysis_duration, timeline = load_analysis_timeline(analysis_path)
+        candidates = group_timeline_candidates(
+            record.source_id,
+            timeline,
+            duration_sec=analysis_duration or record.duration_sec,
+        )
+        for candidate in candidates:
+            if candidate.suggested_label == "focus":
+                continue
+            sheet_name = (
+                f"{_ascii_token(record.source_id)}__{_ascii_token(candidate.suggested_label)}__"
+                f"{int(candidate.start_sec):06d}-{int(candidate.end_sec):06d}.jpg"
+            )
+            sheet_path = output / "contact_sheets" / "candidates" / sheet_name
+            write_scene_contact_sheet(
+                source_path,
+                sheet_path,
+                source_id=record.source_id,
+                start_sec=candidate.start_sec,
+                end_sec=candidate.end_sec,
+            )
+            candidate_rows.append(
+                {
+                    "source_id": record.source_id,
+                    "source_path": record.path,
+                    "start_sec": round(candidate.start_sec, 3),
+                    "end_sec": round(candidate.end_sec, 3),
+                    "suggested_label": candidate.suggested_label,
+                    "evidence_flags": "|".join(candidate.evidence_flags),
+                    "sheet_path": str(sheet_path.resolve()),
+                    "analysis_json": record.analysis_json,
+                }
+            )
+
+    candidate_manifest = output / "manifests" / "candidate_scenes.csv"
+    candidate_manifest.parent.mkdir(parents=True, exist_ok=True)
+    with candidate_manifest.open("w", newline="", encoding="utf-8-sig") as file:
+        writer = csv.DictWriter(file, fieldnames=CANDIDATE_FIELDS)
+        writer.writeheader()
+        writer.writerows(candidate_rows)
+    return {
+        "source_count": len(records),
+        "overview_page_count": overview_count,
+        "candidate_count": len(candidate_rows),
+        "missing_analysis": missing_analysis,
+    }
+
+
+CLIP_FIELDS = (
+    "clip_path",
+    "label",
+    "cue",
+    "disposition",
+    "source_id",
+    "source_path",
+    "source_sha256",
+    "start_sec",
+    "end_sec",
+    "duration_sec",
+    "notes",
+)
+
+
+def _scene_output_path(output_root: Path, scene: ReviewedScene) -> Path:
+    if scene.disposition == "ready":
+        directory = output_root / "train_ready" / scene.label
+    elif scene.disposition == "rule_validation":
+        directory = output_root / "rule_validation" / scene.label
+    else:
+        directory = output_root / "needs_review"
+    return directory / clip_filename(scene)
+
+
+def _write_balance_reports(output: Path, scenes: list[ReviewedScene]) -> None:
+    rows = shortage_rows(scenes)
+    cues_by_label: dict[str, set[str]] = {}
+    for scene in scenes:
+        if scene.disposition == "ready":
+            cues_by_label.setdefault(scene.label, set()).add(scene.cue)
+
+    balance_path = output / "manifests" / "scene_balance.csv"
+    with balance_path.open("w", newline="", encoding="utf-8-sig") as file:
+        fieldnames = (
+            "label",
+            "clip_count",
+            "duration_sec",
+            "source_count",
+            "scene_cues",
+            "is_shortage",
+            "reasons",
+        )
+        writer = csv.DictWriter(file, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            rendered = dict(row)
+            rendered["scene_cues"] = "|".join(sorted(cues_by_label.get(row["label"], set())))
+            rendered["reasons"] = "|".join(row["reasons"])
+            writer.writerow(rendered)
+
+    recommendations = {
+        "focus": "화면 집중과 필기·독서 중 고개 숙임을 여러 조명과 안경 조건에서 촬영",
+        "drowsy": "10초 이상 눈 감김·고개 떨굼·활동 중단이 함께 나타나는 장면 촬영",
+        "gaze_down": "필기와 구분되도록 책상 아래나 휴대폰을 지속해서 보는 장면 촬영",
+        "gaze_side": "짧은 주변 확인과 2초 이상 지속되는 좌우 시선 이탈을 각각 촬영",
+        "unknown": "얼굴 가림·역광·저조도·부분 프레임 이탈 조건을 각각 촬영",
+    }
+    lines = ["# FocusAI 부족 장면 보고서", ""]
+    for row in rows:
+        status = "부족" if row["is_shortage"] else "최소 기준 충족"
+        reasons = ", ".join(row["reasons"]) if row["reasons"] else "없음"
+        lines.extend(
+            [
+                f"## {row['label']}",
+                "",
+                f"- 상태: {status}",
+                f"- 확정 클립: {row['clip_count']}개",
+                f"- 확정 길이: {row['duration_sec']:.1f}초",
+                f"- 원본 세션: {row['source_count']}개",
+                f"- 부족 근거: {reasons}",
+                f"- 다음 촬영 권장: {recommendations[row['label']]}",
+                "",
+            ]
+        )
+    (output / "shortage_report.md").write_text("\n".join(lines), encoding="utf-8")
+
+
+def run_extract(
+    *,
+    project_root: Path,
+    output_root: Path,
+    decisions_path: Path,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    output = ensure_safe_output_root(output_root, project_root=project_root)
+    records = [
+        record
+        for record in read_inventory_csv(output / "manifests" / "source_inventory.csv")
+        if record.disposition == "focusai"
+    ]
+    by_source = {record.source_id: record for record in records}
+    scenes = read_review_decisions(decisions_path)
+    errors: list[str] = []
+    for scene in scenes:
+        record = by_source.get(scene.source_id)
+        if record is None:
+            errors.append(f"unknown source_id: {scene.source_id}")
+            continue
+        if scene.start_sec < 0 or scene.end_sec > record.duration_sec + 0.05:
+            errors.append(
+                f"range outside source: {scene.source_id} {scene.start_sec}-{scene.end_sec}"
+            )
+        minimum = 12.0 if scene.label == "drowsy" else 4.0
+        if scene.end_sec - scene.start_sec < minimum:
+            errors.append(f"scene shorter than {minimum:.0f}s: {scene.source_id}")
+    if errors:
+        raise ValueError("; ".join(errors))
+    if dry_run:
+        return {"clip_count": len(scenes), "errors": []}
+
+    manifest_rows: list[dict[str, Any]] = []
+    for scene in scenes:
+        record = by_source[scene.source_id]
+        output_path = _scene_output_path(output, scene)
+        if output_path.exists():
+            clip_meta = probe_video(output_path)
+            if not clip_meta.opened:
+                raise RuntimeError(f"existing clip is unreadable: {output_path}")
+        else:
+            clip_meta = extract_clip(
+                Path(record.path),
+                output_path,
+                start_sec=scene.start_sec,
+                end_sec=scene.end_sec,
+            )
+        manifest_rows.append(
+            {
+                "clip_path": str(output_path.resolve()),
+                "label": scene.label,
+                "cue": scene.cue,
+                "disposition": scene.disposition,
+                "source_id": scene.source_id,
+                "source_path": record.path,
+                "source_sha256": record.sha256,
+                "start_sec": scene.start_sec,
+                "end_sec": scene.end_sec,
+                "duration_sec": round(clip_meta.duration_sec, 6),
+                "notes": scene.notes,
+            }
+        )
+
+    manifest_path = output / "manifests" / "clips_manifest.csv"
+    with manifest_path.open("w", newline="", encoding="utf-8-sig") as file:
+        writer = csv.DictWriter(file, fieldnames=CLIP_FIELDS)
+        writer.writeheader()
+        writer.writerows(manifest_rows)
+    _write_balance_reports(output, scenes)
+    ready_count = sum(scene.disposition == "ready" for scene in scenes)
+    review_count = sum(scene.disposition == "needs_review" for scene in scenes)
+    readme_lines = [
+        "# FocusAI 학습 장면 준비 결과",
+        "",
+        f"- 전체 클립: {len(scenes)}개",
+        f"- 학습 준비 완료: {ready_count}개",
+        f"- 추가 확인 필요: {review_count}개",
+        "- 원본 영상은 수정하지 않았으며 모든 클립은 manifest에서 추적할 수 있습니다.",
+    ]
+    (output / "README.md").write_text("\n".join(readme_lines) + "\n", encoding="utf-8")
+    return {
+        "clip_count": len(scenes),
+        "ready_count": ready_count,
+        "needs_review_count": review_count,
+        "errors": [],
+    }
+
+
+def run_verify(*, project_root: Path, output_root: Path) -> dict[str, Any]:
+    output = ensure_safe_output_root(output_root, project_root=project_root)
+    inventory = read_inventory_csv(output / "manifests" / "source_inventory.csv")
+    focus_records = [
+        record for record in inventory if record.disposition in {"focusai", "duplicate"}
+    ]
+    errors: list[str] = []
+    for record in focus_records:
+        source = Path(record.path)
+        if not source.is_file():
+            errors.append(f"source missing: {source}")
+        elif sha256_file(source) != record.sha256:
+            errors.append(f"source hash changed: {source}")
+
+    manifest_path = output / "manifests" / "clips_manifest.csv"
+    clip_rows: list[dict[str, str]] = []
+    if not manifest_path.is_file():
+        errors.append(f"clip manifest missing: {manifest_path}")
+    else:
+        with manifest_path.open("r", newline="", encoding="utf-8-sig") as file:
+            clip_rows = list(csv.DictReader(file))
+
+    seen_clip_hashes: dict[str, str] = {}
+    for row in clip_rows:
+        clip = Path(row["clip_path"])
+        if not clip.is_file():
+            errors.append(f"clip missing: {clip}")
+            continue
+        meta = probe_video(clip)
+        if not meta.opened or meta.frame_count <= 0:
+            errors.append(f"clip unreadable: {clip}")
+        scene = ReviewedScene(
+            source_id=row["source_id"],
+            start_sec=float(row["start_sec"]),
+            end_sec=float(row["end_sec"]),
+            label=row["label"],
+            cue=row["cue"],
+            disposition=row["disposition"],
+            notes=row["notes"],
+        )
+        if clip.name != clip_filename(scene):
+            errors.append(f"clip filename mismatch: {clip}")
+        if scene.disposition in {"ready", "rule_validation"} and clip.parent.name != scene.label:
+            errors.append(f"clip folder label mismatch: {clip}")
+        digest = sha256_file(clip)
+        if digest in seen_clip_hashes:
+            errors.append(f"duplicate clip: {clip} matches {seen_clip_hashes[digest]}")
+        else:
+            seen_clip_hashes[digest] = str(clip)
+    return {"source_count": len(focus_records), "clip_count": len(clip_rows), "errors": errors}

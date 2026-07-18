@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import csv
+import json
 import tempfile
 import unittest
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 import cv2
@@ -9,10 +14,22 @@ import numpy as np
 
 from ai.training_scene_prep import (
     ReviewedScene,
+    analysis_path_for_source,
+    build_inventory_records,
+    classify_candidate,
     clip_filename,
     extract_clip,
+    discover_media_candidates,
+    ensure_safe_output_root,
     group_timeline_candidates,
+    load_analysis_timeline,
     probe_video,
+    read_review_decisions,
+    read_inventory_csv,
+    run_extract,
+    run_inventory,
+    run_sheets,
+    run_verify,
     sha256_file,
     shortage_rows,
     write_overview_sheets,
@@ -187,6 +204,272 @@ class TrainingScenePrepMediaTests(unittest.TestCase):
                 sha256_file(path),
                 "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
             )
+
+
+class TrainingScenePrepInventoryTests(unittest.TestCase):
+    def test_typescript_mts_is_not_video(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            code = root / "index.d.mts"
+            code.write_text('import { FSLike } from "fdir";', encoding="utf-8")
+
+            classification = classify_candidate(code, project_root=root)
+
+            self.assertEqual(classification.disposition, "excluded")
+            self.assertEqual(classification.reason, "typescript_mts")
+
+    def test_unknown_review_label_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "review_decisions.csv"
+            path.write_text(
+                "source_id,start_sec,end_sec,label,cue,disposition,notes\n"
+                "s1,0,10,not_a_label,cue,ready,bad\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "not_a_label"):
+                read_review_decisions(path)
+
+    def test_valid_review_decision_is_loaded(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "review_decisions.csv"
+            path.write_text(
+                "source_id,start_sec,end_sec,label,cue,disposition,notes\n"
+                "s1,2,14,drowsy,eyes_closed,ready,clear\n",
+                encoding="utf-8",
+            )
+
+            rows = read_review_decisions(path)
+
+            self.assertEqual(
+                rows,
+                [ReviewedScene("s1", 2.0, 14.0, "drowsy", "eyes_closed", "ready", "clear")],
+            )
+
+    def test_discovery_includes_media_extensions_only(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "clip.mp4").write_bytes(b"video")
+            (root / "types.mts").write_text("export type X = string;", encoding="utf-8")
+            (root / "notes.txt").write_text("ignore", encoding="utf-8")
+
+            paths = discover_media_candidates(root)
+
+            self.assertEqual(
+                {path.name for path in paths},
+                {"clip.mp4", "types.mts"},
+            )
+
+    def test_inventory_marks_exact_focusai_duplicate(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir) / "project"
+            video_dir = project / "ai" / "tmp" / "videos"
+            video_dir.mkdir(parents=True)
+            first = video_dir / "first.avi"
+            second = video_dir / "second.avi"
+            _write_synthetic_video(first, fps=5, seconds=1, width=32, height=24)
+            shutil.copyfile(first, second)
+
+            records = build_inventory_records(
+                [first, second],
+                project_root=project,
+                output_root=Path(temp_dir) / "output",
+            )
+
+            self.assertEqual(records[0].disposition, "focusai")
+            self.assertEqual(records[1].disposition, "duplicate")
+            self.assertEqual(records[1].duplicate_of, records[0].path)
+
+    def test_analysis_path_maps_session_chunk_and_s002(self) -> None:
+        project = Path(r"C:\project")
+        output = Path(r"C:\output")
+
+        self.assertEqual(
+            analysis_path_for_source(
+                project / "ai" / "tmp" / "videos" / "54_8_chunk_2_hash.webm",
+                project_root=project,
+                output_root=output,
+            ),
+            project / "ai" / "tmp" / "session_54" / "chunk_2_result.json",
+        )
+        self.assertEqual(
+            analysis_path_for_source(
+                project / "ai" / "downloads" / "S002_test.mp4",
+                project_root=project,
+                output_root=output,
+            ),
+            output / "analysis" / "S002_test.json",
+        )
+
+    def test_inventory_stage_writes_readable_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            computer = Path(temp_dir) / "computer"
+            project = computer / "project"
+            video_dir = project / "ai" / "tmp" / "videos"
+            video_dir.mkdir(parents=True)
+            source = video_dir / "54_8_chunk_1_value.avi"
+            _write_synthetic_video(source, fps=5, seconds=2, width=32, height=24)
+            output = computer / "output"
+
+            summary = run_inventory(
+                computer_root=computer,
+                project_root=project,
+                output_root=output,
+            )
+            records = read_inventory_csv(output / "manifests" / "source_inventory.csv")
+
+            self.assertEqual(summary["candidate_count"], 1)
+            self.assertEqual(summary["unique_focusai_count"], 1)
+            self.assertEqual(len(records), 1)
+            self.assertEqual(records[0].disposition, "focusai")
+
+    def test_output_root_cannot_be_project_root(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir) / "project"
+            project.mkdir()
+
+            with self.assertRaisesRegex(ValueError, "output root"):
+                ensure_safe_output_root(project, project_root=project)
+
+    def test_nested_worker_analysis_timeline_is_loaded(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "result.json"
+            expected = [{"t": 1, "rule_state": "focus", "flags": {"face_seen": True}}]
+            path.write_text(
+                json.dumps(
+                    {
+                        "analysis_result": {
+                            "meta": {"duration_sec": 5},
+                            "front_result": {"timeline": expected},
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            duration, timeline = load_analysis_timeline(path)
+
+            self.assertEqual(duration, 5)
+            self.assertEqual(timeline, expected)
+
+    def test_sheets_stage_writes_overview_and_candidate_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            computer = Path(temp_dir) / "computer"
+            project = computer / "project"
+            video_dir = project / "ai" / "tmp" / "videos"
+            video_dir.mkdir(parents=True)
+            source = video_dir / "54_8_chunk_1_value.avi"
+            _write_synthetic_video(source, fps=5, seconds=5, width=64, height=48)
+            analysis = project / "ai" / "tmp" / "session_54" / "chunk_1_result.json"
+            analysis.parent.mkdir(parents=True)
+            analysis.write_text(
+                json.dumps(
+                    {
+                        "analysis_result": {
+                            "meta": {"duration_sec": 5},
+                            "front_result": {
+                                "timeline": [
+                                    {"t": 1, "rule_state": "gaze_side", "flags": {"gaze_side": True}},
+                                    {"t": 2, "rule_state": "gaze_side", "flags": {"gaze_side": True}},
+                                ]
+                            },
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            output = computer / "output"
+            run_inventory(computer_root=computer, project_root=project, output_root=output)
+
+            summary = run_sheets(
+                project_root=project,
+                output_root=output,
+                every_sec=2,
+            )
+            manifest = output / "manifests" / "candidate_scenes.csv"
+            with manifest.open("r", newline="", encoding="utf-8-sig") as file:
+                rows = list(csv.DictReader(file))
+
+            self.assertEqual(summary["source_count"], 1)
+            self.assertGreaterEqual(summary["overview_page_count"], 1)
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["suggested_label"], "gaze_side")
+            self.assertTrue(Path(rows[0]["sheet_path"]).is_file())
+
+    def test_extract_and_verify_write_traceable_outputs(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            computer = Path(temp_dir) / "computer"
+            project = computer / "project"
+            video_dir = project / "ai" / "tmp" / "videos"
+            video_dir.mkdir(parents=True)
+            source = video_dir / "54_8_chunk_1_value.avi"
+            _write_synthetic_video(source, fps=5, seconds=5, width=64, height=48)
+            output = computer / "output"
+            run_inventory(computer_root=computer, project_root=project, output_root=output)
+            decisions = output / "review_decisions.csv"
+            decisions.write_text(
+                "source_id,start_sec,end_sec,label,cue,disposition,notes\n"
+                "session54_chunk1,0,4,focus,writing_head_down,ready,clear\n",
+                encoding="utf-8",
+            )
+
+            summary = run_extract(
+                project_root=project,
+                output_root=output,
+                decisions_path=decisions,
+            )
+            verification = run_verify(project_root=project, output_root=output)
+
+            clips = list((output / "train_ready" / "focus").glob("*.mp4"))
+            self.assertEqual(summary["clip_count"], 1)
+            self.assertEqual(len(clips), 1)
+            self.assertTrue((output / "manifests" / "clips_manifest.csv").is_file())
+            self.assertTrue((output / "manifests" / "scene_balance.csv").is_file())
+            self.assertTrue((output / "shortage_report.md").is_file())
+            self.assertEqual(verification["errors"], [])
+
+    def test_verify_detects_changed_source(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            computer = Path(temp_dir) / "computer"
+            project = computer / "project"
+            video_dir = project / "ai" / "tmp" / "videos"
+            video_dir.mkdir(parents=True)
+            source = video_dir / "54_8_chunk_1_value.avi"
+            _write_synthetic_video(source, fps=5, seconds=5, width=64, height=48)
+            output = computer / "output"
+            run_inventory(computer_root=computer, project_root=project, output_root=output)
+            decisions = output / "review_decisions.csv"
+            decisions.write_text(
+                "source_id,start_sec,end_sec,label,cue,disposition,notes\n"
+                "session54_chunk1,0,4,focus,screen_focus,ready,clear\n",
+                encoding="utf-8",
+            )
+            run_extract(project_root=project, output_root=output, decisions_path=decisions)
+            source.write_bytes(source.read_bytes() + b"changed")
+
+            verification = run_verify(project_root=project, output_root=output)
+
+            self.assertTrue(any("source hash changed" in error for error in verification["errors"]))
+
+
+class TrainingScenePrepCliTests(unittest.TestCase):
+    def test_cli_help_lists_all_stages(self) -> None:
+        project_root = Path(__file__).resolve().parents[2]
+        script = project_root / "scripts" / "prepare_focusai_training_scenes.py"
+
+        completed = subprocess.run(
+            [sys.executable, str(script), "--help"],
+            cwd=project_root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertIn("inventory", completed.stdout)
+        self.assertIn("sheets", completed.stdout)
+        self.assertIn("extract", completed.stdout)
+        self.assertIn("verify", completed.stdout)
 
 
 if __name__ == "__main__":
