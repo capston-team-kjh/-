@@ -40,3 +40,8 @@ logs/
 
 # Reproducible AI training intermediates
 ai/state_classifier_training/analysis_results/
+
+# Local blind-label review media and private path maps
+ai/direct_labeling/contact_sheets/
+ai/direct_labeling/private/
+focusai_blind_labeling_*/

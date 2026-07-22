@@ -1,8 +1,15 @@
 from __future__ import annotations
 
+import csv
+import json
+import subprocess
+import sys
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+
+import cv2
+import numpy as np
 
 from ai.blind_labeling import (
     BlindInterval,
@@ -10,9 +17,13 @@ from ai.blind_labeling import (
     DirectLabel,
     blind_id_for,
     build_blind_intervals,
+    freeze_review_workspace,
     read_direct_labels,
     validate_direct_labels,
     validate_manifest_columns,
+    verify_review_workspace,
+    write_blind_contact_sheet,
+    write_review_workspace,
 )
 
 
@@ -95,6 +106,223 @@ class BlindLabelingTests(unittest.TestCase):
 
         with self.assertRaises(BlindLabelError):
             validate_direct_labels([interval], [label])
+
+
+def _write_synthetic_video(path: Path, *, fps: int = 5, seconds: int = 12) -> None:
+    writer = cv2.VideoWriter(
+        str(path),
+        cv2.VideoWriter_fourcc(*"MJPG"),
+        fps,
+        (96, 64),
+    )
+    if not writer.isOpened():
+        raise RuntimeError("could not create synthetic video")
+    for index in range(fps * seconds):
+        frame = np.full((64, 96, 3), index % 255, dtype=np.uint8)
+        writer.write(frame)
+    writer.release()
+
+
+class BlindWorkspaceTests(unittest.TestCase):
+    def test_contact_sheet_has_five_tiles_without_source_caption(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "focus__leaking-name.avi"
+            output = root / "sheet.jpg"
+            _write_synthetic_video(source)
+            interval = BlindInterval(
+                blind_id="B123456789abc",
+                source_group="S123456789abc",
+                source_sha256="abc",
+                source_path=source,
+                start_sec=0.0,
+                end_sec=10.0,
+            )
+
+            write_blind_contact_sheet(interval, output)
+
+            sheet = cv2.imread(str(output))
+            self.assertIsNotNone(sheet)
+            self.assertGreaterEqual(sheet.shape[1], 5 * 200)
+
+    def test_workspace_omits_previous_label_fields(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "source.avi"
+            manifest = root / "clips_manifest.csv"
+            output = root / "review"
+            _write_synthetic_video(source)
+            with manifest.open("w", newline="", encoding="utf-8") as stream:
+                writer = csv.DictWriter(
+                    stream,
+                    fieldnames=[
+                        "clip_path",
+                        "label",
+                        "cue",
+                        "disposition",
+                        "source_id",
+                        "source_path",
+                        "source_sha256",
+                        "start_sec",
+                        "end_sec",
+                        "duration_sec",
+                        "notes",
+                    ],
+                )
+                writer.writeheader()
+                writer.writerow(
+                    {
+                        "clip_path": "train_ready/focus/leaking.mp4",
+                        "label": "focus",
+                        "cue": "writing",
+                        "disposition": "ready",
+                        "source_id": "source01",
+                        "source_path": str(source),
+                        "source_sha256": "abc",
+                        "start_sec": "0",
+                        "end_sec": "12",
+                        "duration_sec": "12",
+                        "notes": "old answer",
+                    }
+                )
+
+            summary = write_review_workspace(manifest, output)
+
+            with (output / "blind_review.csv").open(newline="", encoding="utf-8-sig") as stream:
+                reader = csv.DictReader(stream)
+                rows = list(reader)
+                self.assertEqual(
+                    reader.fieldnames,
+                    [
+                        "blind_id",
+                        "sheet_path",
+                        "direct_label",
+                        "confidence",
+                        "evidence",
+                        "review_status",
+                        "annotator",
+                        "annotated_at",
+                    ],
+                )
+            review_text = (output / "blind_review.csv").read_text(encoding="utf-8-sig")
+            source_map_text = (output / "private" / "source_map.csv").read_text(encoding="utf-8-sig")
+            self.assertEqual(len(rows), 2)
+            self.assertNotIn("focus", review_text)
+            self.assertNotIn(str(source), review_text)
+            self.assertNotIn("focus", source_map_text)
+            self.assertEqual(summary["input_clips"], 1)
+            self.assertEqual(summary["interval_count"], 2)
+            self.assertEqual(
+                json.loads((output / "summary.json").read_text(encoding="utf-8"))["pending_count"],
+                2,
+            )
+
+    def test_verify_rejects_pending_rows_unless_explicitly_allowed(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "source.avi"
+            manifest = root / "clips_manifest.csv"
+            output = root / "review"
+            _write_synthetic_video(source, seconds=5)
+            self._write_manifest(manifest, source, end_sec=5)
+            write_review_workspace(manifest, output)
+
+            self.assertEqual(verify_review_workspace(output, allow_pending=True)["pending_count"], 1)
+            with self.assertRaises(BlindLabelError):
+                verify_review_workspace(output)
+
+    def test_freeze_writes_sanitized_labels_and_checksum(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "source.avi"
+            manifest = root / "clips_manifest.csv"
+            output = root / "review"
+            labels_output = root / "committed" / "blind_labels.csv"
+            summary_output = root / "committed" / "summary.json"
+            _write_synthetic_video(source, seconds=5)
+            self._write_manifest(manifest, source, end_sec=5)
+            write_review_workspace(manifest, output)
+            review_path = output / "blind_review.csv"
+            with review_path.open(newline="", encoding="utf-8-sig") as stream:
+                rows = list(csv.DictReader(stream))
+            rows[0].update(
+                {
+                    "direct_label": "focus",
+                    "confidence": "high",
+                    "evidence": "writing throughout",
+                    "review_status": "accepted",
+                    "annotator": "codex_visual_direct",
+                    "annotated_at": "2026-07-22T00:00:00+09:00",
+                }
+            )
+            with review_path.open("w", newline="", encoding="utf-8-sig") as stream:
+                writer = csv.DictWriter(stream, fieldnames=list(rows[0]))
+                writer.writeheader()
+                writer.writerows(rows)
+
+            summary = freeze_review_workspace(output, labels_output, summary_output)
+
+            labels_text = labels_output.read_text(encoding="utf-8-sig")
+            self.assertNotIn(str(source), labels_text)
+            self.assertNotIn("sheet_path", labels_text)
+            self.assertEqual(summary["accepted_count"], 1)
+            self.assertEqual(len(summary["label_freeze_sha256"]), 64)
+            self.assertEqual(
+                json.loads(summary_output.read_text(encoding="utf-8"))["label_source"],
+                "codex_visual_direct",
+            )
+
+    def test_cli_help_lists_prepare_verify_and_freeze(self) -> None:
+        script = Path(__file__).parents[2] / "scripts" / "prepare_focusai_blind_labels.py"
+
+        result = subprocess.run(
+            [sys.executable, "-B", str(script), "--help"],
+            cwd=Path(__file__).parents[2],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("prepare", result.stdout)
+        self.assertIn("verify", result.stdout)
+        self.assertIn("freeze", result.stdout)
+
+    @staticmethod
+    def _write_manifest(path: Path, source: Path, *, end_sec: int) -> None:
+        with path.open("w", newline="", encoding="utf-8") as stream:
+            writer = csv.DictWriter(
+                stream,
+                fieldnames=[
+                    "clip_path",
+                    "label",
+                    "cue",
+                    "disposition",
+                    "source_id",
+                    "source_path",
+                    "source_sha256",
+                    "start_sec",
+                    "end_sec",
+                    "duration_sec",
+                    "notes",
+                ],
+            )
+            writer.writeheader()
+            writer.writerow(
+                {
+                    "clip_path": "train_ready/focus/leaking.mp4",
+                    "label": "focus",
+                    "cue": "writing",
+                    "disposition": "ready",
+                    "source_id": "source01",
+                    "source_path": str(source),
+                    "source_sha256": "abc",
+                    "start_sec": "0",
+                    "end_sec": str(end_sec),
+                    "duration_sec": str(end_sec),
+                    "notes": "old answer",
+                }
+            )
 
 
 if __name__ == "__main__":
