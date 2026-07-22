@@ -1,247 +1,74 @@
 {
-  "model_path": "ai\\models\\state_classifier.pkl",
-  "test_samples": "ai\\state_classifier_training\\test_samples.csv",
-  "label_source": "FocusAI rule_state pseudo-labels, not human annotations",
-  "classes": [
-    "drowsy",
-    "focus",
-    "gaze_down",
-    "gaze_side",
-    "unknown"
-  ],
-  "label_counts": {
-    "drowsy": 77,
-    "focus": 508,
-    "gaze_down": 2,
-    "gaze_side": 30,
-    "unknown": 16
-  },
-  "model_only": {
-    "sample_count": 633,
-    "correct_count": 630,
-    "accuracy": 0.9953,
-    "balanced_accuracy": 0.98,
-    "macro_f1": 0.9889,
-    "weighted_f1": 0.9952,
-    "per_class": {
-      "drowsy": {
-        "support": 77,
-        "precision": 1.0,
-        "recall": 1.0,
-        "f1": 1.0
-      },
-      "focus": {
-        "support": 508,
-        "precision": 0.9941,
-        "recall": 1.0,
-        "f1": 0.9971
-      },
-      "gaze_down": {
-        "support": 2,
-        "precision": 1.0,
-        "recall": 1.0,
-        "f1": 1.0
-      },
-      "gaze_side": {
-        "support": 30,
-        "precision": 1.0,
-        "recall": 0.9,
-        "f1": 0.9474
-      },
-      "unknown": {
-        "support": 16,
-        "precision": 1.0,
-        "recall": 1.0,
-        "f1": 1.0
-      }
+  "sample_count": 1270,
+  "accuracy": 0.38031496062992126,
+  "macro_f1": 0.20639081065764428,
+  "per_class": {
+    "drowsy": {
+      "support": 60,
+      "precision": 0.17647058823529413,
+      "recall": 0.05,
+      "f1": 0.07792207792207792
     },
-    "confusion": {
-      "drowsy": {
-        "drowsy": 77,
-        "focus": 0,
-        "gaze_down": 0,
-        "gaze_side": 0,
-        "unknown": 0
-      },
-      "focus": {
-        "drowsy": 0,
-        "focus": 508,
-        "gaze_down": 0,
-        "gaze_side": 0,
-        "unknown": 0
-      },
-      "gaze_down": {
-        "drowsy": 0,
-        "focus": 0,
-        "gaze_down": 2,
-        "gaze_side": 0,
-        "unknown": 0
-      },
-      "gaze_side": {
-        "drowsy": 0,
-        "focus": 3,
-        "gaze_down": 0,
-        "gaze_side": 27,
-        "unknown": 0
-      },
-      "unknown": {
-        "drowsy": 0,
-        "focus": 0,
-        "gaze_down": 0,
-        "gaze_side": 0,
-        "unknown": 16
-      }
+    "focus": {
+      "support": 600,
+      "precision": 0.7575757575757576,
+      "recall": 0.041666666666666664,
+      "f1": 0.07898894154818324
+    },
+    "gaze_down": {
+      "support": 100,
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0
+    },
+    "gaze_side": {
+      "support": 110,
+      "precision": 0.14397905759162305,
+      "recall": 0.5,
+      "f1": 0.22357723577235772
+    },
+    "unknown": {
+      "support": 400,
+      "precision": 0.4830917874396135,
+      "recall": 1.0,
+      "f1": 0.6514657980456026
     }
   },
-  "hybrid_threshold_0_65": {
-    "sample_count": 633,
-    "correct_count": 630,
-    "accuracy": 0.9953,
-    "balanced_accuracy": 0.98,
-    "macro_f1": 0.9889,
-    "weighted_f1": 0.9952,
-    "per_class": {
-      "drowsy": {
-        "support": 77,
-        "precision": 1.0,
-        "recall": 1.0,
-        "f1": 1.0
-      },
-      "focus": {
-        "support": 508,
-        "precision": 0.9941,
-        "recall": 1.0,
-        "f1": 0.9971
-      },
-      "gaze_down": {
-        "support": 2,
-        "precision": 1.0,
-        "recall": 1.0,
-        "f1": 1.0
-      },
-      "gaze_side": {
-        "support": 30,
-        "precision": 1.0,
-        "recall": 0.9,
-        "f1": 0.9474
-      },
-      "unknown": {
-        "support": 16,
-        "precision": 1.0,
-        "recall": 1.0,
-        "f1": 1.0
-      }
+  "confusion_matrix": {
+    "drowsy": {
+      "drowsy": 3,
+      "focus": 5,
+      "gaze_down": 0,
+      "gaze_side": 22,
+      "unknown": 30
     },
-    "confusion": {
-      "drowsy": {
-        "drowsy": 77,
-        "focus": 0,
-        "gaze_down": 0,
-        "gaze_side": 0,
-        "unknown": 0
-      },
-      "focus": {
-        "drowsy": 0,
-        "focus": 508,
-        "gaze_down": 0,
-        "gaze_side": 0,
-        "unknown": 0
-      },
-      "gaze_down": {
-        "drowsy": 0,
-        "focus": 0,
-        "gaze_down": 2,
-        "gaze_side": 0,
-        "unknown": 0
-      },
-      "gaze_side": {
-        "drowsy": 0,
-        "focus": 3,
-        "gaze_down": 0,
-        "gaze_side": 27,
-        "unknown": 0
-      },
-      "unknown": {
-        "drowsy": 0,
-        "focus": 0,
-        "gaze_down": 0,
-        "gaze_side": 0,
-        "unknown": 16
-      }
+    "focus": {
+      "drowsy": 11,
+      "focus": 25,
+      "gaze_down": 2,
+      "gaze_side": 258,
+      "unknown": 304
+    },
+    "gaze_down": {
+      "drowsy": 3,
+      "focus": 1,
+      "gaze_down": 0,
+      "gaze_side": 47,
+      "unknown": 49
+    },
+    "gaze_side": {
+      "drowsy": 0,
+      "focus": 2,
+      "gaze_down": 8,
+      "gaze_side": 55,
+      "unknown": 45
+    },
+    "unknown": {
+      "drowsy": 0,
+      "focus": 0,
+      "gaze_down": 0,
+      "gaze_side": 0,
+      "unknown": 400
     }
-  },
-  "by_video": {
-    "2026-06-28 16-04-40__001__00000-00180s.mp4": {
-      "sample_count": 111,
-      "label_counts": {
-        "drowsy": 19,
-        "focus": 64,
-        "gaze_down": 2,
-        "gaze_side": 14,
-        "unknown": 12
-      },
-      "model_accuracy": 1.0,
-      "hybrid_accuracy": 1.0
-    },
-    "2026-06-28 16-04-40__002__00180-00360s.mp4": {
-      "sample_count": 181,
-      "label_counts": {
-        "focus": 177,
-        "gaze_side": 3,
-        "unknown": 1
-      },
-      "model_accuracy": 0.9834,
-      "hybrid_accuracy": 0.9834
-    },
-    "2026-06-28 16-04-40__003__00360-00540s.mp4": {
-      "sample_count": 164,
-      "label_counts": {
-        "drowsy": 39,
-        "focus": 111,
-        "gaze_side": 13,
-        "unknown": 1
-      },
-      "model_accuracy": 1.0,
-      "hybrid_accuracy": 1.0
-    },
-    "2026-06-28 16-04-40__004__00540-00720s.mp4": {
-      "sample_count": 177,
-      "label_counts": {
-        "drowsy": 19,
-        "focus": 156,
-        "unknown": 2
-      },
-      "model_accuracy": 1.0,
-      "hybrid_accuracy": 1.0
-    }
-  },
-  "confidence": {
-    "avg_all": 1.0,
-    "avg_correct": 1.0,
-    "avg_wrong": 1.0,
-    "wrong_count": 3
-  },
-  "misclassified_examples": [
-    {
-      "source_video": "2026-06-28 16-04-40__002__00180-00360s.mp4",
-      "t": 169,
-      "label": "gaze_side",
-      "prediction": "focus",
-      "confidence": 1.0
-    },
-    {
-      "source_video": "2026-06-28 16-04-40__002__00180-00360s.mp4",
-      "t": 170,
-      "label": "gaze_side",
-      "prediction": "focus",
-      "confidence": 1.0
-    },
-    {
-      "source_video": "2026-06-28 16-04-40__002__00180-00360s.mp4",
-      "t": 171,
-      "label": "gaze_side",
-      "prediction": "focus",
-      "confidence": 1.0
-    }
-  ]
+  }
 }

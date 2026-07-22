@@ -4,12 +4,15 @@ import unittest
 import csv
 import json
 import pickle
+import subprocess
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from ai.train_direct_state_classifier import (
     DirectTrainingInterval,
     classification_metrics,
+    extract_interval_clip,
     fit_direct_classifier,
     load_or_analyze_interval,
     run_training,
@@ -36,6 +39,38 @@ def _timeline(*, rule_state: str) -> list[dict[str, object]]:
 
 
 class DirectStateTrainingTests(unittest.TestCase):
+    def test_extract_interval_clip_uses_time_based_ffmpeg_range(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "variable-rate.webm"
+            output = root / "interval.mp4"
+            source.touch()
+            captured: list[str] = []
+
+            def fake_run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+                captured.extend(command)
+                output.write_bytes(b"encoded-video")
+                return subprocess.CompletedProcess(command, 0, "", "")
+
+            with patch(
+                "ai.train_direct_state_classifier._resolve_ffmpeg_executable",
+                return_value="ffmpeg-test",
+            ), patch(
+                "ai.train_direct_state_classifier.subprocess.run",
+                side_effect=fake_run,
+            ):
+                extract_interval_clip(
+                    source,
+                    output,
+                    start_sec=12.5,
+                    end_sec=22.5,
+                )
+
+            self.assertTrue(output.is_file())
+            self.assertEqual(captured[captured.index("-ss") + 1], "12.500000")
+            self.assertEqual(captured[captured.index("-t") + 1], "10.000000")
+            self.assertLess(captured.index("-i"), captured.index("-ss"))
+
     def test_run_training_writes_direct_artifacts_from_cached_analysis(self) -> None:
         with TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -132,6 +167,9 @@ class DirectStateTrainingTests(unittest.TestCase):
             self.assertTrue((training_dir / "test_predictions.csv").is_file())
             self.assertEqual(summary["label_source"], "codex_visual_direct_labels")
             self.assertEqual(summary["source_group_overlap"], [])
+            report = (training_dir / "test_report.md").read_text(encoding="utf-8")
+            self.assertIn("source-isolated", report)
+            self.assertIn("does not imply production readiness", report)
             with model_path.open("rb") as stream:
                 bundle = pickle.load(stream)
             self.assertEqual(bundle["training"]["label_source"], "codex_visual_direct_labels")

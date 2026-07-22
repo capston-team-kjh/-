@@ -1,0 +1,37 @@
+{
+  "purpose": "audit_only_after_direct_label_freeze",
+  "direct_labels_changed": false,
+  "matching_method": "maximum temporal overlap with prior reviewed scene from the same source",
+  "accepted_direct_labels": 342,
+  "comparable_intervals": 342,
+  "no_prior_overlap": 0,
+  "tied_prior_overlap": 0,
+  "agreement_count": 296,
+  "agreement_rate": 0.8654970760233918,
+  "direct_to_prior": {
+    "drowsy": {
+      "drowsy": 12,
+      "gaze_down": 5
+    },
+    "focus": {
+      "bad_posture": 6,
+      "drowsy": 13,
+      "focus": 134,
+      "gaze_down": 2,
+      "gaze_side": 9,
+      "unknown": 2
+    },
+    "gaze_down": {
+      "gaze_down": 33
+    },
+    "gaze_side": {
+      "bad_posture": 5,
+      "drowsy": 3,
+      "gaze_down": 1,
+      "gaze_side": 40
+    },
+    "unknown": {
+      "unknown": 77
+    }
+  }
+}

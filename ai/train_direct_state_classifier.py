@@ -5,6 +5,7 @@ import csv
 import hashlib
 import json
 import pickle
+import subprocess
 import sys
 from collections import Counter, defaultdict
 from dataclasses import dataclass
@@ -14,7 +15,7 @@ from typing import Any, Mapping, Sequence
 from ai.train_state_classifier import FEATURE_NAMES, _row_from_timeline_item
 from ai.focus_ai.simple_state_classifier import SimpleStateClassifier
 from ai.focus_ai.analyze import AnalyzeConfig, analyze_merged_video
-from ai.training_scene_prep import extract_clip
+from ai.focus_ai.video_preflight import _resolve_ffmpeg_executable
 
 
 @dataclass(frozen=True)
@@ -25,6 +26,68 @@ class DirectTrainingInterval:
     start_sec: float
     end_sec: float
     analysis_json: Path | str
+
+
+def extract_interval_clip(
+    source_path: Path,
+    output_path: Path,
+    *,
+    start_sec: float,
+    end_sec: float,
+) -> None:
+    """Extract an interval by timestamps so variable-rate sources keep full coverage."""
+    if output_path.exists():
+        raise FileExistsError(output_path)
+    start = max(0.0, float(start_sec))
+    duration = float(end_sec) - start
+    if duration <= 0.0:
+        raise ValueError(f"invalid clip range: {start_sec}-{end_sec}")
+    ffmpeg = _resolve_ffmpeg_executable()
+    if not ffmpeg:
+        raise RuntimeError("FFmpeg is required for direct-label interval extraction")
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    command = [
+        ffmpeg,
+        "-y",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        str(source_path),
+        "-ss",
+        f"{start:.6f}",
+        "-t",
+        f"{duration:.6f}",
+        "-map",
+        "0:v:0",
+        "-an",
+        "-vf",
+        "fps=10",
+        "-c:v",
+        "mpeg4",
+        "-q:v",
+        "3",
+        str(output_path),
+    ]
+    completed = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        errors="replace",
+        check=False,
+    )
+    if (
+        completed.returncode != 0
+        or not output_path.is_file()
+        or output_path.stat().st_size <= 0
+    ):
+        output_path.unlink(missing_ok=True)
+        stderr_tail = (completed.stderr or "")[-2000:]
+        raise RuntimeError(
+            f"direct-label interval extraction failed ({completed.returncode}): "
+            f"{stderr_tail}"
+        )
 
 
 def load_direct_intervals(
@@ -111,7 +174,7 @@ def load_or_analyze_interval(
     analysis_dir: Path,
     config: Any,
     analyzer: Any = analyze_merged_video,
-    extractor: Any = extract_clip,
+    extractor: Any = extract_interval_clip,
     memory_cache: dict[Path, dict[str, Any]] | None = None,
 ) -> tuple[dict[str, Any], float, str]:
     source_analysis_path = Path(interval.analysis_json)
@@ -566,6 +629,7 @@ def run_training(
         f"- Test accuracy: {metrics['test']['accuracy']:.6f}",
         f"- Test macro F1: {metrics['test']['macro_f1']:.6f}",
         f"- Source-group overlap: {summary['source_group_overlap']}",
+        "- Evaluation split: source-isolated (no source appears in both train and test)",
         "",
         "## Per-class test metrics",
         "",
@@ -577,6 +641,16 @@ def run_training(
             f"| {label} | {values['support']} | {values['precision']:.6f} | "
             f"{values['recall']:.6f} | {values['f1']:.6f} |"
         )
+    report.extend(
+        [
+            "",
+            "## Interpretation",
+            "",
+            "These held-out direct-label metrics measure generalization across source videos.",
+            "A loadable model artifact does not imply production readiness; low per-class "
+            "recall should be addressed with more direct labels or stronger features.",
+        ]
+    )
     (training_dir / "test_report.md").write_text(
         "\n".join(report) + "\n",
         encoding="utf-8",
@@ -626,7 +700,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             test_fraction=args.test_fraction,
             sampling_fps=args.sampling_fps,
         )
-    except (OSError, ValueError, json.JSONDecodeError) as exc:
+    except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as exc:
         print(str(exc), file=sys.stderr)
         return 2
     print(json.dumps(summary, ensure_ascii=False, indent=2))
@@ -637,6 +711,7 @@ __all__ = [
     "FEATURE_NAMES",
     "DirectTrainingInterval",
     "classification_metrics",
+    "extract_interval_clip",
     "fit_direct_classifier",
     "load_direct_intervals",
     "load_or_analyze_interval",
