@@ -1,0 +1,17 @@
+{
+  "interval_count": 471,
+  "completed_count": 471,
+  "pending_count": 0,
+  "missing_sheet_count": 0,
+  "accepted_count": 342,
+  "ambiguous_count": 129,
+  "label_counts": {
+    "drowsy": 17,
+    "focus": 166,
+    "gaze_down": 33,
+    "gaze_side": 49,
+    "unknown": 77
+  },
+  "label_source": "codex_visual_direct",
+  "label_freeze_sha256": "118e22779a2cdf4ad662b3ac9f078935edff117bcaa091f0c796088a70615ffd"
+}

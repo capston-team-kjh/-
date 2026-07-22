@@ -1,0 +1,74 @@
+{
+  "sample_count": 1270,
+  "accuracy": 0.38031496062992126,
+  "macro_f1": 0.20639081065764428,
+  "per_class": {
+    "drowsy": {
+      "support": 60,
+      "precision": 0.17647058823529413,
+      "recall": 0.05,
+      "f1": 0.07792207792207792
+    },
+    "focus": {
+      "support": 600,
+      "precision": 0.7575757575757576,
+      "recall": 0.041666666666666664,
+      "f1": 0.07898894154818324
+    },
+    "gaze_down": {
+      "support": 100,
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0
+    },
+    "gaze_side": {
+      "support": 110,
+      "precision": 0.14397905759162305,
+      "recall": 0.5,
+      "f1": 0.22357723577235772
+    },
+    "unknown": {
+      "support": 400,
+      "precision": 0.4830917874396135,
+      "recall": 1.0,
+      "f1": 0.6514657980456026
+    }
+  },
+  "confusion_matrix": {
+    "drowsy": {
+      "drowsy": 3,
+      "focus": 5,
+      "gaze_down": 0,
+      "gaze_side": 22,
+      "unknown": 30
+    },
+    "focus": {
+      "drowsy": 11,
+      "focus": 25,
+      "gaze_down": 2,
+      "gaze_side": 258,
+      "unknown": 304
+    },
+    "gaze_down": {
+      "drowsy": 3,
+      "focus": 1,
+      "gaze_down": 0,
+      "gaze_side": 47,
+      "unknown": 49
+    },
+    "gaze_side": {
+      "drowsy": 0,
+      "focus": 2,
+      "gaze_down": 8,
+      "gaze_side": 55,
+      "unknown": 45
+    },
+    "unknown": {
+      "drowsy": 0,
+      "focus": 0,
+      "gaze_down": 0,
+      "gaze_side": 0,
+      "unknown": 400
+    }
+  }
+}

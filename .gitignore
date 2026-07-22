@@ -30,3 +30,19 @@ ai/manual_review_queue/
 
 # test videos
 /upload
+
+# Local runtime and diagnostic artifacts
+*.log
+*.pid
+run_local_analysis.txt
+local_outputs/
+logs/
+
+# Reproducible AI training intermediates
+ai/state_classifier_training/analysis_results/
+ai/state_classifier_training/direct_analysis/
+
+# Local blind-label review media and private path maps
+ai/direct_labeling/contact_sheets/
+ai/direct_labeling/private/
+focusai_blind_labeling_*/

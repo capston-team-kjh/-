@@ -5,6 +5,7 @@ from datetime import datetime
 
 import models, schemas
 from database import get_db
+from time_utils import as_local_naive_datetime, calculate_duration_sec, normalize_session_end_time
 
 # 라우터 설정
 router = APIRouter(
@@ -20,8 +21,12 @@ def start_session(session_data: schemas.SessionCreate, db: Session = Depends(get
     if not user:
         raise HTTPException(status_code=404, detail="해당 유저를 찾을 수 없습니다.")
     
-    # 2. 새 세션 생성 (start_time과 status는 models.py에 설정된 기본값이 자동 적용됩니다)
-    new_session = models.FocusSession(user_id=session_data.user_id)
+    # 2. 새 세션 생성
+    new_session = models.FocusSession(
+        user_id=session_data.user_id,
+        start_time=as_local_naive_datetime(datetime.now().astimezone()),
+        duration_sec=None,
+    )
     
     # 3. DB에 저장
     db.add(new_session)
@@ -39,7 +44,12 @@ def update_session(session_id: int, session_data: schemas.SessionUpdate, db: Ses
         raise HTTPException(status_code=404, detail="해당 세션을 찾을 수 없습니다.")
     
     # 2. 데이터 업데이트 (종료 시간 및 상태 반영)
-    session.end_time = session_data.end_time
+    try:
+        session.end_time = normalize_session_end_time(session.start_time, session_data.end_time)
+        session.duration_sec = calculate_duration_sec(session.start_time, session.end_time)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     session.status = session_data.status
     
     db.commit()

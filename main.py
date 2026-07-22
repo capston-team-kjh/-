@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, Request, Form, File
+from fastapi import FastAPI, UploadFile, Request, Form, File, HTTPException
 from fastapi.staticfiles import StaticFiles
 import shutil
 import json
@@ -52,7 +52,12 @@ sqs_client = boto3.client('sqs', region_name='ap-northeast-2')
 s3_client = boto3.client('s3', region_name='ap-northeast-2')
 
 @app.post("/api/v1/sessions/{session_id}/upload")
-async def save_session_video(session_id: int, file: UploadFile = File(...), is_final_chunk: str = Form("false")):
+async def save_session_video(
+    session_id: int,
+    file: UploadFile = File(...),
+    is_final_chunk: str = Form("false"),
+    recorded_duration_ms: str = Form(""),
+):
     # 1. Parse chunk index out of the custom filename string (user_{uid}_session_{sid}_part{index}.webm)
     try:
         filename_no_ext = file.filename.split(".")[0]
@@ -92,6 +97,11 @@ async def save_session_video(session_id: int, file: UploadFile = File(...), is_f
             "chunk_index": chunk_index,
             "is_final_chunk": final_flag      # Python boolean matches strict JSON bool requirements
         }
+        if recorded_duration_ms.strip():
+            duration_ms = float(recorded_duration_ms)
+            if duration_ms <= 0:
+                raise ValueError("recorded_duration_ms must be greater than 0")
+            message_payload["recorded_duration_ms"] = duration_ms
         
         # Transmission: Ship the structured message ticket directly to SQS
         sqs_client.send_message(
@@ -106,7 +116,7 @@ async def save_session_video(session_id: int, file: UploadFile = File(...), is_f
 
     except Exception as e:
         print(f"Cloud Pipeline Failure: {str(e)}")
-        return {"status": "failed", "detail": str(e)}
+        raise HTTPException(status_code=502, detail=str(e)) from e
 
 # 기본 루트 엔드포인트 (서버 접속 테스트용)
 @app.get("/")
