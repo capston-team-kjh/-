@@ -10,8 +10,12 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from focus_ai.analyze import AnalyzeConfig, analyze_absent, analyze_merged_video
-from focus_ai.simple_state_classifier import SimpleStateClassifier
+try:
+    from focus_ai.analyze import AnalyzeConfig, analyze_absent, analyze_merged_video
+    from focus_ai.simple_state_classifier import SimpleStateClassifier
+except ModuleNotFoundError:
+    from ai.focus_ai.analyze import AnalyzeConfig, analyze_absent, analyze_merged_video
+    from ai.focus_ai.simple_state_classifier import SimpleStateClassifier
 
 
 FEATURE_NAMES = [
