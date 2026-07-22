@@ -39,12 +39,15 @@ standard_model.class_prior_ = np.array(prior_array)
 standard_model.theta_ = np.array(theta_matrix)
 standard_model.var_ = np.array(var_matrix)
 
-# 4. We know exactly how many features it needs now
+# We know exactly how many features it needs now
 num_features = 15
 initial_type = [('float_input', FloatTensorType([None, num_features]))]
 
 print("Converting to ONNX format...")
-onnx_model = convert_sklearn(standard_model, initial_types=initial_type)
+# Disable the ZipMap dictionary output!
+options = {type(standard_model): {'zipmap': False}}
+
+onnx_model = convert_sklearn(standard_model, initial_types=initial_type, options=options)
 
 output_filename = "focus_classifier.onnx"
 with open(output_filename, "wb") as f:

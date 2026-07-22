@@ -64,6 +64,29 @@ def update_session(session_id: int, session_data: schemas.SessionUpdate, db: Ses
     
     return session
 
+@router.post("/{session_id}/timeline", status_code=status.HTTP_201_CREATED)
+def save_session_timeline(session_id: str, payload: dict, db: Session = Depends(get_db)):
+    """세션 종료 후 브라우저에서 분석된 타임라인 데이터를 일괄 저장합니다."""
+    
+    timeline_data = payload.get("timeline", [])
+    if not timeline_data:
+        return {"message": "저장할 타임라인 데이터가 없습니다."}
+    
+    # Extract the array and map it to the AnalysisTimeline database model
+    db_records = [
+        models.AnalysisTimeline(
+            session_id=session_id,
+            t=item["t"],
+            state=item["state"]
+        ) for item in timeline_data
+    ]
+    
+    # Bulk save to the database for high performance
+    db.add_all(db_records)
+    db.commit()
+    
+    return {"message": f"{len(db_records)}개의 타임라인 데이터가 성공적으로 저장되었습니다."}
+
 @router.get("/user/{user_id}", response_model=List[schemas.SessionResponse])
 def get_user_sessions(user_id: int, db: Session = Depends(get_db)):
     """특정 유저의 모든 집중 세션 기록을 조회합니다."""
