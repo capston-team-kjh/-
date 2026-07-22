@@ -1,57 +1,69 @@
 # 기존에 작성했었던 Flask API를 FastAPI로 옮긴 것
 # 데이터를 정리해서 페이지에 뿌려주는 역할을 함
 
+import json
+import os
+import re
+
 from fastapi import APIRouter, Depends, HTTPException, Header, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, text
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import Any, List, Optional
 
 import models, schemas
 from database import get_db
+from time_utils import calculate_duration_sec
 
 router = APIRouter(
     prefix="/api/v1/analytics",
     tags=["Reports (학습 리포트 및 통계)"]
 )
-def get_true_session_metrics(db: Session, session: models.FocusSession):
-    """
-    세션 시간과 집중도를 계산합니다.
-    AI가 AnalysisSummary에 저장한 focus_ratio를 직접 100분율로 변환하여 사용합니다.
-    """
-    # 1. Get accurate duration directly from the SQL injection fix
-    t_secs = session.duration_sec or (int((session.end_time - session.start_time).total_seconds()) if session.end_time else 0)
-    t_secs = max(t_secs, 1) # Prevent divide-by-zero errors
-    
-    # 2. Fetch the AI's official summary for this session
-    summary = db.query(models.AnalysisSummary).filter(models.AnalysisSummary.session_id == str(session.id)).first()
-    
-    # 3. Calculate the true score using the AI's ratio
-    # If the summary exists, multiply the ratio by 100. If it's still analyzing, default to 0.
-    true_score = round((summary.focus_ratio or 0) * 100) if summary else 0
-    
-    # 4. We still need to calculate event_secs because the React UI uses this to find the "Worst Habit"
-    events = db.query(models.AnalysisEvent).filter(models.AnalysisEvent.session_id == str(session.id)).all()
-    event_secs = {"gaze": 0, "posture": 0, "absent": 0, "fidget": 0}
-    
-    for e in events:
-        duration = int(e.end_sec or 0) - int(e.start_sec or 0)
-        
-        if e.event_type == "gaze_side": 
-            event_secs["gaze"] += duration
-        elif e.event_type == "bad_posture": 
-            event_secs["posture"] += duration
-        elif e.event_type == "absent": 
-            event_secs["absent"] += duration
-        elif e.event_type in ["fidgeting", "overhead_no_activity"]: 
-            event_secs["fidget"] += duration
-            
-    return {
-        "duration_sec": t_secs,
-        "duration_min": max(t_secs // 60, 1),
-        "focus_score": true_score,
-        "event_secs": event_secs
-    }
+
+
+def _session_duration_sec(session: models.FocusSession) -> Optional[int]:
+    if session.duration_sec is not None:
+        try:
+            return max(0, int(session.duration_sec))
+        except (TypeError, ValueError):
+            pass
+
+    if session.end_time is None:
+        return None
+
+    try:
+        return calculate_duration_sec(session.start_time, session.end_time)
+    except ValueError:
+        return None
+
+
+def _sanitize_sql_identifier(value: str) -> str:
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value or ""):
+        raise RuntimeError(f"invalid SQL identifier: {value!r}")
+    return value
+
+
+def _analysis_feedback_table() -> str:
+    return _sanitize_sql_identifier(
+        os.getenv("ANALYSIS_FEEDBACK_TABLE", "analysis_feedback").strip()
+        or "analysis_feedback"
+    )
+
+
+def _parse_json_value(value: Any) -> Any:
+    if value is None or isinstance(value, (dict, list)):
+        return value
+    if isinstance(value, (bytes, bytearray)):
+        value = value.decode("utf-8")
+    if isinstance(value, str):
+        text_value = value.strip()
+        if not text_value:
+            return None
+        try:
+            return json.loads(text_value)
+        except json.JSONDecodeError:
+            return None
+    return value
 
 @router.get("/summary")
 def get_dashboard_summary(
@@ -72,32 +84,8 @@ def get_dashboard_summary(
         models.FocusSession.start_time <= end_dt,
         models.FocusSession.status == "completed"
     ).all()
-
-    if not sessions:
-        return {
-            "total_hours": 0.0,
-            "total_seconds": 0,
-            "avg_focus_score": 0,
-            "active_days": 0,
-            "weekly_chart_data": []
-        }
-
-    total_seconds = 0
-    total_score_weight = 0
-    unique_days = set([s.start_time.strftime("%Y-%m-%d") for s in sessions])
     
-    weekday_map = {0: "Mon", 1: "Tue", 2: "Wed", 3: "Thu", 4: "Fri", 5: "Sat", 6: "Sun"}
-    weekly_breakdown = {name: 0.0 for name in weekday_map.values()}
-
-    for s in sessions:
-        metrics = get_true_session_metrics(db, s)
-        total_seconds += metrics["duration_sec"]
-        total_score_weight += (metrics["focus_score"] * metrics["duration_sec"])
-        
-        day_name = weekday_map.get(s.start_time.weekday())
-        if day_name in weekly_breakdown:
-            weekly_breakdown[day_name] += (metrics["duration_sec"] / 3600)
-
+    total_seconds = sum((_session_duration_sec(s) or 0) for s in sessions)
     total_hours = round(total_seconds / 3600, 1)
     avg_score = round(total_score_weight / total_seconds) if total_seconds > 0 else 0
     chart_data = [{"day": day, "hours": round(hours, 1), "seconds": int(hours * 3600)}for day, hours in weekly_breakdown.items()]
@@ -131,7 +119,15 @@ def get_recent_results(
 
     items = []
     for s in sessions:
-        metrics = get_true_session_metrics(db, s)
+        duration_min = 0
+        duration_sec = _session_duration_sec(s)
+        if duration_sec is not None:
+            duration_min = int(duration_sec / 60)
+            
+        avg_score = db.query(func.avg(models.FocusLog.focus_score)).filter(
+            models.FocusLog.session_id == s.id
+        ).scalar() or 0
+
         items.append({
             "session_id": s.id,
             "display_index": display_index_map.get(s.id, 1),
@@ -146,102 +142,118 @@ def get_recent_results(
 
     return {"items": items}
 
-@router.get("/session/{session_id}")
-def get_individual_session_report(
-    session_id: str,
-    db: Session = Depends(get_db)
+
+@router.get("/sessions/{session_id}")
+def get_session_analysis_result(
+    session_id: int,
+    db: Session = Depends(get_db),
+    x_user_id: Optional[int] = Header(None, alias="X-User-Id"),
 ):
-    """특정 세션의 요약 정보, 타임라인 차트 데이터, 피드백 문구 및 감지 이벤트를 통합 반환합니다."""
-    # 1. Fetch High Level Summary
-    summary = db.query(models.AnalysisSummary).filter(models.AnalysisSummary.session_id == session_id).first()
-    if not summary:
-        raise HTTPException(status_code=404, detail="해당 세션의 분석 리포트를 찾을 수 없습니다.")
+    """세션 기본 정보와 AI 분석 결과를 함께 조회합니다."""
 
-    # 2. Fetch Timeline Data
-    timeline = db.query(models.AnalysisTimeline).filter(
-        models.AnalysisTimeline.session_id == session_id
-    ).order_by(models.AnalysisTimeline.t.asc()).all()
+    query = db.query(models.FocusSession).filter(models.FocusSession.id == session_id)
+    if x_user_id is not None:
+        query = query.filter(models.FocusSession.user_id == x_user_id)
 
-    # 3. Fetch Feedback (Grab the most recent one for this session)
-    feedback_entry = db.query(models.AnalysisFeedback).filter(
-        models.AnalysisFeedback.session_id == session_id
-    ).order_by(models.AnalysisFeedback.id.desc()).first()
+    session = query.first()
+    if not session:
+        raise HTTPException(status_code=404, detail="해당 세션을 찾을 수 없습니다.")
 
-    # 4. Fetch Event Logs
-    events = db.query(models.AnalysisEvent).filter(models.AnalysisEvent.session_id == session_id).all()
+    session_key = str(session_id)
+    summary_row = db.execute(
+        text(
+            """
+            SELECT *
+            FROM analysis_summary
+            WHERE session_id = :session_id
+            """
+        ),
+        {"session_id": session_key},
+    ).mappings().first()
 
-    # Pack everything cleanly into a unified data contract response wrapper
+    timeline_rows = db.execute(
+        text(
+            """
+            SELECT t, state
+            FROM analysis_timeline
+            WHERE session_id = :session_id
+            ORDER BY t ASC
+            """
+        ),
+        {"session_id": session_key},
+    ).mappings().all()
+
+    event_rows = db.execute(
+        text(
+            """
+            SELECT event_type, start_sec, end_sec, score
+            FROM analysis_events
+            WHERE session_id = :session_id
+            ORDER BY start_sec ASC, end_sec ASC
+            """
+        ),
+        {"session_id": session_key},
+    ).mappings().all()
+
+    feedback_row = None
+    feedback_table = _analysis_feedback_table()
+    try:
+        feedback_row = db.execute(
+            text(
+                f"""
+                SELECT feedback_text, personal_feedback, feedback_source, feedback_version, feedback_created_at
+                FROM {feedback_table}
+                WHERE session_id = :session_id
+                """
+            ),
+            {"session_id": session_key},
+        ).mappings().first()
+    except Exception:
+        try:
+            feedback_row = db.execute(
+                text(
+                    f"""
+                    SELECT feedback_text
+                    FROM {feedback_table}
+                    WHERE session_id = :session_id
+                    """
+                ),
+                {"session_id": session_key},
+            ).mappings().first()
+        except Exception:
+            feedback_row = None
+
+    duration_sec = _session_duration_sec(session)
+    avg_score = db.query(func.avg(models.FocusLog.focus_score)).filter(
+        models.FocusLog.session_id == session.id
+    ).scalar()
+
+    personal_feedback = None
+    if feedback_row is not None:
+        personal_feedback = _parse_json_value(feedback_row.get("personal_feedback"))
+
     return {
-        "summary": {
-            "session_id": summary.session_id,
-            "focus_ratio": summary.focus_ratio,
-            "absent_count": summary.absent_count,
-            "absent_total_sec": summary.absent_total_sec,
-            "away_count": summary.away_count,
-            "away_total_sec": summary.away_total_sec,
-            "bad_posture_ratio": summary.bad_posture_ratio,
-            "analyzed_at": summary.analyzed_at
-        },
-        "timeline": [{"t": t.t, "state": t.state} for t in timeline],
-        "insights": [feedback_entry.feedback_text] if feedback_entry else [],
+        "session_id": session.id,
+        "user_id": session.user_id,
+        "status": session.status,
+        "start_time": session.start_time,
+        "end_time": session.end_time,
+        "duration_sec": duration_sec,
+        "focus_score": round(float(avg_score or 0), 1),
+        "summary": dict(summary_row) if summary_row else None,
+        "timeline": [dict(row) for row in timeline_rows],
         "events": [
             {
-                "event_type": e.event_type,
-                "start_sec": e.start_sec,
-                "end_sec": e.end_sec,
-                "score": e.score
-            } for e in events
+                "type": row.get("event_type"),
+                "start_sec": row.get("start_sec"),
+                "end_sec": row.get("end_sec"),
+                "score": row.get("score"),
+            }
+            for row in event_rows
         ],
-        
-        # Send the JSON and metadata straight to React
-        "personal_feedback": feedback_entry.personal_feedback if feedback_entry else None,
-        "feedback_source": feedback_entry.feedback_source if feedback_entry else None,
-        "feedback_version": feedback_entry.feedback_version if feedback_entry else None,
-        "feedback_created_at": feedback_entry.feedback_created_at if feedback_entry else None
+        "feedback_text": feedback_row.get("feedback_text") if feedback_row else None,
+        "personal_feedback": personal_feedback,
+        "feedback_source": feedback_row.get("feedback_source") if feedback_row else None,
+        "feedback_version": feedback_row.get("feedback_version") if feedback_row else None,
+        "feedback_created_at": feedback_row.get("feedback_created_at") if feedback_row else None,
     }
-
-@router.get("/list")
-def get_analytics_list(db: Session = Depends(get_db), user_id: int = Header(alias="X-User-Id")):
-    sessions = db.query(models.FocusSession).filter(models.FocusSession.user_id == user_id).all()
-    
-    result_items = []
-    for idx, session in enumerate(sessions):
-        metrics = get_true_session_metrics(db, session)
-
-        feedback_entry = db.query(models.AnalysisFeedback).filter(
-            models.AnalysisFeedback.session_id == str(session.id)
-        ).order_by(models.AnalysisFeedback.id.desc()).first()
-
-        result_items.append({
-            "id": session.id,
-            "display_index": idx + 1,
-            "date": session.start_time.strftime("%b %d, %Y"),
-            "date_raw": session.start_time.strftime("%Y-%m-%d"),
-            "duration_min": metrics["duration_min"],
-            "duration_sec": metrics["duration_sec"],
-            "focus_score": metrics["focus_score"],
-            "eventSecs": metrics["event_secs"],
-            "personal_feedback": feedback_entry.personal_feedback if feedback_entry else None
-        })
-        
-    return {"items": result_items}
-
-@router.delete("/session/{session_id}")
-def delete_individual_session(session_id: str, db: Session = Depends(get_db)):
-    """특정 세션과 관련된 모든 AI 분석 데이터 및 로그를 영구 삭제합니다."""
-    # 1. Check if session exists
-    session = db.query(models.FocusSession).filter(models.FocusSession.id == int(session_id)).first()
-    if not session:
-        raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
-    
-    # 2. Manually delete all AI data tied to this session string
-    db.query(models.AnalysisTimeline).filter(models.AnalysisTimeline.session_id == session_id).delete(synchronize_session=False)
-    db.query(models.AnalysisEvent).filter(models.AnalysisEvent.session_id == session_id).delete(synchronize_session=False)
-    db.query(models.AnalysisFeedback).filter(models.AnalysisFeedback.session_id == session_id).delete(synchronize_session=False)
-    db.query(models.AnalysisSummary).filter(models.AnalysisSummary.session_id == session_id).delete(synchronize_session=False)
-    
-    # 3. Delete the core session
-    db.delete(session)
-    db.commit()
-    
-    return {"detail": "세션 및 관련 데이터가 성공적으로 삭제되었습니다."}

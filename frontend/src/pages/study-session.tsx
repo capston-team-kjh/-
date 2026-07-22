@@ -2,7 +2,8 @@ import { useState, useEffect, useRef } from "react";
 import { DualCameraManager } from "@/utils/dualCamManager";
 import { Play, Square } from "lucide-react";
 
-const SPLICING_INTERVAL_SECONDS = 3600;
+const SPLICING_INTERVAL_SECONDS = 300;
+const UPLOAD_MAX_ATTEMPTS = 3;
 
 export function StudySession() {
   const [isRunning, setIsRunning] = useState(false);
@@ -23,7 +24,9 @@ export function StudySession() {
           
           if (nextSecond > 0 && nextSecond % SPLICING_INTERVAL_SECONDS === 0) {
             console.log(`Interval Reached: (${SPLICING_INTERVAL_SECONDS}s) Requesting video slice...`);
-            manager.current.requestSlice();
+            void manager.current.requestSlice().catch((error) => {
+              console.error("Video slice/upload failed:", error);
+            });
           }
           
           return nextSecond;
@@ -46,7 +49,11 @@ export function StudySession() {
       .padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   };
 
-  const uploadChunk = async (videoBlob: Blob, isFinal: boolean = false) => {
+  const uploadChunk = async (
+    videoBlob: Blob,
+    isFinal: boolean = false,
+    recordedDurationMs: number = 0,
+  ) => {
     const currentSessionId = sessionIdRef.current;
     if (!currentSessionId) return;
 
@@ -55,31 +62,49 @@ export function StudySession() {
     const currentPart = chunkIndexRef.current;
     chunkIndexRef.current += 1; // Increment immediately for the next interval ticker
 
-    try {
+    let lastError: unknown = null;
+    for (let attempt = 1; attempt <= UPLOAD_MAX_ATTEMPTS; attempt += 1) {
       const formData = new FormData();
       // Pass the slice file named uniquely with its sequence index string
       formData.append("file", videoBlob, `user_${userId}_session_${currentSessionId}_part${currentPart}.webm`);
       
       formData.append("is_final_chunk", isFinal ? "true" : "false");
+      formData.append("recorded_duration_ms", recordedDurationMs.toFixed(3));
 
-      console.log(`Uploading chunk ${currentPart} for Session ${currentSessionId}...`);
-
-      const uploadResponse = await fetch(
-        `${import.meta.env.VITE_API_BASE_URL}/sessions/${currentSessionId}/upload`,
-        {
-          method: "POST",
-          body: formData,
-        }
+      console.log(
+        `Uploading chunk ${currentPart} for Session ${currentSessionId} (attempt ${attempt}/${UPLOAD_MAX_ATTEMPTS})...`,
       );
 
-      if (!uploadResponse.ok) {
-        throw new Error(`Chunk ${currentPart} upload failed`);
-      }
+      try {
+        const uploadResponse = await fetch(
+          `${import.meta.env.VITE_API_BASE_URL}/sessions/${currentSessionId}/upload`,
+          {
+            method: "POST",
+            body: formData,
+          },
+        );
 
-      console.log(`Chunk ${currentPart} uploaded successfully!`);
-    } catch (error) {
-      console.error(`Background upload error for chunk ${currentPart}:`, error);
+        if (!uploadResponse.ok) {
+          throw new Error(`Chunk ${currentPart} upload failed (${uploadResponse.status})`);
+        }
+
+        console.log(`Chunk ${currentPart} uploaded successfully!`);
+        return;
+      } catch (error) {
+        lastError = error;
+        console.error(
+          `Upload attempt ${attempt} failed for chunk ${currentPart}:`,
+          error,
+        );
+        if (attempt < UPLOAD_MAX_ATTEMPTS) {
+          await new Promise((resolve) => window.setTimeout(resolve, 1000 * 2 ** (attempt - 1)));
+        }
+      }
     }
+
+    throw lastError instanceof Error
+      ? lastError
+      : new Error(`Chunk ${currentPart} upload failed`);
   };
 
   const handleStart = async () => {
@@ -161,7 +186,6 @@ export function StudySession() {
     if (!sessionId) return;
 
     try {
-      manager.current.requestSlice(true); 
       await manager.current.stop();
 
       const patchResponse = await fetch(

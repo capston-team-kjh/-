@@ -1,0 +1,8 @@
+{
+  "name": "focusai-review-worker",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "@openai/codex-sdk": "0.142.5"
+  }
+}
