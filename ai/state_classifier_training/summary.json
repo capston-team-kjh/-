@@ -1,0 +1,81 @@
+{
+  "model_path": "ai\\models\\state_classifier.pkl",
+  "data_root": "AI 분석용 영상_3min_exact",
+  "feature_names": [
+    "is_front_camera",
+    "is_overhead_camera",
+    "face_seen",
+    "gaze_side",
+    "gaze_down",
+    "bad_posture",
+    "eye_closed",
+    "blink",
+    "long_eye_closure",
+    "head_down",
+    "head_tilt",
+    "drowsy",
+    "page_turn",
+    "pen_fidget",
+    "restless_hand",
+    "unknown"
+  ],
+  "classes": [
+    "drowsy",
+    "focus",
+    "gaze_down",
+    "gaze_side",
+    "unknown"
+  ],
+  "train_label_counts": {
+    "drowsy": 70,
+    "focus": 941,
+    "gaze_down": 4,
+    "gaze_side": 85,
+    "unknown": 75
+  },
+  "metrics": {
+    "train": {
+      "sample_count": 1175,
+      "accuracy": 1.0,
+      "confusion": {
+        "drowsy": {
+          "drowsy": 70
+        },
+        "focus": {
+          "focus": 941
+        },
+        "gaze_down": {
+          "gaze_down": 4
+        },
+        "gaze_side": {
+          "gaze_side": 85
+        },
+        "unknown": {
+          "unknown": 75
+        }
+      }
+    },
+    "test": {
+      "sample_count": 633,
+      "accuracy": 0.9953,
+      "confusion": {
+        "drowsy": {
+          "drowsy": 77
+        },
+        "focus": {
+          "focus": 508
+        },
+        "gaze_down": {
+          "gaze_down": 2
+        },
+        "gaze_side": {
+          "gaze_side": 27,
+          "focus": 3
+        },
+        "unknown": {
+          "unknown": 16
+        }
+      }
+    }
+  }
+}

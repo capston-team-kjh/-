@@ -1,0 +1,28 @@
+﻿split,video,status,duration_sec,sample_count,label_counts,analysis_json
+train,2026-04-15 12-44-13__001__00000-00180s.mp4,success,180,114,"{""drowsy"": 13, ""focus"": 91, ""gaze_side"": 2, ""unknown"": 8}",ai\state_classifier_training\analysis_results\train\2026-04-15 12-44-13__001__00000-00180s.json
+train,2026-04-15 12-44-13__002__00180-00360s.mp4,success,180,52,"{""focus"": 8, ""gaze_side"": 42, ""unknown"": 2}",ai\state_classifier_training\analysis_results\train\2026-04-15 12-44-13__002__00180-00360s.json
+train,2026-04-15 12-44-13__003__00360-00540s.mp4,success,180,98,"{""drowsy"": 16, ""focus"": 62, ""gaze_side"": 8, ""unknown"": 12}",ai\state_classifier_training\analysis_results\train\2026-04-15 12-44-13__003__00360-00540s.json
+train,2026-04-15 12-44-13__004__00540-00720s.mp4,success,180,104,"{""drowsy"": 14, ""focus"": 84, ""gaze_down"": 2, ""unknown"": 4}",ai\state_classifier_training\analysis_results\train\2026-04-15 12-44-13__004__00540-00720s.json
+train,2026-04-15 12-44-13__005__00720-00900s.mp4,success,180,79,"{""focus"": 56, ""gaze_side"": 10, ""unknown"": 13}",ai\state_classifier_training\analysis_results\train\2026-04-15 12-44-13__005__00720-00900s.json
+train,2026-04-15 12-44-13__006__00900-01080s.mp4,success,180,160,"{""drowsy"": 16, ""focus"": 136, ""gaze_side"": 2, ""unknown"": 6}",ai\state_classifier_training\analysis_results\train\2026-04-15 12-44-13__006__00900-01080s.json
+train,2026-04-15 12-44-13__007__01080-01260s.mp4,success,180,176,"{""drowsy"": 1, ""focus"": 170, ""unknown"": 5}",ai\state_classifier_training\analysis_results\train\2026-04-15 12-44-13__007__01080-01260s.json
+train,2026-04-15 12-44-13__008__01260-01440s.mp4,success,180,173,"{""focus"": 160, ""gaze_side"": 6, ""unknown"": 7}",ai\state_classifier_training\analysis_results\train\2026-04-15 12-44-13__008__01260-01440s.json
+train,2026-05-27 10-11-14__001__00000-00180s.mp4,success,180,84,"{""focus"": 72, ""unknown"": 12}",ai\state_classifier_training\analysis_results\train\2026-05-27 10-11-14__001__00000-00180s.json
+train,2026-05-27 10-11-14__002__00180-00360s.mp4,success,180,58,"{""focus"": 56, ""unknown"": 2}",ai\state_classifier_training\analysis_results\train\2026-05-27 10-11-14__002__00180-00360s.json
+train,2026-05-27 10-11-14__003__00360-00540s.mp4,success,180,17,"{""focus"": 15, ""unknown"": 2}",ai\state_classifier_training\analysis_results\train\2026-05-27 10-11-14__003__00360-00540s.json
+train,2026-05-27 11-40-48__001__00000-00180s.mp4,success,180,1,"{""focus"": 1}",ai\state_classifier_training\analysis_results\train\2026-05-27 11-40-48__001__00000-00180s.json
+train,2026-05-27 11-40-48__002__00180-00360s.mp4,success,180,0,{},ai\state_classifier_training\analysis_results\train\2026-05-27 11-40-48__002__00180-00360s.json
+train,2026-05-27 11-40-48__003__00360-00540s.mp4,success,180,0,{},ai\state_classifier_training\analysis_results\train\2026-05-27 11-40-48__003__00360-00540s.json
+train,2026-05-27 11-40-48__004__00540-00720s.mp4,success,180,0,{},ai\state_classifier_training\analysis_results\train\2026-05-27 11-40-48__004__00540-00720s.json
+train,2026-05-27 11-40-48__005__00720-00900s.mp4,success,180,0,{},ai\state_classifier_training\analysis_results\train\2026-05-27 11-40-48__005__00720-00900s.json
+train,2026-05-27 11-40-48__006__00900-01080s.mp4,success,180,0,{},ai\state_classifier_training\analysis_results\train\2026-05-27 11-40-48__006__00900-01080s.json
+train,2026-05-27 11-40-48__007__01080-01260s.mp4,success,180,0,{},ai\state_classifier_training\analysis_results\train\2026-05-27 11-40-48__007__01080-01260s.json
+train,2026-05-27 12-55-27__001__00000-00180s.mp4,success,180,1,"{""focus"": 1}",ai\state_classifier_training\analysis_results\train\2026-05-27 12-55-27__001__00000-00180s.json
+train,2026-05-27 12-55-27__002__00180-00360s.mp4,success,180,0,{},ai\state_classifier_training\analysis_results\train\2026-05-27 12-55-27__002__00180-00360s.json
+train,2026-05-27 12-55-27__003__00360-00540s.mp4,success,180,0,{},ai\state_classifier_training\analysis_results\train\2026-05-27 12-55-27__003__00360-00540s.json
+train,2026-05-27 12-55-27__004__00540-00720s.mp4,success,180,0,{},ai\state_classifier_training\analysis_results\train\2026-05-27 12-55-27__004__00540-00720s.json
+train,2026-05-27 12-55-27__005__00720-00900s.mp4,success,180,58,"{""drowsy"": 10, ""focus"": 29, ""gaze_down"": 2, ""gaze_side"": 15, ""unknown"": 2}",ai\state_classifier_training\analysis_results\train\2026-05-27 12-55-27__005__00720-00900s.json
+test,2026-06-28 16-04-40__001__00000-00180s.mp4,success,180,111,"{""drowsy"": 19, ""focus"": 64, ""gaze_down"": 2, ""gaze_side"": 14, ""unknown"": 12}",ai\state_classifier_training\analysis_results\test\2026-06-28 16-04-40__001__00000-00180s.json
+test,2026-06-28 16-04-40__002__00180-00360s.mp4,success,180,181,"{""focus"": 177, ""gaze_side"": 3, ""unknown"": 1}",ai\state_classifier_training\analysis_results\test\2026-06-28 16-04-40__002__00180-00360s.json
+test,2026-06-28 16-04-40__003__00360-00540s.mp4,success,180,164,"{""drowsy"": 39, ""focus"": 111, ""gaze_side"": 13, ""unknown"": 1}",ai\state_classifier_training\analysis_results\test\2026-06-28 16-04-40__003__00360-00540s.json
+test,2026-06-28 16-04-40__004__00540-00720s.mp4,success,180,177,"{""drowsy"": 19, ""focus"": 156, ""unknown"": 2}",ai\state_classifier_training\analysis_results\test\2026-06-28 16-04-40__004__00540-00720s.json

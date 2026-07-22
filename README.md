@@ -1,5 +1,7 @@
 [Dump20260306.sql](https://github.com/user-attachments/files/25785833/Dump20260306.sql)# 🎯 FocusAI 실시간 집중도 측정 시스템 (FocusAI System)(준영이 스타일로 하나 만들었음)
 
+AI 분석 결과와 수동 라벨을 비교하는 성능 평가 방법은 [docs/ai_evaluation.md](docs/ai_evaluation.md)를 참고한다.
+
 **백엔드 API 및 인증 시스템 모듈**
 
 프로젝트의 핵심 인증 시스템, 집중 세션 관리, 그리고 실시간 AI 집중도 로그 저장을 위한 백엔드 기반을 포함

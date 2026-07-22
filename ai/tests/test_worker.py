@@ -39,6 +39,20 @@ class FakeS3Client:
         Path(path).write_bytes(b"fake video")
 
 
+class FakeSqsClient:
+    def __init__(self, message: dict):
+        self.message = dict(message)
+        self.deleted_messages: list[dict] = []
+
+    def receive_message(self, **kwargs):
+        message = dict(self.message)
+        message.setdefault("ReceiptHandle", "receipt-handle")
+        return {"Messages": [message]}
+
+    def delete_message(self, **kwargs) -> None:
+        self.deleted_messages.append(dict(kwargs))
+
+
 def _message(**overrides):
     body = {
         "session_id": 12,
@@ -105,6 +119,16 @@ class WorkerMessageValidationTest(unittest.TestCase):
         self.assertEqual(job["mode"], "focus_analysis")
         self.assertEqual(job["chunk_index"], 1)
         self.assertTrue(job["is_final_chunk"])
+        self.assertIsNone(job["recorded_duration_sec"])
+
+    def test_recorded_duration_milliseconds_are_converted_to_seconds(self) -> None:
+        job = worker._parse_message_body(_message(recorded_duration_ms=300125))
+
+        self.assertAlmostEqual(job["recorded_duration_sec"], 300.125)
+
+    def test_invalid_recorded_duration_fails_validation(self) -> None:
+        with self.assertRaises(worker.MessageValidationError):
+            worker._parse_message_body(_message(recorded_duration_ms=0))
 
 
 class WorkerFeedbackRowTest(unittest.TestCase):
@@ -301,12 +325,90 @@ class WorkerChunkFlowTest(unittest.TestCase):
         self.assertEqual(payload["feedback_version"], "feedback-v1")
         self.assertEqual(payload["vision_validation"]["sampled_frame_count"], 20)
 
+    def test_backend_result_payload_contract_and_score_range(self) -> None:
+        result = _analysis_result(10, 8)
+        job = worker._parse_message_body(_message(is_final_chunk=True))
+
+        payload = worker._build_backend_result_payload(result, job)
+
+        self.assertEqual(
+            {
+                "session_id",
+                "user_id",
+                "status",
+                "focus_score",
+                "summary",
+                "timeline",
+                "events",
+            },
+            set(payload).intersection(
+                {
+                    "session_id",
+                    "user_id",
+                    "status",
+                    "focus_score",
+                    "summary",
+                    "timeline",
+                    "events",
+                }
+            ),
+        )
+        self.assertGreaterEqual(payload["focus_score"], 0)
+        self.assertLessEqual(payload["focus_score"], 100)
+        self.assertEqual(
+            {
+                "total_time",
+                "focus_time",
+                "bad_posture_time",
+                "gaze_away_time",
+                "drowsy_time",
+                "absence_time",
+                "absence_count",
+                "bad_posture_count",
+                "gaze_away_count",
+                "drowsy_count",
+            },
+            set(payload["summary"].keys()),
+        )
+
     def test_missing_rds_env_reports_required_variable(self) -> None:
         with patch.dict(os.environ, {}, clear=True):
             with self.assertRaises(RuntimeError) as ctx:
                 worker._rds_connection()
 
         self.assertIn("RDS_HOST", str(ctx.exception))
+
+
+class WorkerSqsDeletionTest(unittest.TestCase):
+    def test_poll_loop_deletes_message_after_success(self) -> None:
+        sqs = FakeSqsClient(_message())
+
+        with patch.object(worker, "_process_message", return_value=True):
+            worker._poll_loop(
+                sqs_client=sqs,
+                s3_client=FakeS3Client(),
+                queue_url="queue-url",
+                result_sink="rds",
+                run_once=True,
+            )
+
+        self.assertEqual(len(sqs.deleted_messages), 1)
+        self.assertEqual(sqs.deleted_messages[0]["QueueUrl"], "queue-url")
+        self.assertEqual(sqs.deleted_messages[0]["ReceiptHandle"], "receipt-handle")
+
+    def test_poll_loop_keeps_message_after_processing_failure(self) -> None:
+        sqs = FakeSqsClient(_message())
+
+        with patch.object(worker, "_process_message", side_effect=RuntimeError("boom")):
+            worker._poll_loop(
+                sqs_client=sqs,
+                s3_client=FakeS3Client(),
+                queue_url="queue-url",
+                result_sink="rds",
+                run_once=True,
+            )
+
+        self.assertEqual(sqs.deleted_messages, [])
 
 
 if __name__ == "__main__":

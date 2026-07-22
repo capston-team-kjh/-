@@ -169,6 +169,28 @@ def _parse_chunk_index(value: Any) -> int:
     return chunk_index
 
 
+def _parse_recorded_duration_sec(body: dict[str, Any]) -> float | None:
+    raw_seconds = body.get("recorded_duration_sec")
+    raw_milliseconds = body.get("recorded_duration_ms")
+    if raw_seconds in (None, "") and raw_milliseconds in (None, ""):
+        return None
+
+    try:
+        duration_sec = (
+            float(raw_seconds)
+            if raw_seconds not in (None, "")
+            else float(raw_milliseconds) / 1000.0
+        )
+    except (TypeError, ValueError) as exc:
+        raise MessageValidationError(
+            "recorded_duration_sec/recorded_duration_ms must be a number"
+        ) from exc
+
+    if duration_sec <= 0:
+        raise MessageValidationError("recorded duration must be greater than 0")
+    return duration_sec
+
+
 def _parse_message_body(message: dict[str, Any]) -> dict[str, Any]:
     raw_body = message.get("Body")
     if not isinstance(raw_body, str) or raw_body.strip() == "":
@@ -215,6 +237,7 @@ def _parse_message_body(message: dict[str, Any]) -> dict[str, Any]:
         "mode": mode,
         "chunk_index": _parse_chunk_index(required_values["chunk_index"]),
         "is_final_chunk": _parse_bool(required_values["is_final_chunk"], "is_final_chunk"),
+        "recorded_duration_sec": _parse_recorded_duration_sec(body),
     }
 
 
@@ -267,6 +290,7 @@ def _run_existing_analysis(job: dict[str, Any], video_path: Path) -> dict[str, A
         camera_type=job["camera_type"],
         mode=analysis_mode,
         config_path=DEFAULT_CONFIG_PATH,
+        expected_duration_sec=job.get("recorded_duration_sec"),
     )
     from codex_review import prepare_chunk_review, review_enabled
 
