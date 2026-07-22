@@ -358,6 +358,67 @@ def _read_workspace_intervals(output_root: Path) -> list[BlindInterval]:
     ]
 
 
+def record_review_decisions(
+    output_root: Path,
+    decisions: Iterable[DirectLabel],
+) -> dict[str, int]:
+    decision_rows = list(decisions)
+    decision_ids = [decision.blind_id for decision in decision_rows]
+    if len(decision_ids) != len(set(decision_ids)):
+        raise BlindLabelError("review decisions contain duplicate blind_id values")
+
+    interval_by_id = {
+        interval.blind_id: interval for interval in _read_workspace_intervals(output_root)
+    }
+    unknown = sorted(set(decision_ids).difference(interval_by_id))
+    if unknown:
+        raise BlindLabelError(f"review decisions contain unknown IDs: {unknown}")
+    for decision in decision_rows:
+        validate_direct_labels([interval_by_id[decision.blind_id]], [decision])
+
+    review_path = output_root / "blind_review.csv"
+    with review_path.open(newline="", encoding="utf-8-sig") as stream:
+        reader = csv.DictReader(stream)
+        fields = list(reader.fieldnames or [])
+        validate_manifest_columns(fields)
+        rows = list(reader)
+    row_by_id = {str(row["blind_id"]).strip(): row for row in rows}
+
+    recorded_count = 0
+    decision_fields = [
+        "direct_label",
+        "confidence",
+        "evidence",
+        "review_status",
+        "annotator",
+        "annotated_at",
+    ]
+    for decision in decision_rows:
+        row = row_by_id[decision.blind_id]
+        new_values = {field: str(getattr(decision, field)) for field in decision_fields}
+        existing_values = {field: str(row[field]).strip() for field in decision_fields}
+        if existing_values["review_status"]:
+            if existing_values != new_values:
+                raise BlindLabelError(
+                    f"refusing to overwrite an existing review decision: {decision.blind_id}"
+                )
+            continue
+        row.update(new_values)
+        recorded_count += 1
+
+    temporary_path = review_path.with_suffix(".csv.tmp")
+    with temporary_path.open("w", newline="", encoding="utf-8-sig") as stream:
+        writer = csv.DictWriter(stream, fieldnames=fields)
+        writer.writeheader()
+        writer.writerows(rows)
+    temporary_path.replace(review_path)
+    remaining_count = sum(not str(row["review_status"]).strip() for row in rows)
+    return {
+        "recorded_count": recorded_count,
+        "remaining_count": remaining_count,
+    }
+
+
 def verify_review_workspace(output_root: Path, *, allow_pending: bool = False) -> dict[str, object]:
     intervals = _read_workspace_intervals(output_root)
     review_path = output_root / "blind_review.csv"

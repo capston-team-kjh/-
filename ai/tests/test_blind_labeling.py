@@ -18,6 +18,7 @@ from ai.blind_labeling import (
     blind_id_for,
     build_blind_intervals,
     freeze_review_workspace,
+    record_review_decisions,
     read_direct_labels,
     validate_direct_labels,
     validate_manifest_columns,
@@ -124,6 +125,47 @@ def _write_synthetic_video(path: Path, *, fps: int = 5, seconds: int = 12) -> No
 
 
 class BlindWorkspaceTests(unittest.TestCase):
+    def test_records_review_decisions_without_overwriting_other_rows(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "source.avi"
+            manifest = root / "clips_manifest.csv"
+            output = root / "review"
+            _write_synthetic_video(source, seconds=12)
+            self._write_manifest(manifest, source, end_sec=12)
+            write_review_workspace(manifest, output)
+            with (output / "blind_review.csv").open(newline="", encoding="utf-8-sig") as stream:
+                rows = list(csv.DictReader(stream))
+            decision = DirectLabel(
+                blind_id=rows[0]["blind_id"],
+                direct_label="focus",
+                confidence="high",
+                evidence="writing across all sampled frames",
+                review_status="accepted",
+                annotator="codex_visual_direct",
+                annotated_at="2026-07-22T00:00:00+09:00",
+            )
+
+            result = record_review_decisions(output, [decision])
+
+            with (output / "blind_review.csv").open(newline="", encoding="utf-8-sig") as stream:
+                updated = list(csv.DictReader(stream))
+            self.assertEqual(result["recorded_count"], 1)
+            self.assertEqual(updated[0]["direct_label"], "focus")
+            self.assertEqual(updated[1]["direct_label"], "")
+            with self.assertRaises(BlindLabelError):
+                record_review_decisions(
+                    output,
+                    [
+                        DirectLabel(
+                            **{
+                                **decision.__dict__,
+                                "direct_label": "drowsy",
+                            }
+                        )
+                    ],
+                )
+
     def test_contact_sheet_has_five_tiles_without_source_caption(self) -> None:
         with TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -285,6 +327,7 @@ class BlindWorkspaceTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("prepare", result.stdout)
+        self.assertIn("record", result.stdout)
         self.assertIn("verify", result.stdout)
         self.assertIn("freeze", result.stdout)
 
