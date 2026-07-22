@@ -1,0 +1,472 @@
+﻿blind_id,direct_label,confidence,evidence,review_status,annotator,annotated_at
+B1c3104edde63,focus,medium,writing and reading with brief upward looks,accepted,codex_visual_direct,2026-07-22T20:39:08+09:00
+Bcb63c2cfce04,focus,high,reading and writing across sampled frames,accepted,codex_visual_direct,2026-07-22T20:39:08+09:00
+B3bb2f9cd9287,focus,high,continuous worksheet writing,accepted,codex_visual_direct,2026-07-22T20:39:08+09:00
+Bdab1f02b58f5,focus,high,continuous reading and writing,accepted,codex_visual_direct,2026-07-22T20:39:08+09:00
+B3b0e1bd2be11,focus,high,writing on the worksheet throughout,accepted,codex_visual_direct,2026-07-22T20:39:08+09:00
+Baf3e67e39e5f,focus,high,writing and reading throughout,accepted,codex_visual_direct,2026-07-22T20:39:08+09:00
+B0b8008554b6f,focus,high,worksheet study continues despite leaning posture,accepted,codex_visual_direct,2026-07-22T20:39:08+09:00
+B6e69333429e5,focus,high,reading and writing remain task directed,accepted,codex_visual_direct,2026-07-22T20:39:08+09:00
+Bbad06cb7baae,focus,high,worksheet reading and writing across frames,accepted,codex_visual_direct,2026-07-22T20:39:35+09:00
+B21f339454a12,focus,high,continuous task directed writing,accepted,codex_visual_direct,2026-07-22T20:39:35+09:00
+B5f34b1f9ca00,focus,high,continuous worksheet writing,accepted,codex_visual_direct,2026-07-22T20:39:35+09:00
+Ba2e73741953d,focus,high,writing and reading remain task directed,accepted,codex_visual_direct,2026-07-22T20:39:35+09:00
+B3bcca3bfef69,focus,high,head down while actively writing,accepted,codex_visual_direct,2026-07-22T20:39:35+09:00
+B9b1b6ae2e99b,focus,medium,worksheet study continues with brief face touch,accepted,codex_visual_direct,2026-07-22T20:39:35+09:00
+B8bc92b8546e5,focus,high,active writing throughout,accepted,codex_visual_direct,2026-07-22T20:39:35+09:00
+B84a5ce069ee6,focus,medium,active writing with brief mouth opening,accepted,codex_visual_direct,2026-07-22T20:39:35+09:00
+B09b6c7625578,focus,high,writing hand and attentive forward gaze,accepted,codex_visual_direct,2026-07-22T20:39:35+09:00
+B78f2a6f8569b,focus,high,task directed writing with stable gaze,accepted,codex_visual_direct,2026-07-22T20:39:35+09:00
+B179e74604374,focus,medium,writing continues despite brief sideward head angle,accepted,codex_visual_direct,2026-07-22T20:39:35+09:00
+B18a6a28dcf29,focus,medium,writing continues with mostly attentive face,accepted,codex_visual_direct,2026-07-22T20:39:35+09:00
+B7b86ac749fba,focus,medium,writing continues with brief face touch,accepted,codex_visual_direct,2026-07-22T20:40:06+09:00
+B4c702d73a69a,focus,high,continuous worksheet reading and writing,accepted,codex_visual_direct,2026-07-22T20:40:06+09:00
+Befe5013d742e,focus,high,task directed writing throughout,accepted,codex_visual_direct,2026-07-22T20:40:06+09:00
+B41946f420060,focus,high,worksheet work continues across frames,accepted,codex_visual_direct,2026-07-22T20:40:06+09:00
+B01e68bebb4d7,focus,medium,visible writing continues while face briefly leaves frame,accepted,codex_visual_direct,2026-07-22T20:40:06+09:00
+Bdbe83197f61c,focus,high,steady worksheet writing,accepted,codex_visual_direct,2026-07-22T20:40:06+09:00
+Badaad500a4d0,focus,high,continuous writing with attentive forward view,accepted,codex_visual_direct,2026-07-22T20:40:06+09:00
+B271f9d69037e,focus,high,writing and task directed gaze throughout,accepted,codex_visual_direct,2026-07-22T20:40:06+09:00
+Bdeb041c28fce,focus,high,writing continues through head position change,accepted,codex_visual_direct,2026-07-22T20:40:06+09:00
+B4e5cfa0d11c4,focus,high,reading and writing remain task directed,accepted,codex_visual_direct,2026-07-22T20:40:06+09:00
+B3afe673d250e,focus,high,head down while actively writing,accepted,codex_visual_direct,2026-07-22T20:40:06+09:00
+B5cde641db665,focus,high,continuous worksheet writing,accepted,codex_visual_direct,2026-07-22T20:40:06+09:00
+Bbf346fe2bf9b,focus,high,continuous active writing,accepted,codex_visual_direct,2026-07-22T20:40:43+09:00
+Bb263cd2079c9,focus,high,continuous worksheet writing,accepted,codex_visual_direct,2026-07-22T20:40:43+09:00
+Badcd3211c00b,focus,high,head down while reading and writing,accepted,codex_visual_direct,2026-07-22T20:40:43+09:00
+Bf4e46daf9ec0,focus,high,continuous task directed reading,accepted,codex_visual_direct,2026-07-22T20:40:43+09:00
+Bc5727cc12bd7,focus,high,active writing throughout,accepted,codex_visual_direct,2026-07-22T20:40:43+09:00
+Bdc1e8ed774aa,focus,high,writing and page handling remain task directed,accepted,codex_visual_direct,2026-07-22T20:40:43+09:00
+Bf77ccb3d916b,focus,high,head down over worksheet throughout,accepted,codex_visual_direct,2026-07-22T20:40:43+09:00
+Bc1c074e17d13,focus,high,reading and writing continue throughout,accepted,codex_visual_direct,2026-07-22T20:40:43+09:00
+Bfd45240f5914,,,person absent from all sampled frames,ambiguous,codex_visual_direct,2026-07-22T20:40:43+09:00
+B721eb161663b,,,person absent from all sampled frames,ambiguous,codex_visual_direct,2026-07-22T20:40:43+09:00
+B55f0af3f29ac,,,person absent from all sampled frames,ambiguous,codex_visual_direct,2026-07-22T20:40:43+09:00
+B5720365fbd94,,,person absent from all sampled frames,ambiguous,codex_visual_direct,2026-07-22T20:40:43+09:00
+B5c5e46c2c9f9,,,standing and repositioning rather than stable study state,ambiguous,codex_visual_direct,2026-07-22T20:40:43+09:00
+Bd38eaa2da905,,,mixed standing sitting and repositioning transition,ambiguous,codex_visual_direct,2026-07-22T20:40:43+09:00
+B5c9a4982fbc0,,,mostly empty scene with person entering at end,ambiguous,codex_visual_direct,2026-07-22T20:40:43+09:00
+B2944757ac333,,,mixed settling transition and brief writing,ambiguous,codex_visual_direct,2026-07-22T20:40:43+09:00
+B766b962e269d,focus,high,seated worksheet study throughout,accepted,codex_visual_direct,2026-07-22T20:41:20+09:00
+Bcffbb59ac8f9,focus,high,transitions into sustained writing,accepted,codex_visual_direct,2026-07-22T20:41:20+09:00
+B796bb42e8d17,focus,high,continuous active writing,accepted,codex_visual_direct,2026-07-22T20:41:20+09:00
+Bf8dac5079400,focus,high,worksheet writing remains continuous,accepted,codex_visual_direct,2026-07-22T20:41:20+09:00
+Bfc95cdf8b723,focus,high,reading and writing stay task directed,accepted,codex_visual_direct,2026-07-22T20:41:20+09:00
+B988306245432,focus,high,continuous writing with head over worksheet,accepted,codex_visual_direct,2026-07-22T20:41:20+09:00
+B9a605f159985,focus,medium,study continues with brief upward look,accepted,codex_visual_direct,2026-07-22T20:41:20+09:00
+B5e952b416228,focus,medium,task directed posture resumes after brief upward look,accepted,codex_visual_direct,2026-07-22T20:41:20+09:00
+B255b63e7e19f,focus,high,continuous worksheet writing,accepted,codex_visual_direct,2026-07-22T20:41:20+09:00
+B0fff4a1b74a4,focus,high,active writing throughout,accepted,codex_visual_direct,2026-07-22T20:41:20+09:00
+B68d3198240bf,focus,medium,writing continues with brief face touch,accepted,codex_visual_direct,2026-07-22T20:41:20+09:00
+B2e2bbc87f4c8,focus,high,steady writing and attentive posture,accepted,codex_visual_direct,2026-07-22T20:41:20+09:00
+Bf120d6f70853,focus,high,continuous task directed writing,accepted,codex_visual_direct,2026-07-22T20:41:20+09:00
+B6d6a8afe9046,focus,high,head down while actively writing,accepted,codex_visual_direct,2026-07-22T20:41:20+09:00
+Bb931b8bfb82d,focus,high,continuous worksheet writing,accepted,codex_visual_direct,2026-07-22T20:41:20+09:00
+B9e6e29b4f61a,focus,high,continuous writing across all sampled frames,accepted,codex_visual_direct,2026-07-22T20:41:20+09:00
+B22b7ee7723e2,focus,high,continuous active writing,accepted,codex_visual_direct,2026-07-22T20:41:59+09:00
+Bc9fcb4d971c2,focus,medium,writing continues despite chin support and brief recline,accepted,codex_visual_direct,2026-07-22T20:41:59+09:00
+Baea041c0b629,focus,medium,task writing continues while chin rests on hand,accepted,codex_visual_direct,2026-07-22T20:41:59+09:00
+Bbff99994d430,focus,medium,continuous writing with chin supported,accepted,codex_visual_direct,2026-07-22T20:41:59+09:00
+Bd25210c9712b,gaze_down,high,attention remains on handheld phone instead of worksheet,accepted,codex_visual_direct,2026-07-22T20:41:59+09:00
+B714e96ddb866,gaze_down,high,sustained handheld phone use,accepted,codex_visual_direct,2026-07-22T20:41:59+09:00
+Baa6437970846,gaze_down,high,sustained attention to handheld phone,accepted,codex_visual_direct,2026-07-22T20:41:59+09:00
+Bdcdd78172586,gaze_side,medium,sustained off task upward side gaze with idle hand,accepted,codex_visual_direct,2026-07-22T20:41:59+09:00
+B13d9532d9006,gaze_side,medium,off task side gaze persists while desk hand is idle,accepted,codex_visual_direct,2026-07-22T20:41:59+09:00
+B83815b942ae8,gaze_side,high,head and gaze remain turned to the side,accepted,codex_visual_direct,2026-07-22T20:41:59+09:00
+B3f393791e9d5,gaze_side,high,sustained sideward head orientation,accepted,codex_visual_direct,2026-07-22T20:41:59+09:00
+B731380f2b447,gaze_side,high,sustained side gaze with no study action,accepted,codex_visual_direct,2026-07-22T20:41:59+09:00
+B3d02721ea082,gaze_side,high,head remains turned away from study area,accepted,codex_visual_direct,2026-07-22T20:41:59+09:00
+B631c7815087a,gaze_side,high,persistent sideward gaze,accepted,codex_visual_direct,2026-07-22T20:41:59+09:00
+B0bdae1fe045b,gaze_side,high,persistent side gaze and idle worksheet,accepted,codex_visual_direct,2026-07-22T20:41:59+09:00
+B47e8d694b57e,gaze_side,high,sustained sideward attention,accepted,codex_visual_direct,2026-07-22T20:41:59+09:00
+B1bf3931fad72,gaze_side,high,head remains turned away from worksheet,accepted,codex_visual_direct,2026-07-22T20:42:33+09:00
+B95fc31c3ec27,gaze_side,high,persistent sideward attention,accepted,codex_visual_direct,2026-07-22T20:42:33+09:00
+Bf983293e2109,gaze_side,high,sustained side gaze with idle desk,accepted,codex_visual_direct,2026-07-22T20:42:33+09:00
+Bac72958199f3,gaze_side,high,persistent sideward head orientation,accepted,codex_visual_direct,2026-07-22T20:42:33+09:00
+B2742f3df0090,gaze_side,high,head stays turned to the side,accepted,codex_visual_direct,2026-07-22T20:42:33+09:00
+B20c0fe5bcd4d,gaze_side,high,sustained side gaze throughout,accepted,codex_visual_direct,2026-07-22T20:42:33+09:00
+B455b9ed4d66e,gaze_side,high,sustained off task side attention,accepted,codex_visual_direct,2026-07-22T20:42:33+09:00
+B609f923f3e3c,gaze_side,high,head remains sideward and worksheet idle,accepted,codex_visual_direct,2026-07-22T20:42:33+09:00
+B01908eed1d30,gaze_side,high,persistent side gaze,accepted,codex_visual_direct,2026-07-22T20:42:33+09:00
+B41fa5f3a49a1,gaze_side,medium,side gaze persists with brief face touch,accepted,codex_visual_direct,2026-07-22T20:42:33+09:00
+Bf468ec3e7949,gaze_side,high,continuous sideward attention,accepted,codex_visual_direct,2026-07-22T20:42:33+09:00
+Ba5750b2442c4,gaze_side,medium,side gaze remains dominant despite face touch,accepted,codex_visual_direct,2026-07-22T20:42:33+09:00
+B435ccccb877f,gaze_down,high,sustained attention to handheld phone,accepted,codex_visual_direct,2026-07-22T20:42:33+09:00
+B6adb9649c070,gaze_side,high,reclined posture with sustained sideward gaze,accepted,codex_visual_direct,2026-07-22T20:42:33+09:00
+Bad2e071fc6bd,gaze_side,medium,attention remains away from worksheet with sideward looks,accepted,codex_visual_direct,2026-07-22T20:42:33+09:00
+Beffeaac9e785,gaze_side,high,persistent side gaze with idle study area,accepted,codex_visual_direct,2026-07-22T20:42:33+09:00
+Bc3f221523f0c,gaze_side,high,persistent sideward attention away from worksheet,accepted,codex_visual_direct,2026-07-22T20:43:35+09:00
+B1fe7f9b3d5d9,gaze_down,high,sustained handheld phone viewing,accepted,codex_visual_direct,2026-07-22T20:43:35+09:00
+B1c5328c78f8c,gaze_down,high,attention remains on handheld phone,accepted,codex_visual_direct,2026-07-22T20:43:35+09:00
+Bab6a61cb1169,gaze_down,high,continuous phone use instead of worksheet,accepted,codex_visual_direct,2026-07-22T20:43:35+09:00
+B64dc9d10ea36,gaze_down,medium,phone remains in use through reclined posture change,accepted,codex_visual_direct,2026-07-22T20:43:35+09:00
+Bb806aa78a061,gaze_down,high,sustained attention to phone held low,accepted,codex_visual_direct,2026-07-22T20:43:35+09:00
+Ba49a423cbabe,gaze_down,medium,phone use dominates despite brief recline,accepted,codex_visual_direct,2026-07-22T20:43:35+09:00
+Bc060e46fe637,gaze_down,medium,handheld phone remains the attention target,accepted,codex_visual_direct,2026-07-22T20:43:35+09:00
+B724daf4418f2,gaze_down,high,reclined sustained phone viewing,accepted,codex_visual_direct,2026-07-22T20:43:35+09:00
+B208ba8b85512,gaze_down,high,continuous handheld phone attention,accepted,codex_visual_direct,2026-07-22T20:43:35+09:00
+B96c4e38631c0,gaze_down,high,continuous phone viewing while reclined,accepted,codex_visual_direct,2026-07-22T20:43:35+09:00
+B146cb42a5af1,gaze_down,medium,phone attention persists with brief head touch,accepted,codex_visual_direct,2026-07-22T20:43:35+09:00
+Bd3671727d11b,gaze_down,high,sustained handheld phone use,accepted,codex_visual_direct,2026-07-22T20:43:35+09:00
+Bdae84016f945,gaze_down,high,sustained phone viewing away from study material,accepted,codex_visual_direct,2026-07-22T20:43:35+09:00
+B3e9c05bd19c8,gaze_down,high,attention remains on handheld phone,accepted,codex_visual_direct,2026-07-22T20:43:35+09:00
+Bcc93a7320b2b,gaze_down,high,continuous phone use in reclined posture,accepted,codex_visual_direct,2026-07-22T20:43:35+09:00
+Bc18c3fff2902,gaze_down,high,continuous handheld phone viewing,accepted,codex_visual_direct,2026-07-22T20:43:35+09:00
+B6587d9f77f6c,gaze_down,medium,phone use remains dominant through position change,accepted,codex_visual_direct,2026-07-22T20:43:35+09:00
+B0afcd57d47ce,gaze_down,high,sustained downward attention to handheld device,accepted,codex_visual_direct,2026-07-22T20:43:35+09:00
+Bd27326539456,drowsy,medium,sustained covered mouth and heavy eyed inactive posture,accepted,codex_visual_direct,2026-07-22T20:43:35+09:00
+B679b68dcd9bb,drowsy,medium,heavy eyes and sustained inactive chin support,accepted,codex_visual_direct,2026-07-22T20:44:36+09:00
+Bff0c016c818a,drowsy,medium,eyes remain heavy while posture is inactive,accepted,codex_visual_direct,2026-07-22T20:44:36+09:00
+Bbdd49008b10f,gaze_down,high,sustained handheld phone viewing,accepted,codex_visual_direct,2026-07-22T20:44:36+09:00
+Bd335c0a1f108,gaze_down,high,attention stays on phone propped below face,accepted,codex_visual_direct,2026-07-22T20:44:36+09:00
+B4a8159212cbd,gaze_down,high,continuous downward attention to phone,accepted,codex_visual_direct,2026-07-22T20:44:36+09:00
+B9901afbb9c4a,drowsy,high,sustained slumped low head and closed eyes,accepted,codex_visual_direct,2026-07-22T20:44:36+09:00
+Bc9b4bfaac0e9,drowsy,high,head remains low with eyes closed and no study action,accepted,codex_visual_direct,2026-07-22T20:44:36+09:00
+B69edac4c56f0,drowsy,high,persistent slumped closed eye posture,accepted,codex_visual_direct,2026-07-22T20:44:36+09:00
+Be5540990f551,drowsy,high,sustained head droop and eye closure,accepted,codex_visual_direct,2026-07-22T20:44:36+09:00
+Bfee3f95bff1f,drowsy,high,head remains drooped with eyes closed,accepted,codex_visual_direct,2026-07-22T20:44:36+09:00
+Bfebb98439f6f,drowsy,high,persistent low head and closed eyes,accepted,codex_visual_direct,2026-07-22T20:44:36+09:00
+Bf4a4d4bf1831,drowsy,high,eyes closed with head tilting back then dropping,accepted,codex_visual_direct,2026-07-22T20:44:36+09:00
+B6c7f0bd3cac8,,,mixed phone use side gaze and head scratching,ambiguous,codex_visual_direct,2026-07-22T20:44:36+09:00
+Bf0ca9052c30f,gaze_side,high,sustained sideward gaze away from worksheet,accepted,codex_visual_direct,2026-07-22T20:44:36+09:00
+B62c0226ff47d,drowsy,high,clear yawn followed by heavy closed eyes,accepted,codex_visual_direct,2026-07-22T20:44:36+09:00
+B551f835b2b73,drowsy,high,eyes remain closed with inactive hands,accepted,codex_visual_direct,2026-07-22T20:44:36+09:00
+Bf56cd77bbc4a,drowsy,high,persistent eye closure and inactive posture,accepted,codex_visual_direct,2026-07-22T20:44:36+09:00
+B22b2a047c364,drowsy,medium,reclined head back posture with heavy eyes,accepted,codex_visual_direct,2026-07-22T20:44:36+09:00
+B9add06ec4730,gaze_side,high,persistent side gaze and idle worksheet,accepted,codex_visual_direct,2026-07-22T20:44:36+09:00
+B70ddf43ba3d6,gaze_side,high,sustained sideward attention,accepted,codex_visual_direct,2026-07-22T20:44:36+09:00
+B70df47aed77e,gaze_side,high,sustained side gaze away from worksheet,accepted,codex_visual_direct,2026-07-22T20:45:21+09:00
+Bae2006cff9e7,gaze_side,high,persistent sideward attention,accepted,codex_visual_direct,2026-07-22T20:45:21+09:00
+B924d5977473b,gaze_side,medium,side gaze remains dominant with brief mouth cover,accepted,codex_visual_direct,2026-07-22T20:45:21+09:00
+B5bf8dbc8977d,gaze_down,high,sustained attention to handheld phone,accepted,codex_visual_direct,2026-07-22T20:45:21+09:00
+Bd57ba49ffcc6,gaze_down,high,continuous phone viewing with head low,accepted,codex_visual_direct,2026-07-22T20:45:21+09:00
+Bb3e06a79a77b,gaze_down,high,sustained handheld phone attention,accepted,codex_visual_direct,2026-07-22T20:45:21+09:00
+B874b4c6dbcb7,,,extreme low reclined position without a stable target state,ambiguous,codex_visual_direct,2026-07-22T20:45:21+09:00
+Bfdc6e5d7373a,,,low reclined posture with gesturing and unclear attention target,ambiguous,codex_visual_direct,2026-07-22T20:45:21+09:00
+B251581e53f6d,,,extreme low position and changing gestures obscure state,ambiguous,codex_visual_direct,2026-07-22T20:45:21+09:00
+B908a5e9c177d,,,face remains at frame edge in an indeterminate reclined posture,ambiguous,codex_visual_direct,2026-07-22T20:45:21+09:00
+B4c3c01cf2836,,,mixed phone handling upward gaze and gesturing,ambiguous,codex_visual_direct,2026-07-22T20:45:21+09:00
+B10c01407ef00,gaze_side,high,sustained upward side gaze with idle study area,accepted,codex_visual_direct,2026-07-22T20:45:21+09:00
+Bfffe3c1a58f4,gaze_side,high,sideward upward attention persists while gesturing,accepted,codex_visual_direct,2026-07-22T20:45:21+09:00
+B8b06a1351c2d,focus,medium,open book is handled and pages are turned task directionally,accepted,codex_visual_direct,2026-07-22T20:45:21+09:00
+Ba5cb0c2db79c,unknown,high,scene is too dark to observe person or gaze,accepted,codex_visual_direct,2026-07-22T20:45:21+09:00
+B6fab7dcbfcc5,unknown,high,near black frames prevent reliable state observation,accepted,codex_visual_direct,2026-07-22T20:45:21+09:00
+Bc856f4727b9b,unknown,high,person and gaze are not visible in darkness,accepted,codex_visual_direct,2026-07-22T20:45:21+09:00
+B318cef239ef4,unknown,high,scene remains too dark for state judgment,accepted,codex_visual_direct,2026-07-22T20:45:21+09:00
+B36f097b84e90,unknown,high,near black frames obscure all behavioral evidence,accepted,codex_visual_direct,2026-07-22T20:45:21+09:00
+B1c37aa842f63,unknown,high,insufficient illumination to identify state,accepted,codex_visual_direct,2026-07-22T20:45:21+09:00
+B51a74b5bf607,unknown,high,near black frames prevent state observation,accepted,codex_visual_direct,2026-07-22T20:46:14+09:00
+B707e4f78da7e,unknown,high,scene remains too dark for reliable judgment,accepted,codex_visual_direct,2026-07-22T20:46:14+09:00
+B82eac082599f,unknown,high,person and gaze are not visible in darkness,accepted,codex_visual_direct,2026-07-22T20:46:14+09:00
+B2f223f7da66c,unknown,high,insufficient illumination obscures behavior,accepted,codex_visual_direct,2026-07-22T20:46:14+09:00
+Bd84d20d16650,unknown,high,near black frames contain no reliable state cues,accepted,codex_visual_direct,2026-07-22T20:46:14+09:00
+B78364af4077b,unknown,high,scene is too dark to identify state,accepted,codex_visual_direct,2026-07-22T20:46:14+09:00
+B4123a8b4664b,gaze_side,high,sustained sideward gaze while book is idle,accepted,codex_visual_direct,2026-07-22T20:46:14+09:00
+Bb92e50ee0f0e,gaze_side,high,persistent upward side gaze away from book,accepted,codex_visual_direct,2026-07-22T20:46:14+09:00
+B85134a0873b4,gaze_side,medium,sideward attention dominates before a brief position change,accepted,codex_visual_direct,2026-07-22T20:46:14+09:00
+B26146371d2da,focus,medium,downward book reading with hand supporting chin,accepted,codex_visual_direct,2026-07-22T20:46:14+09:00
+Be5367685f0ce,focus,high,sustained downward reading of open book,accepted,codex_visual_direct,2026-07-22T20:46:14+09:00
+B6a0975c046b6,focus,high,head and gaze remain directed at open book,accepted,codex_visual_direct,2026-07-22T20:46:14+09:00
+Ba252d4e69f54,,,transitions from book directed gaze to sustained side gaze,ambiguous,codex_visual_direct,2026-07-22T20:46:14+09:00
+Bb297301dfe60,gaze_side,high,persistent upward side gaze with idle book,accepted,codex_visual_direct,2026-07-22T20:46:14+09:00
+Be25ab2739599,,,mixed upward side attention and later book directed gaze,ambiguous,codex_visual_direct,2026-07-22T20:46:14+09:00
+B70e487b73560,focus,medium,open book reading continues with chin support,accepted,codex_visual_direct,2026-07-22T20:46:14+09:00
+Bda3368bf33b6,focus,medium,gaze remains directed toward open book,accepted,codex_visual_direct,2026-07-22T20:46:14+09:00
+B06bcce65dee2,focus,medium,sustained book directed gaze with chin support,accepted,codex_visual_direct,2026-07-22T20:46:14+09:00
+B2d2e44f291fa,gaze_side,high,head stays turned away from book,accepted,codex_visual_direct,2026-07-22T20:46:14+09:00
+B71198aae6c23,,,side gaze transitions to forward and book directed posture,ambiguous,codex_visual_direct,2026-07-22T20:46:14+09:00
+B2577f69d085c,focus,high,continuous writing in open book,accepted,codex_visual_direct,2026-07-22T20:47:06+09:00
+B01d9c3c108d2,focus,high,task directed writing continues throughout,accepted,codex_visual_direct,2026-07-22T20:47:06+09:00
+Bf2b675382147,,,book directed posture transitions to side reach offscreen,ambiguous,codex_visual_direct,2026-07-22T20:47:06+09:00
+B23b4f87dc98d,gaze_side,high,head remains turned toward an offscreen target,accepted,codex_visual_direct,2026-07-22T20:47:06+09:00
+Bf848ed906a47,,,transitions from offscreen side attention back toward book,ambiguous,codex_visual_direct,2026-07-22T20:47:06+09:00
+B9ead41ea5e4e,gaze_side,high,persistent side gaze despite hand resting on book,accepted,codex_visual_direct,2026-07-22T20:47:06+09:00
+B223007fbe706,,,side gaze transitions into leaving the frame,ambiguous,codex_visual_direct,2026-07-22T20:47:06+09:00
+Be0a3d350917b,focus,medium,papers are actively arranged while gaze stays task directed,accepted,codex_visual_direct,2026-07-22T20:47:06+09:00
+B34148864908f,gaze_down,high,head remains directed below the visible study surface,accepted,codex_visual_direct,2026-07-22T20:47:06+09:00
+Ba23d6cd1f6d4,gaze_down,high,sustained downward gaze below desk camera view,accepted,codex_visual_direct,2026-07-22T20:47:06+09:00
+B34a888423972,gaze_down,high,head stays down toward an unseen lower target,accepted,codex_visual_direct,2026-07-22T20:47:06+09:00
+Bfc42a381629a,gaze_down,high,persistent gaze below visible study material,accepted,codex_visual_direct,2026-07-22T20:47:06+09:00
+B664a6a79bcbb,gaze_down,high,sustained downward attention below desk level,accepted,codex_visual_direct,2026-07-22T20:47:06+09:00
+B946bd6652a4f,drowsy,medium,head rises from a sustained droop without study action,accepted,codex_visual_direct,2026-07-22T20:47:06+09:00
+B661bdaaa1764,drowsy,medium,heavy eyes mouth opening and head tilt indicate fatigue,accepted,codex_visual_direct,2026-07-22T20:47:06+09:00
+B97bf08deb317,drowsy,medium,head bobbing and eye rubbing with no task action,accepted,codex_visual_direct,2026-07-22T20:47:06+09:00
+B7ac3300358bf,unknown,high,lens is obstructed and scene cannot be observed,accepted,codex_visual_direct,2026-07-22T20:47:06+09:00
+B080c948340b0,unknown,high,camera obstruction prevents behavior judgment,accepted,codex_visual_direct,2026-07-22T20:47:06+09:00
+B00ca5a5782d4,unknown,high,frames show only an obstructed dark lens,accepted,codex_visual_direct,2026-07-22T20:47:06+09:00
+Bc56b9724f2af,unknown,high,person and scene are fully obscured,accepted,codex_visual_direct,2026-07-22T20:47:06+09:00
+B8541bae818d0,unknown,high,camera is obstructed and scene is not visible,accepted,codex_visual_direct,2026-07-22T20:47:54+09:00
+B291a710f10b9,unknown,high,dark lens obstruction prevents state judgment,accepted,codex_visual_direct,2026-07-22T20:47:54+09:00
+Bbf4148cf8de3,unknown,high,scene is too dark and obstructed to observe behavior,accepted,codex_visual_direct,2026-07-22T20:47:54+09:00
+B7e24892c7fd0,unknown,high,person and gaze are fully obscured,accepted,codex_visual_direct,2026-07-22T20:47:54+09:00
+B77a065af4906,unknown,high,near black obstructed frames contain no state cues,accepted,codex_visual_direct,2026-07-22T20:47:54+09:00
+Bd9c21ecd8685,unknown,high,camera obstruction prevents reliable observation,accepted,codex_visual_direct,2026-07-22T20:47:54+09:00
+B3b0c469f9ad1,unknown,high,scene remains dark and unobservable,accepted,codex_visual_direct,2026-07-22T20:47:54+09:00
+B14905b1c2fcc,unknown,high,no visible behavioral evidence due to obstruction,accepted,codex_visual_direct,2026-07-22T20:47:54+09:00
+B5a6212af05ef,focus,high,continuous writing or drawing on paper,accepted,codex_visual_direct,2026-07-22T20:47:54+09:00
+Bb5b028999a36,focus,high,active pen work continues across frames,accepted,codex_visual_direct,2026-07-22T20:47:54+09:00
+B43280046c1ad,focus,high,continuous task directed drawing,accepted,codex_visual_direct,2026-07-22T20:47:54+09:00
+Bfbc7742df914,focus,high,steady pen work on the page,accepted,codex_visual_direct,2026-07-22T20:47:54+09:00
+B5d4b41cba5d6,focus,high,active drawing or writing throughout,accepted,codex_visual_direct,2026-07-22T20:47:54+09:00
+B9e0694cd02aa,focus,high,continuous page work with pen,accepted,codex_visual_direct,2026-07-22T20:47:54+09:00
+B1d9f9cc279d0,focus,high,task directed writing continues throughout,accepted,codex_visual_direct,2026-07-22T20:47:54+09:00
+B9e30344118af,focus,high,steady pen work on paper,accepted,codex_visual_direct,2026-07-22T20:47:54+09:00
+Bb44c98468164,focus,high,continuous task directed drawing,accepted,codex_visual_direct,2026-07-22T20:47:54+09:00
+B815dabb163ee,focus,high,active pen use remains directed at paper,accepted,codex_visual_direct,2026-07-22T20:47:54+09:00
+Bf6b513da8c87,gaze_side,medium,attention shifts to side conversation with gesturing,accepted,codex_visual_direct,2026-07-22T20:47:54+09:00
+B64f3e61c9f63,gaze_side,high,sustained side conversation while paper is idle,accepted,codex_visual_direct,2026-07-22T20:47:54+09:00
+B2ef6bbd4eac0,gaze_side,high,sustained side attention during conversation,accepted,codex_visual_direct,2026-07-22T20:48:44+09:00
+B4c8d162cb6f4,gaze_side,high,head remains turned toward another person,accepted,codex_visual_direct,2026-07-22T20:48:44+09:00
+B2fc3b25251a5,gaze_side,high,persistent sideward conversational attention,accepted,codex_visual_direct,2026-07-22T20:48:44+09:00
+Bd57b1db7d6f8,gaze_side,high,side gaze continues while paper is idle,accepted,codex_visual_direct,2026-07-22T20:48:44+09:00
+B19a50b4506ce,gaze_side,high,side conversation with gesturing dominates,accepted,codex_visual_direct,2026-07-22T20:48:44+09:00
+Bfcbb5325c214,gaze_side,high,sustained sideward attention and hand gestures,accepted,codex_visual_direct,2026-07-22T20:48:44+09:00
+B0983d0ab8f3b,gaze_side,high,persistent gaze toward offscreen conversational target,accepted,codex_visual_direct,2026-07-22T20:48:44+09:00
+B5075a69db3ec,focus,high,continuous writing or drawing on paper,accepted,codex_visual_direct,2026-07-22T20:48:44+09:00
+B25a452b08be9,focus,high,steady task directed pen work,accepted,codex_visual_direct,2026-07-22T20:48:44+09:00
+Be46379202eb9,focus,high,active writing continues across all frames,accepted,codex_visual_direct,2026-07-22T20:48:44+09:00
+B5752e24d5f38,focus,medium,writing dominates before a brief upward head tilt,accepted,codex_visual_direct,2026-07-22T20:48:44+09:00
+B104514951be3,,,person is absent from all sampled frames,ambiguous,codex_visual_direct,2026-07-22T20:48:44+09:00
+B6bd8f7a9bc03,,,person remains absent and state cannot be assigned,ambiguous,codex_visual_direct,2026-07-22T20:48:44+09:00
+Bc737a8abf794,,,empty desk scene with no person visible,ambiguous,codex_visual_direct,2026-07-22T20:48:44+09:00
+Bb783b182813b,,,person absent from all sampled frames,ambiguous,codex_visual_direct,2026-07-22T20:48:44+09:00
+B8f19a6878d08,,,mostly empty scene with material entering only at end,ambiguous,codex_visual_direct,2026-07-22T20:48:44+09:00
+Bd6786ae51740,focus,high,book handling and writing are task directed,accepted,codex_visual_direct,2026-07-22T20:48:44+09:00
+B7b15f6115d25,focus,high,continuous reading and writing,accepted,codex_visual_direct,2026-07-22T20:48:44+09:00
+B28f500116894,focus,high,steady worksheet writing,accepted,codex_visual_direct,2026-07-22T20:48:44+09:00
+Bad5aca2a53cf,focus,high,continuous task directed writing,accepted,codex_visual_direct,2026-07-22T20:48:44+09:00
+Bec106577668c,focus,medium,seated attentive posture over open book with brief face touch,accepted,codex_visual_direct,2026-07-22T20:49:31+09:00
+B4dc6c1cd3ffe,focus,medium,stable seated attention with open study book,accepted,codex_visual_direct,2026-07-22T20:49:31+09:00
+B05a9ae4bf9ca,focus,medium,study posture continues despite brief eye rub,accepted,codex_visual_direct,2026-07-22T20:49:31+09:00
+B4bc15e46f0d9,focus,medium,seated book work remains dominant through hand movements,accepted,codex_visual_direct,2026-07-22T20:49:31+09:00
+B1765a2410f70,,,seated study posture transitions into leaving the frame,ambiguous,codex_visual_direct,2026-07-22T20:49:31+09:00
+B1ca7ca87c662,,,person absent from all sampled frames,ambiguous,codex_visual_direct,2026-07-22T20:49:31+09:00
+B7c6cad256474,,,empty study area with no person visible,ambiguous,codex_visual_direct,2026-07-22T20:49:31+09:00
+B53ee82fde97a,,,person absent throughout the interval,ambiguous,codex_visual_direct,2026-07-22T20:49:31+09:00
+B3b707194b7f0,,,no person appears in sampled frames,ambiguous,codex_visual_direct,2026-07-22T20:49:31+09:00
+B6458ade6a37e,,,empty desk scene cannot yield a person state,ambiguous,codex_visual_direct,2026-07-22T20:49:31+09:00
+B613dd2356a9a,,,person remains absent from the scene,ambiguous,codex_visual_direct,2026-07-22T20:49:31+09:00
+Bbd5433cae5e4,,,no person visible in any sampled frame,ambiguous,codex_visual_direct,2026-07-22T20:49:31+09:00
+B871537aef7c3,,,empty scene with unattended open book,ambiguous,codex_visual_direct,2026-07-22T20:49:31+09:00
+B05053e98796f,,,person absent throughout,ambiguous,codex_visual_direct,2026-07-22T20:49:31+09:00
+Ba73ddf956be4,,,empty study area and no behavioral evidence,ambiguous,codex_visual_direct,2026-07-22T20:49:31+09:00
+B4f8a7978629e,,,no person visible,ambiguous,codex_visual_direct,2026-07-22T20:49:31+09:00
+B6bb030367cbe,,,person absent from all sampled frames,ambiguous,codex_visual_direct,2026-07-22T20:49:31+09:00
+Bea722119ee82,,,empty scene prevents state assignment,ambiguous,codex_visual_direct,2026-07-22T20:49:31+09:00
+B26c48ba27c4e,,,unattended open book with no person present,ambiguous,codex_visual_direct,2026-07-22T20:49:31+09:00
+B53871480e9b7,,,person absent throughout the sampled interval,ambiguous,codex_visual_direct,2026-07-22T20:49:31+09:00
+Ba3550f1cf343,,,person absent from all sampled frames,ambiguous,codex_visual_direct,2026-07-22T20:50:25+09:00
+Bdb1ffbad2b24,,,empty study area with no person visible,ambiguous,codex_visual_direct,2026-07-22T20:50:25+09:00
+Bb146f6af6676,,,person absent throughout,ambiguous,codex_visual_direct,2026-07-22T20:50:25+09:00
+B593e857f32f3,,,unattended open book and no person present,ambiguous,codex_visual_direct,2026-07-22T20:50:25+09:00
+Bbdbab83f9fc3,,,no person visible in sampled frames,ambiguous,codex_visual_direct,2026-07-22T20:50:25+09:00
+Bfd85ff77f514,,,empty scene prevents person state assignment,ambiguous,codex_visual_direct,2026-07-22T20:50:25+09:00
+Bc852aa95b474,,,person absent from all frames,ambiguous,codex_visual_direct,2026-07-22T20:50:25+09:00
+B2b1afd69dfdb,,,empty study area,ambiguous,codex_visual_direct,2026-07-22T20:50:25+09:00
+B57d5d0b1b031,,,no person visible,ambiguous,codex_visual_direct,2026-07-22T20:50:25+09:00
+B0d1ed39ee78c,,,person remains absent,ambiguous,codex_visual_direct,2026-07-22T20:50:25+09:00
+B1923827d883e,,,unattended open book without visible person,ambiguous,codex_visual_direct,2026-07-22T20:50:25+09:00
+B7ba09cb3c2b3,,,empty scene has no behavioral evidence,ambiguous,codex_visual_direct,2026-07-22T20:50:25+09:00
+B9aa6e69f862e,,,person absent throughout the interval,ambiguous,codex_visual_direct,2026-07-22T20:50:25+09:00
+B07b7037d2e4b,unknown,high,camera is obstructed and scene is too dark,accepted,codex_visual_direct,2026-07-22T20:50:25+09:00
+B4cce02b3cb5b,unknown,high,near black frames prevent observation,accepted,codex_visual_direct,2026-07-22T20:50:25+09:00
+Be7210e7bf984,unknown,high,person and gaze are fully obscured,accepted,codex_visual_direct,2026-07-22T20:50:25+09:00
+B53c4fb503256,unknown,high,dark obstructed frames contain no reliable cues,accepted,codex_visual_direct,2026-07-22T20:50:25+09:00
+B1fd462c82952,unknown,high,scene is unobservable due to darkness,accepted,codex_visual_direct,2026-07-22T20:50:25+09:00
+B10b043362507,unknown,high,camera obstruction prevents state judgment,accepted,codex_visual_direct,2026-07-22T20:50:25+09:00
+Ba753ec695167,unknown,high,near black frames obscure person and behavior,accepted,codex_visual_direct,2026-07-22T20:50:25+09:00
+B5ff17cfb64dd,unknown,high,dark obstructed scene prevents observation,accepted,codex_visual_direct,2026-07-22T20:51:22+09:00
+B79acc62da3dc,focus,medium,hands remain engaged with an open laptop despite blurred face view,accepted,codex_visual_direct,2026-07-22T20:51:22+09:00
+Bdf5d69a319e8,focus,medium,continuous laptop interaction is task directed though face is blurred,accepted,codex_visual_direct,2026-07-22T20:51:22+09:00
+B302e52a79217,,,person absent from all sampled frames,ambiguous,codex_visual_direct,2026-07-22T20:51:22+09:00
+B0fc2cb9e45f1,,,empty scene with unattended open book,ambiguous,codex_visual_direct,2026-07-22T20:51:22+09:00
+Bb05ab6ddeddb,,,no person visible,ambiguous,codex_visual_direct,2026-07-22T20:51:22+09:00
+B43818cb509eb,,,person absent throughout,ambiguous,codex_visual_direct,2026-07-22T20:51:22+09:00
+Be9346ad02984,,,empty study area prevents state assignment,ambiguous,codex_visual_direct,2026-07-22T20:51:22+09:00
+Bd2cd77e46a84,,,unattended open book and no person present,ambiguous,codex_visual_direct,2026-07-22T20:51:22+09:00
+B92b5c6bf97c4,unknown,high,lens obstruction makes person and behavior unobservable,accepted,codex_visual_direct,2026-07-22T20:51:22+09:00
+Bca0da7bb3e2f,unknown,high,dark obstructed frames contain no usable cues,accepted,codex_visual_direct,2026-07-22T20:51:22+09:00
+B4a1ead4ed460,unknown,high,camera view is fully obscured,accepted,codex_visual_direct,2026-07-22T20:51:22+09:00
+Bd5beec3b4242,unknown,high,near black frames prevent state judgment,accepted,codex_visual_direct,2026-07-22T20:51:22+09:00
+B897141fd2930,unknown,high,person and gaze are not visible,accepted,codex_visual_direct,2026-07-22T20:51:22+09:00
+B7cf4e5561691,unknown,high,camera obstruction prevents observation,accepted,codex_visual_direct,2026-07-22T20:51:22+09:00
+Bd2962b16cdca,unknown,high,dark lens view contains no behavioral evidence,accepted,codex_visual_direct,2026-07-22T20:51:22+09:00
+B3abe2d29ab08,unknown,high,scene remains unobservable,accepted,codex_visual_direct,2026-07-22T20:51:22+09:00
+Bbf3714adbf63,unknown,high,near black frames obscure all state cues,accepted,codex_visual_direct,2026-07-22T20:51:22+09:00
+B1d96e0573611,unknown,high,person cannot be seen due to camera obstruction,accepted,codex_visual_direct,2026-07-22T20:51:22+09:00
+B837e8611b535,unknown,high,dark obstructed scene prevents reliable judgment,accepted,codex_visual_direct,2026-07-22T20:51:22+09:00
+B96298e0928b1,unknown,high,camera is obstructed and scene cannot be observed,accepted,codex_visual_direct,2026-07-22T20:52:20+09:00
+Becfe7a43f9f7,unknown,high,dark lens view prevents state judgment,accepted,codex_visual_direct,2026-07-22T20:52:20+09:00
+Bbe5c0472e6bd,unknown,high,person and behavior are fully obscured,accepted,codex_visual_direct,2026-07-22T20:52:20+09:00
+Bebe350ce09cb,unknown,high,near black frames contain no usable state cues,accepted,codex_visual_direct,2026-07-22T20:52:20+09:00
+B9a3d76579ec7,unknown,high,camera obstruction prevents reliable observation,accepted,codex_visual_direct,2026-07-22T20:52:20+09:00
+Ba26a8d7667b7,unknown,high,scene remains dark and unobservable,accepted,codex_visual_direct,2026-07-22T20:52:20+09:00
+B025115d6b980,unknown,high,person and gaze cannot be seen,accepted,codex_visual_direct,2026-07-22T20:52:20+09:00
+B9a45c0ed6012,unknown,high,obstructed dark view has no behavioral evidence,accepted,codex_visual_direct,2026-07-22T20:52:20+09:00
+B98b88ef5562f,unknown,high,near black frames prevent state assignment,accepted,codex_visual_direct,2026-07-22T20:52:20+09:00
+B0e6df4ece148,unknown,high,camera is covered and person is not visible,accepted,codex_visual_direct,2026-07-22T20:52:20+09:00
+B8c83e1a04e14,unknown,high,dark obstructed scene prevents observation,accepted,codex_visual_direct,2026-07-22T20:52:20+09:00
+B00d73b7c9a92,unknown,high,person and gaze are fully obscured,accepted,codex_visual_direct,2026-07-22T20:52:20+09:00
+B2a24d967c07a,unknown,high,near black frames contain no reliable cues,accepted,codex_visual_direct,2026-07-22T20:52:20+09:00
+B9613aa6aee17,unknown,high,camera obstruction prevents behavior judgment,accepted,codex_visual_direct,2026-07-22T20:52:20+09:00
+Bed12510f6767,unknown,high,scene is too dark and obstructed,accepted,codex_visual_direct,2026-07-22T20:52:20+09:00
+Bf1153e89ccce,unknown,high,person cannot be observed through covered lens,accepted,codex_visual_direct,2026-07-22T20:52:20+09:00
+B04879fb55140,unknown,high,dark lens view prevents reliable state detection,accepted,codex_visual_direct,2026-07-22T20:52:20+09:00
+B3b695f4a5d75,unknown,high,scene remains completely unobservable,accepted,codex_visual_direct,2026-07-22T20:52:20+09:00
+Bf3a55c8f5671,unknown,high,camera obstruction obscures all behavior,accepted,codex_visual_direct,2026-07-22T20:52:20+09:00
+B41b440c096cf,focus,high,open book is read and handled across frames,accepted,codex_visual_direct,2026-07-22T20:52:20+09:00
+B27baca660dc1,focus,high,open book reading and page handling continue,accepted,codex_visual_direct,2026-07-22T20:53:18+09:00
+Bbe7750ad7788,focus,high,continuous task directed book work,accepted,codex_visual_direct,2026-07-22T20:53:18+09:00
+B5cd5c443a3e7,focus,high,book reading and hand tracking remain active,accepted,codex_visual_direct,2026-07-22T20:53:18+09:00
+B32cfcb85603e,focus,high,sustained attentive reading posture,accepted,codex_visual_direct,2026-07-22T20:53:18+09:00
+B3f06516f89b2,focus,high,open book study continues throughout,accepted,codex_visual_direct,2026-07-22T20:53:18+09:00
+B6950eb240447,focus,high,reading remains directed at open book,accepted,codex_visual_direct,2026-07-22T20:53:18+09:00
+B53dce93c1224,focus,high,continuous book study and page handling,accepted,codex_visual_direct,2026-07-22T20:53:18+09:00
+Baf53fb57c486,focus,high,steady reading with hand on book,accepted,codex_visual_direct,2026-07-22T20:53:18+09:00
+Be51196803770,focus,high,task directed book reading throughout,accepted,codex_visual_direct,2026-07-22T20:53:18+09:00
+B019b84ce925f,focus,high,open book remains the sustained study target,accepted,codex_visual_direct,2026-07-22T20:53:18+09:00
+Bc5c28df6dcfd,focus,high,active book reading with page movement,accepted,codex_visual_direct,2026-07-22T20:53:18+09:00
+Bb6fca93f1c60,focus,high,steady study posture over open book,accepted,codex_visual_direct,2026-07-22T20:53:18+09:00
+Bf2b093b34fd5,focus,medium,book reading continues with brief ear touch,accepted,codex_visual_direct,2026-07-22T20:53:18+09:00
+B865febd73fd0,focus,high,continuous attentive book study,accepted,codex_visual_direct,2026-07-22T20:53:18+09:00
+B26dadc089e6e,focus,high,open book reading persists across frames,accepted,codex_visual_direct,2026-07-22T20:53:18+09:00
+B6630b192d77b,focus,high,task directed reading and page handling,accepted,codex_visual_direct,2026-07-22T20:53:18+09:00
+Ba082d6cdb22a,focus,high,steady open book study,accepted,codex_visual_direct,2026-07-22T20:53:18+09:00
+B31b763b18bba,focus,high,book pages are actively handled while reading,accepted,codex_visual_direct,2026-07-22T20:53:18+09:00
+B841b6b7d3924,focus,medium,book study remains dominant with brief upward look,accepted,codex_visual_direct,2026-07-22T20:53:18+09:00
+B14214e50128f,focus,medium,reading continues despite brief face touch and head movement,accepted,codex_visual_direct,2026-07-22T20:53:18+09:00
+B68c2651dd7ae,focus,medium,study book is repeatedly opened closed and handled,accepted,codex_visual_direct,2026-07-22T20:54:22+09:00
+B804d9be97660,focus,medium,book handling and reading activity remain task directed,accepted,codex_visual_direct,2026-07-22T20:54:22+09:00
+B865ad970b004,focus,medium,open and closed book transitions show continued study setup,accepted,codex_visual_direct,2026-07-22T20:54:22+09:00
+B014284ec7a27,focus,medium,hands remain engaged with study book,accepted,codex_visual_direct,2026-07-22T20:54:22+09:00
+B81ee20ce8f89,focus,medium,book handling continues despite brief body turn,accepted,codex_visual_direct,2026-07-22T20:54:22+09:00
+B1a47b5425492,,,person enters midway after an initially empty scene,ambiguous,codex_visual_direct,2026-07-22T20:54:22+09:00
+Be8ce74e754ef,,,mostly empty scene with a brief pass through frame,ambiguous,codex_visual_direct,2026-07-22T20:54:22+09:00
+Bad4c594c69a0,,,empty interval interrupted by brief close camera movement,ambiguous,codex_visual_direct,2026-07-22T20:54:22+09:00
+B7962224fc887,,,person absent with closed study material,ambiguous,codex_visual_direct,2026-07-22T20:54:22+09:00
+B3b5830947950,,,empty study area and no person visible,ambiguous,codex_visual_direct,2026-07-22T20:54:22+09:00
+B5d5042cfe9de,,,person absent from all sampled frames,ambiguous,codex_visual_direct,2026-07-22T20:54:22+09:00
+B75907b23e590,,,unattended closed book with no person present,ambiguous,codex_visual_direct,2026-07-22T20:54:22+09:00
+B05d056d777e2,,,empty scene prevents person state assignment,ambiguous,codex_visual_direct,2026-07-22T20:54:22+09:00
+B6f3106ef8f9a,,,no person visible in the interval,ambiguous,codex_visual_direct,2026-07-22T20:54:22+09:00
+B2451f29ac09c,,,mostly empty scene with a brief partial entry,ambiguous,codex_visual_direct,2026-07-22T20:54:22+09:00
+B0555c2c0b141,,,camera close pass and person entry form a transition interval,ambiguous,codex_visual_direct,2026-07-22T20:54:22+09:00
+B31cb5a6ceefa,,,mixed entry and material movement without stable state,ambiguous,codex_visual_direct,2026-07-22T20:54:22+09:00
+B66c650336426,unknown,high,camera is obstructed and scene is too dark,accepted,codex_visual_direct,2026-07-22T20:54:22+09:00
+B30a3b16f5885,unknown,high,near black frames prevent observation,accepted,codex_visual_direct,2026-07-22T20:54:22+09:00
+B67309d0cbf96,unknown,high,person and behavior are fully obscured,accepted,codex_visual_direct,2026-07-22T20:54:22+09:00
+Bd5eaa4f3849f,unknown,high,camera is obstructed and scene cannot be observed,accepted,codex_visual_direct,2026-07-22T20:55:21+09:00
+B627bf5765fdc,unknown,high,near black frames prevent state judgment,accepted,codex_visual_direct,2026-07-22T20:55:21+09:00
+Bfc5341bc5651,unknown,high,person and behavior are fully obscured,accepted,codex_visual_direct,2026-07-22T20:55:21+09:00
+Bfb793b4fecc1,unknown,high,dark lens view contains no reliable cues,accepted,codex_visual_direct,2026-07-22T20:55:21+09:00
+Bfd25b7b7a70a,unknown,high,camera obstruction prevents observation,accepted,codex_visual_direct,2026-07-22T20:55:21+09:00
+Bb726bab2fccc,unknown,high,scene remains too dark to identify state,accepted,codex_visual_direct,2026-07-22T20:55:21+09:00
+B9ad923faf896,unknown,high,person and gaze cannot be seen,accepted,codex_visual_direct,2026-07-22T20:55:21+09:00
+Bc11cc5cb344c,unknown,high,near black obstructed frames prevent judgment,accepted,codex_visual_direct,2026-07-22T20:55:21+09:00
+B717fb6fb455d,unknown,high,camera view is fully obscured,accepted,codex_visual_direct,2026-07-22T20:55:21+09:00
+Bca7ed33ea0d7,unknown,high,dark frames contain no behavioral evidence,accepted,codex_visual_direct,2026-07-22T20:55:21+09:00
+B44098786e7e3,unknown,high,person is not visible through obstruction,accepted,codex_visual_direct,2026-07-22T20:55:21+09:00
+B6c247186f35b,unknown,high,scene is unobservable due to darkness,accepted,codex_visual_direct,2026-07-22T20:55:21+09:00
+Bed9540f4c1cd,,,empty desk scene with no person visible,ambiguous,codex_visual_direct,2026-07-22T20:55:21+09:00
+B037c3764e526,,,person absent throughout the interval,ambiguous,codex_visual_direct,2026-07-22T20:55:21+09:00
+B71f8fe609f4e,,,empty study area prevents person state assignment,ambiguous,codex_visual_direct,2026-07-22T20:55:21+09:00
+B90f1a06bb577,,,no person visible in sampled frames,ambiguous,codex_visual_direct,2026-07-22T20:55:21+09:00
+Bc3f1a999795b,,,person remains absent,ambiguous,codex_visual_direct,2026-07-22T20:55:21+09:00
+Bf5a5bcb4e1c9,,,empty scene has no behavioral evidence,ambiguous,codex_visual_direct,2026-07-22T20:55:21+09:00
+Be6c00e4791ad,,,person absent from all frames,ambiguous,codex_visual_direct,2026-07-22T20:55:21+09:00
+Bf8b86af883a3,,,empty study area throughout,ambiguous,codex_visual_direct,2026-07-22T20:55:21+09:00
+Bb5bc7466a3e7,,,empty desk scene with no person visible,ambiguous,codex_visual_direct,2026-07-22T20:56:16+09:00
+B072bada974de,,,person absent throughout,ambiguous,codex_visual_direct,2026-07-22T20:56:16+09:00
+B452b0ceb50db,,,empty study area prevents state assignment,ambiguous,codex_visual_direct,2026-07-22T20:56:16+09:00
+Bb4cdcd5ff11c,,,no person visible in sampled frames,ambiguous,codex_visual_direct,2026-07-22T20:56:16+09:00
+Bc073fa5e8aa4,,,person absent from all frames,ambiguous,codex_visual_direct,2026-07-22T20:56:16+09:00
+Bbbabadb91e77,,,empty scene contains no behavioral evidence,ambiguous,codex_visual_direct,2026-07-22T20:56:16+09:00
+Beae37c9c25d3,,,no person present,ambiguous,codex_visual_direct,2026-07-22T20:56:16+09:00
+Be42ac786db31,,,person remains absent throughout,ambiguous,codex_visual_direct,2026-07-22T20:56:16+09:00
+Bf38c3abe477e,,,empty study area with no observable state,ambiguous,codex_visual_direct,2026-07-22T20:56:16+09:00
+Bf15170bf6fb4,,,no person visible,ambiguous,codex_visual_direct,2026-07-22T20:56:16+09:00
+B4a566463514c,,,person absent from all sampled frames,ambiguous,codex_visual_direct,2026-07-22T20:56:16+09:00
+Bc3286797015c,,,empty desk scene prevents person state assignment,ambiguous,codex_visual_direct,2026-07-22T20:56:16+09:00
+Bcc4769e64ae1,,,no behavioral evidence because person is absent,ambiguous,codex_visual_direct,2026-07-22T20:56:16+09:00
+Bd9e3a823f57f,,,person not visible throughout interval,ambiguous,codex_visual_direct,2026-07-22T20:56:16+09:00
+B94fe166e83ef,,,empty study area,ambiguous,codex_visual_direct,2026-07-22T20:56:16+09:00
+B319bcfe653aa,,,person absent from all frames,ambiguous,codex_visual_direct,2026-07-22T20:56:16+09:00
+Be54042519f06,,,empty scene with no person visible,ambiguous,codex_visual_direct,2026-07-22T20:56:16+09:00
+B06cbb620f379,,,person remains absent,ambiguous,codex_visual_direct,2026-07-22T20:56:16+09:00
+B3b68802030bd,,,no person appears in sampled frames,ambiguous,codex_visual_direct,2026-07-22T20:56:16+09:00
+B6ffb61f159dc,,,empty desk scene cannot yield a state,ambiguous,codex_visual_direct,2026-07-22T20:56:16+09:00
+B636d68399c19,,,empty desk scene with no person visible,ambiguous,codex_visual_direct,2026-07-22T20:57:20+09:00
+Bcccc0986e73d,,,person enters late and only begins writing at the end,ambiguous,codex_visual_direct,2026-07-22T20:57:20+09:00
+B84c460af0eba,focus,high,continuous worksheet reading and writing,accepted,codex_visual_direct,2026-07-22T20:57:20+09:00
+Bababe7127fe5,focus,high,active writing and page handling throughout,accepted,codex_visual_direct,2026-07-22T20:57:20+09:00
+Beac1d2795264,focus,high,steady task directed writing,accepted,codex_visual_direct,2026-07-22T20:57:20+09:00
+B3d286267b538,focus,high,worksheet reading and hand tracking continue,accepted,codex_visual_direct,2026-07-22T20:57:20+09:00
+B23c34720d1c8,focus,high,continuous book work and writing,accepted,codex_visual_direct,2026-07-22T20:57:20+09:00
+Bf63b1ae242e5,focus,high,head down while actively reading,accepted,codex_visual_direct,2026-07-22T20:57:20+09:00
+Bb298814099d3,focus,high,reading transitions into active writing,accepted,codex_visual_direct,2026-07-22T20:57:20+09:00
+B1e5f4eb2e2ce,,,mostly empty scene with study beginning only near the end,ambiguous,codex_visual_direct,2026-07-22T20:57:20+09:00
+B3060f12d99a8,focus,high,continuous task directed writing,accepted,codex_visual_direct,2026-07-22T20:57:20+09:00
+B207b2feaa36f,focus,high,steady writing across frames,accepted,codex_visual_direct,2026-07-22T20:57:20+09:00
+Ba9b778347e03,focus,high,active worksheet writing continues,accepted,codex_visual_direct,2026-07-22T20:57:20+09:00
+B364ec0af27be,focus,high,head down over continuous writing,accepted,codex_visual_direct,2026-07-22T20:57:20+09:00
+B6a57d5db026e,focus,high,continuous task directed writing,accepted,codex_visual_direct,2026-07-22T20:57:20+09:00
+B11cfccb7750f,focus,high,book handling and writing remain task directed,accepted,codex_visual_direct,2026-07-22T20:57:20+09:00
+B9c7316197915,focus,medium,reading continues with a slight side head angle,accepted,codex_visual_direct,2026-07-22T20:57:20+09:00
+B50d09795b7cb,focus,high,continuous book reading and writing,accepted,codex_visual_direct,2026-07-22T20:57:20+09:00
+Bf7624958fab3,focus,high,steady task directed writing,accepted,codex_visual_direct,2026-07-22T20:57:20+09:00
+B73b72e181c96,focus,high,open book reading remains sustained,accepted,codex_visual_direct,2026-07-22T20:57:20+09:00
+Bc61eec2c9f81,focus,high,continuous open book reading,accepted,codex_visual_direct,2026-07-22T20:58:27+09:00
+B4057655cb575,focus,high,book reading and writing remain task directed,accepted,codex_visual_direct,2026-07-22T20:58:27+09:00
+B4e974bfbb90e,focus,high,steady writing in open book,accepted,codex_visual_direct,2026-07-22T20:58:27+09:00
+B57749d000345,focus,high,active page handling and writing,accepted,codex_visual_direct,2026-07-22T20:58:27+09:00
+B8370e8d9d2f8,focus,high,continuous task directed reading and writing,accepted,codex_visual_direct,2026-07-22T20:58:27+09:00
+Bc48c472c015e,focus,high,head remains directed at open book,accepted,codex_visual_direct,2026-07-22T20:58:27+09:00
+B2241ca37cc21,focus,medium,book reading continues with brief head lift,accepted,codex_visual_direct,2026-07-22T20:58:27+09:00
+B7944329fa6f8,focus,high,continuous writing and reading,accepted,codex_visual_direct,2026-07-22T20:58:27+09:00
+Bc62c788f3e6a,focus,high,head down over sustained book study,accepted,codex_visual_direct,2026-07-22T20:58:27+09:00
+B8913701a4041,focus,high,active writing remains task directed,accepted,codex_visual_direct,2026-07-22T20:58:27+09:00
+B4ef5322d68a0,focus,medium,book reading continues with brief hair touch,accepted,codex_visual_direct,2026-07-22T20:58:27+09:00
+B6affd49597e2,,,person absent from all sampled frames,ambiguous,codex_visual_direct,2026-07-22T20:58:27+09:00
+Bad0762c27d84,,,empty study area with unattended book,ambiguous,codex_visual_direct,2026-07-22T20:58:27+09:00
+B06dab825f8cc,,,no person visible,ambiguous,codex_visual_direct,2026-07-22T20:58:27+09:00
+Bc83829079050,,,person absent throughout,ambiguous,codex_visual_direct,2026-07-22T20:58:27+09:00
+B3ad79c3825c9,,,empty scene prevents person state assignment,ambiguous,codex_visual_direct,2026-07-22T20:58:27+09:00
+Bc7bbaced7658,,,unattended open book and no person present,ambiguous,codex_visual_direct,2026-07-22T20:58:27+09:00
+Bbeb8d47e0b9d,,,person remains absent,ambiguous,codex_visual_direct,2026-07-22T20:58:27+09:00
+B04ff3420a7a3,,,empty study area contains no behavioral evidence,ambiguous,codex_visual_direct,2026-07-22T20:58:27+09:00
+Bb3ea09da4b14,,,no person appears in sampled frames,ambiguous,codex_visual_direct,2026-07-22T20:58:27+09:00
+B440e2b13375a,,,person absent from all sampled frames,ambiguous,codex_visual_direct,2026-07-22T20:59:30+09:00
+Be59b64b92b1f,,,empty study area with unattended book,ambiguous,codex_visual_direct,2026-07-22T20:59:30+09:00
+B3065d959478c,,,no person visible,ambiguous,codex_visual_direct,2026-07-22T20:59:30+09:00
+B4870cbe4c069,,,person absent throughout,ambiguous,codex_visual_direct,2026-07-22T20:59:30+09:00
+B3e0543ff299d,,,empty scene prevents person state assignment,ambiguous,codex_visual_direct,2026-07-22T20:59:30+09:00
+Be0e9c5af29d8,,,unattended open book and no person present,ambiguous,codex_visual_direct,2026-07-22T20:59:30+09:00
+Bceabc5410c1b,,,no person appears in sampled frames,ambiguous,codex_visual_direct,2026-07-22T20:59:30+09:00
+B81f98be7f1da,,,person remains absent,ambiguous,codex_visual_direct,2026-07-22T20:59:30+09:00
+B3724acb63fec,,,empty study area contains no behavioral evidence,ambiguous,codex_visual_direct,2026-07-22T20:59:30+09:00
+B734f0abe7d55,,,no person visible,ambiguous,codex_visual_direct,2026-07-22T20:59:30+09:00
+B7e256a36ea5c,,,person absent from all frames,ambiguous,codex_visual_direct,2026-07-22T20:59:30+09:00
+B009a9ac8041f,,,empty scene prevents state judgment,ambiguous,codex_visual_direct,2026-07-22T20:59:30+09:00
+Be9a5bd89f913,,,unattended book with no visible person,ambiguous,codex_visual_direct,2026-07-22T20:59:30+09:00
+B30b49332fce5,,,person absent throughout,ambiguous,codex_visual_direct,2026-07-22T20:59:30+09:00
+B59439ec4b2aa,,,empty study area,ambiguous,codex_visual_direct,2026-07-22T20:59:30+09:00
+B901d3971681f,,,no person visible in sampled frames,ambiguous,codex_visual_direct,2026-07-22T20:59:30+09:00
+B42d41e15a039,,,person absent from the entire interval,ambiguous,codex_visual_direct,2026-07-22T20:59:30+09:00
+B900b45b8feba,focus,high,sustained open book reading,accepted,codex_visual_direct,2026-07-22T20:59:30+09:00
+B2cd752476a97,focus,high,continuous book reading and page handling,accepted,codex_visual_direct,2026-07-22T20:59:30+09:00
+Baa9fc2bb117a,focus,medium,book study dominates before a brief side turn,accepted,codex_visual_direct,2026-07-22T20:59:30+09:00
+Bffee9d076d50,focus,medium,book reading continues after a brief side glance,accepted,codex_visual_direct,2026-07-22T21:00:17+09:00
+B27d283aa2f29,focus,high,sustained open book reading,accepted,codex_visual_direct,2026-07-22T21:00:17+09:00
+B4faf7e8b0752,focus,high,continuous reading and page handling,accepted,codex_visual_direct,2026-07-22T21:00:17+09:00
+B9e2276589f19,focus,high,active book study throughout,accepted,codex_visual_direct,2026-07-22T21:00:17+09:00
+B1152effdbf5f,focus,high,steady reading with hands on book,accepted,codex_visual_direct,2026-07-22T21:00:17+09:00
+Bb6b277e2f77e,focus,high,sustained book reading and page movement,accepted,codex_visual_direct,2026-07-22T21:00:17+09:00
+B12747cb99bd9,focus,high,continuous attentive reading,accepted,codex_visual_direct,2026-07-22T21:00:17+09:00
+Bf9a084b6b05f,focus,high,book study remains task directed,accepted,codex_visual_direct,2026-07-22T21:00:17+09:00
+Bec4c1f6f9489,focus,high,pages are handled while reading continues,accepted,codex_visual_direct,2026-07-22T21:00:17+09:00
+Bd4f869838d91,focus,high,continuous open book study,accepted,codex_visual_direct,2026-07-22T21:00:17+09:00
+B138fd1eb8119,focus,high,active page turning and reading,accepted,codex_visual_direct,2026-07-22T21:00:17+09:00
+B077af2f5cb82,focus,medium,book handling continues despite sideward face angle,accepted,codex_visual_direct,2026-07-22T21:00:17+09:00
+B2afb94b13fbc,focus,high,sustained reading and page turning,accepted,codex_visual_direct,2026-07-22T21:00:17+09:00
+B0d68604fa75d,focus,high,continuous task directed book study,accepted,codex_visual_direct,2026-07-22T21:00:17+09:00
+Beddf4f1442f6,focus,medium,reading remains dominant with brief side glance,accepted,codex_visual_direct,2026-07-22T21:00:17+09:00
