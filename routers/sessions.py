@@ -7,6 +7,8 @@ import json
 import models, schemas
 from database import get_db
 from time_utils import as_local_naive_datetime, calculate_duration_sec, normalize_session_end_time
+# Adjust this import path depending on where your analyze.py is located!
+from ai.focus_ai.analyze import _finalize_analysis_result, _create_events_from_states
 
 # 라우터 설정
 router = APIRouter(
@@ -66,26 +68,135 @@ def update_session(session_id: int, session_data: schemas.SessionUpdate, db: Ses
 
 @router.post("/{session_id}/timeline", status_code=status.HTTP_201_CREATED)
 def save_session_timeline(session_id: str, payload: dict, db: Session = Depends(get_db)):
-    """세션 종료 후 브라우저에서 분석된 타임라인 데이터를 일괄 저장합니다."""
-    
     timeline_data = payload.get("timeline", [])
     if not timeline_data:
         return {"message": "저장할 타임라인 데이터가 없습니다."}
+
+    duration_sec = len(timeline_data)
+    states = [item.get("state", "focus") for item in timeline_data]
+    events = _create_events_from_states(states)
+
+    def count_state(target_state):
+        return sum(1 for s in states if s == target_state)
+        
+    def count_events(target_type):
+        return sum(1 for e in events if e["type"] == target_type)
+
+    absent_sec = count_state("absent")
+    away_sec = count_state("gaze_side")
+    bad_posture_sec = count_state("bad_posture")
+
+    # Give the focus_score.py file EXACTLY the data it requires to run the penalties
+    raw_result = {
+        "session_id": session_id,
+        "status": "success",
+        "meta": {
+            "duration_sec": duration_sec,
+            "camera_type": "edge_web",
+            "version": "ai-edge-1.0",
+            "processing_time_sec": 0
+        },
+        "summary": {
+            # Total Times
+            "focus_total_sec": count_state("focus"),
+            "bad_posture_total_sec": bad_posture_sec,
+            "gaze_side_total_sec": count_state("gaze_side"),
+            "gaze_down_total_sec": count_state("gaze_down"),
+            "away_total_sec": away_sec,
+            "drowsy_total_sec": count_state("drowsy"),
+            "absent_total_sec": absent_sec,
+            "unknown_total_sec": count_state("unknown"),
+            "present_total_sec": duration_sec - absent_sec,
+            
+            # Event Counts (Crucial for Focus Score calculation)
+            "bad_posture_count": count_events("bad_posture"),
+            "gaze_side_count": count_events("gaze_side"),
+            "gaze_down_count": count_events("gaze_down"),
+            "away_count": count_events("gaze_side"),
+            "drowsy_count": count_events("drowsy"),
+            "absent_count": count_events("absent"),
+            "unknown_count": count_events("unknown")
+        },
+        "timeline": timeline_data,
+        "events": events
+    }
+
+    finalized = _finalize_analysis_result(raw_result)
+    final_summary = finalized.get("summary", {})
+    feedback_dict = finalized.get("feedback", {})
     
-    # Extract the array and map it to the AnalysisTimeline database model
-    db_records = [
-        models.AnalysisTimeline(
-            session_id=session_id,
-            t=item["t"],
-            state=item["state"]
-        ) for item in timeline_data
+    # Store the true Focus Score (0-100) as a decimal in the focus_ratio column 
+    # so we don't have to rewrite the database schema!
+    real_focus_score = final_summary.get("focus_score", 0)
+    hybrid_focus_ratio = real_focus_score / 100.0
+    
+    # 4. Save to Database using SQLAlchemy
+    # Delete old records first to prevent duplicates
+    db.query(models.AnalysisTimeline).filter(models.AnalysisTimeline.session_id == session_id).delete()
+    db.query(models.AnalysisEvent).filter(models.AnalysisEvent.session_id == session_id).delete()
+    db.query(models.AnalysisSummary).filter(models.AnalysisSummary.session_id == session_id).delete()
+
+    # Insert Timeline
+    timeline_records = [
+        models.AnalysisTimeline(session_id=session_id, t=item["t"], state=item["state"])
+        for item in timeline_data
     ]
-    
-    # Bulk save to the database for high performance
-    db.add_all(db_records)
+    db.add_all(timeline_records)
+
+    # Insert Events
+    event_records = [
+        models.AnalysisEvent(
+            session_id=session_id,
+            event_type=e["type"],
+            start_sec=e["start_sec"],
+            end_sec=e["end_sec"],
+            score=e["score"]
+        )
+        for e in events
+    ]
+    db.add_all(event_records)
+
+    # Insert Summary
+    summary_record = models.AnalysisSummary(
+        session_id=session_id,
+        focus_ratio=hybrid_focus_ratio, # Adjusted metric
+        absent_count=final_summary.get("absent_count", 0),
+        absent_total_sec=final_summary.get("absent_total_sec", 0),
+        away_count=final_summary.get("away_count", 0),
+        away_total_sec=final_summary.get("away_total_sec", 0),
+        bad_posture_ratio=final_summary.get("bad_posture_ratio", 0),
+        processing_time_sec=0,
+        camera_type="edge_web",
+        version="ai-edge-1.0"
+    )
+    db.add(summary_record)
+
+    # Insert Feedback (Format dict to string exactly like analyze.py)
+    feedback_text = "\n".join(
+        str(feedback_dict.get(key)).strip()
+        for key in ("summary_text", "weak_point", "recommendation")
+        if feedback_dict.get(key)
+    )
+
+    existing_feedback = db.query(models.AnalysisFeedback).filter(models.AnalysisFeedback.session_id == session_id).first()
+    if existing_feedback:
+        existing_feedback.feedback_text = feedback_text
+        existing_feedback.personal_feedback = finalized.get("personal_feedback")
+        existing_feedback.feedback_source = finalized.get("feedback_source")
+        existing_feedback.feedback_version = finalized.get("feedback_version")
+    else:
+        new_feedback = models.AnalysisFeedback(
+            session_id=session_id,
+            feedback_text=feedback_text,
+            personal_feedback=finalized.get("personal_feedback"),
+            feedback_source=finalized.get("feedback_source"),
+            feedback_version=finalized.get("feedback_version")
+        )
+        db.add(new_feedback)
+
     db.commit()
-    
-    return {"message": f"{len(db_records)}개의 타임라인 데이터가 성공적으로 저장되었습니다."}
+
+    return {"message": "Edge AI analysis processed and saved successfully!"}
 
 @router.get("/user/{user_id}", response_model=List[schemas.SessionResponse])
 def get_user_sessions(user_id: int, db: Session = Depends(get_db)):

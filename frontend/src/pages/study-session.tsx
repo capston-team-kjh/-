@@ -14,6 +14,9 @@ export function StudySession() {
   
   // NEW: Array to hold the timeline data for the database
   const timelineRef = useRef<{t: number, state: string}[]>([]);
+  
+  // NEW: 10-second sliding window for temporal AI features (like drowsiness)
+  const temporalBufferRef = useRef<any[]>([]);
   const inferenceIntervalId = useRef<number | null>(null);
   
   // Refs for our video elements
@@ -28,9 +31,10 @@ export function StudySession() {
   const animationFrameId = useRef<number | null>(null);
   const lastInferenceTime = useRef<number>(0);
 
-  // NEW: MediaPipe Model Refs
-  const faceLandmarkerRef = useRef<FaceLandmarker | null>(null);
-  const poseLandmarkerRef = useRef<PoseLandmarker | null>(null);
+  const frontFaceRef = useRef<FaceLandmarker | null>(null);
+  const frontPoseRef = useRef<PoseLandmarker | null>(null);
+  const deskFaceRef = useRef<FaceLandmarker | null>(null);
+  const deskPoseRef = useRef<PoseLandmarker | null>(null);
   const [modelsLoaded, setModelsLoaded] = useState(false);
 
   // NEW: ONNX Model Ref
@@ -44,38 +48,41 @@ export function StudySession() {
           "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm"
         );
 
-        faceLandmarkerRef.current = await FaceLandmarker.createFromOptions(vision, {
+        const faceOptions = {
           baseOptions: {
-            modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
-            delegate: "GPU",
+            modelAssetPath: "/face_landmarker.task", // Full Local Face Model
+            delegate: "GPU" as const,
           },
           outputFacialTransformationMatrixes: true,
-          runningMode: "VIDEO",
+          runningMode: "VIDEO" as const,
           numFaces: 1,
-        });
+        };
 
-        poseLandmarkerRef.current = await PoseLandmarker.createFromOptions(vision, {
+        const poseOptions = {
           baseOptions: {
-            modelAssetPath: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task",
-            delegate: "GPU",
+            modelAssetPath: "/pose_landmarker.task", // Full Local Pose Model
+            delegate: "GPU" as const,
           },
-          runningMode: "VIDEO",
+          runningMode: "VIDEO" as const,
           numPoses: 1,
-        });
-        // Load the ONNX model from your public folder
-        // Make sure your focus_classifier.onnx is inside the public/ directory!
+        };
+
+        frontFaceRef.current = await FaceLandmarker.createFromOptions(vision, faceOptions);
+        deskFaceRef.current = await FaceLandmarker.createFromOptions(vision, faceOptions);
+        frontPoseRef.current = await PoseLandmarker.createFromOptions(vision, poseOptions);
+        deskPoseRef.current = await PoseLandmarker.createFromOptions(vision, poseOptions);
+
+        ort.env.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/";
         onnxSessionRef.current = await ort.InferenceSession.create("/focus_classifier.onnx", {
           executionProviders: ["wasm"], 
         });
 
         setModelsLoaded(true);
-        console.log("MediaPipe and ONNX Models Loaded!");
+        console.log("All 4 MediaPipe Models and ONNX Loaded!");
       } catch (error) {
         console.error("Failed to load models:", error);
       }
     };
-
-    
 
     initModels();
   }, []);
@@ -100,46 +107,42 @@ export function StudySession() {
   };
 
   const runInference = async () => {
-    // 1. IMMEDIATELY schedule the next frame at the very top!
-    // This ensures that even if we hit a 'return' statement below, the loop never dies.
     animationFrameId.current = requestAnimationFrame(runInference);
 
     if (!faceVideoRef.current || !deskVideoRef.current) return;
-    if (!faceLandmarkerRef.current || !poseLandmarkerRef.current) return;
     if (!faceCanvasRef.current || !deskCanvasRef.current) return;
 
     const faceVideo = faceVideoRef.current;
     const deskVideo = deskVideoRef.current;
 
-    // 2. NEW: Wait until the webcams actually have pixel data
-    // readyState >= 2 means 'HAVE_CURRENT_DATA'
     if (faceVideo.readyState < 2 || deskVideo.readyState < 2) return;
 
-    // 3. Wrap the AI execution in a try-catch so internal MediaPipe errors don't crash React
+    // Use the 4 new independent models!
+    if (!frontFaceRef.current || !frontPoseRef.current || !deskFaceRef.current || !deskPoseRef.current) return;
+
     try {
       const nowMs = performance.now();
       const faceCanvas = faceCanvasRef.current;
       const deskCanvas = deskCanvasRef.current;
 
-      // Sync canvas internal resolution with the video resolution
       if (faceVideo.videoWidth > 0) {
-        faceCanvas.width = faceVideo.videoWidth;
-        faceCanvas.height = faceVideo.videoHeight;
-        deskCanvas.width = deskVideo.videoWidth;
-        deskCanvas.height = deskVideo.videoHeight;
+        faceCanvas.width = faceVideo.videoWidth; faceCanvas.height = faceVideo.videoHeight;
+        deskCanvas.width = deskVideo.videoWidth; deskCanvas.height = deskVideo.videoHeight;
       }
 
-      // Run MediaPipe Perception
-      const faceResult = faceLandmarkerRef.current.detectForVideo(faceVideo, nowMs);
-      const poseResult = poseLandmarkerRef.current.detectForVideo(deskVideo, nowMs);
+      // 1. Run all 4 independent trackers
+      const frontFaceRes = frontFaceRef.current.detectForVideo(faceVideo, nowMs);
+      const frontPoseRes = frontPoseRef.current.detectForVideo(faceVideo, nowMs);
+      const deskFaceRes = deskFaceRef.current.detectForVideo(deskVideo, nowMs);
+      const deskPoseRes = deskPoseRef.current.detectForVideo(deskVideo, nowMs);
 
-      // Draw Face Landmarks (Cyan)
+      // 2. Draw Face Landmarks (Cyan) using the Front Camera data
       const faceCtx = faceCanvas.getContext("2d");
       if (faceCtx) {
         faceCtx.clearRect(0, 0, faceCanvas.width, faceCanvas.height);
-        if (faceResult.faceLandmarks && faceResult.faceLandmarks.length > 0) {
+        if (frontFaceRes.faceLandmarks && frontFaceRes.faceLandmarks.length > 0) {
           faceCtx.fillStyle = "#38bdf8";
-          const lm = faceResult.faceLandmarks[0];
+          const lm = frontFaceRes.faceLandmarks[0];
           for (let i = 0; i < lm.length; i += 5) {
             faceCtx.beginPath();
             faceCtx.arc(lm[i].x * faceCanvas.width, lm[i].y * faceCanvas.height, 1.2, 0, Math.PI * 2);
@@ -148,12 +151,12 @@ export function StudySession() {
         }
       }
 
-      // Draw Posture Landmarks (Yellow wrists)
+      // 3. Draw Posture Landmarks (Yellow wrists) using the Desk Camera data
       const deskCtx = deskCanvas.getContext("2d");
       if (deskCtx) {
         deskCtx.clearRect(0, 0, deskCanvas.width, deskCanvas.height);
-        if (poseResult.landmarks && poseResult.landmarks.length > 0) {
-          const lm = poseResult.landmarks[0];
+        if (deskPoseRes.landmarks && deskPoseRes.landmarks.length > 0) {
+          const lm = deskPoseRes.landmarks[0];
           deskCtx.strokeStyle = "#facc15";
           deskCtx.lineWidth = 2;
           
@@ -170,55 +173,147 @@ export function StudySession() {
       // Throttled Database & ONNX Logic (1 FPS)
       if (nowMs - lastInferenceTime.current >= 1000) {
         lastInferenceTime.current = nowMs;
-        
-        let predictedState = "focus"; 
+        let predictedState = "focus";
 
         if (onnxSessionRef.current) {
             const features = new Float32Array(16);
-            
-            // 1 & 2: Camera Flags (Assuming both are active)
-            features[0] = 1.0; 
-            features[1] = 1.0; 
+            features[0] = 1.0; features[1] = 1.0; 
             
             let face_seen = 0, gaze_side = 0, gaze_down = 0, bad_posture = 0;
             let eye_closed = 0, blink = 0, long_eye_closure = 0, head_down = 0, head_tilt = 0, drowsy = 0;
+            let page_turn = 0, pen_fidget = 0, restless_hand = 0;
+
+            // =====================================
+            // FALLBACK ROUTING ENGINE
+            // =====================================
+            // Prefer Front Cam for Face, fallback to Desk Cam (e.g. sleeping on desk)
+            const bestFaceLm = (frontFaceRes.faceLandmarks && frontFaceRes.faceLandmarks.length > 0) 
+                ? frontFaceRes.faceLandmarks[0] 
+                : ((deskFaceRes.faceLandmarks && deskFaceRes.faceLandmarks.length > 0) ? deskFaceRes.faceLandmarks[0] : null);
+
+            // Prefer Front Cam for Shoulders (Posture), fallback to Desk
+            const bestShoulderLm = (frontPoseRes.landmarks && frontPoseRes.landmarks.length > 0)
+                ? frontPoseRes.landmarks[0]
+                : ((deskPoseRes.landmarks && deskPoseRes.landmarks.length > 0) ? deskPoseRes.landmarks[0] : null);
+
+            // Prefer Desk Cam for Wrists (Fidgeting), fallback to Front
+            const bestWristLm = (deskPoseRes.landmarks && deskPoseRes.landmarks.length > 0)
+                ? deskPoseRes.landmarks[0]
+                : ((frontPoseRes.landmarks && frontPoseRes.landmarks.length > 0) ? frontPoseRes.landmarks[0] : null);
+            // =====================================
             
             // --- FACE MATH ---
-            if (faceResult.faceLandmarks && faceResult.faceLandmarks.length > 0) {
+            if (bestFaceLm) {
                 face_seen = 1.0;
-                const lm = faceResult.faceLandmarks[0];
+                const getDist = (p1: number, p2: number) => Math.hypot(bestFaceLm[p1].x - bestFaceLm[p2].x, bestFaceLm[p1].y - bestFaceLm[p2].y);
                 
-                // Helper to calculate distance between two landmarks
-                const getDist = (p1: number, p2: number) => Math.hypot(lm[p1].x - lm[p2].x, lm[p1].y - lm[p2].y);
-                
-                // EAR (Eye Aspect Ratio) Calculation
                 const rightEar = (getDist(159, 145) + getDist(158, 153)) / (2.0 * getDist(33, 133) + 1e-6);
                 const leftEar = (getDist(386, 374) + getDist(385, 380)) / (2.0 * getDist(362, 263) + 1e-6);
-                const avgEar = (rightEar + leftEar) / 2.0;
                 
-                if (avgEar < 0.16) { 
-                    eye_closed = 1.0; 
-                    blink = 1.0; 
+                // Matches AnalyzeConfig: drowsy_ear_threshold = 0.16
+                if (((rightEar + leftEar) / 2.0) <= 0.16) { 
+                    eye_closed = 1.0; blink = 1.0; 
+                }
+
+                if (bestFaceLm.length > 473) {
+                    const getRatioX = (iris: number, c1: number, c2: number) => {
+                        const minX = Math.min(bestFaceLm[c1].x, bestFaceLm[c2].x);
+                        const maxX = Math.max(bestFaceLm[c1].x, bestFaceLm[c2].x);
+                        return (bestFaceLm[iris].x - minX) / (maxX - minX + 1e-6);
+                    };
+                    const getRatioY = (iris: number, c1: number, c2: number) => {
+                        const minY = Math.min(bestFaceLm[c1].y, bestFaceLm[c2].y);
+                        const maxY = Math.max(bestFaceLm[c1].y, bestFaceLm[c2].y);
+                        return (bestFaceLm[iris].y - minY) / (maxY - minY + 1e-6);
+                    };
+
+                    const avgX = (getRatioX(468, 33, 133) + getRatioX(473, 362, 263)) / 2.0;
+                    const avgY = (getRatioY(468, 159, 145) + getRatioY(473, 386, 374)) / 2.0;
+
+                    // Matches AnalyzeConfig: gaze_side_left_threshold = 0.35, gaze_side_right_threshold = 0.65
+                    if (avgX <= 0.35 || avgX >= 0.65) gaze_side = 1.0;
+                    // Matches AnalyzeConfig: gaze_down_threshold = 0.62
+                    if (avgY >= 0.62) gaze_down = 1.0;
                 }
                 
-                // Head Pitch (Down) Calculation
-                const nose = lm[1], chin = lm[152], leftEye = lm[33], rightEye = lm[263];
-                const eyeMidY = (leftEye.y + rightEye.y) / 2.0;
-                const faceHeight = chin.y - eyeMidY;
-                if (faceHeight > 1e-6) {
-                   const headDownRatio = (nose.y - eyeMidY) / faceHeight;
-                   if (headDownRatio > 0.72) head_down = 1.0;
-                }
+                const eyeMidY = (bestFaceLm[33].y + bestFaceLm[263].y) / 2.0;
+                const faceHeight = bestFaceLm[152].y - eyeMidY;
+                const eyeWidth = Math.abs(bestFaceLm[263].x - bestFaceLm[33].x);
+                
+                // Matches AnalyzeConfig: face_head_down_threshold = 0.72
+                if (faceHeight > 1e-6 && ((bestFaceLm[1].y - eyeMidY) / faceHeight >= 0.72)) head_down = 1.0;
+                // Matches AnalyzeConfig: drowsy_head_tilt_threshold = 0.12
+                if (eyeWidth > 1e-6 && (Math.abs(bestFaceLm[33].y - bestFaceLm[263].y) / eyeWidth >= 0.12)) head_tilt = 1.0;
             }
             
             // --- POSE MATH ---
-            if (poseResult.landmarks && poseResult.landmarks.length > 0) {
-                const pLm = poseResult.landmarks[0];
-                const leftShoulder = pLm[11], rightShoulder = pLm[12];
+            if (bestShoulderLm) {
+                const shoulderWidth = Math.abs(bestShoulderLm[12].x - bestShoulderLm[11].x);
+                const shoulderMidX = (bestShoulderLm[11].x + bestShoulderLm[12].x) / 2.0;
                 
-                // Bad Posture (Shoulder Slope) Calculation
-                const shoulderSlope = Math.abs(leftShoulder.y - rightShoulder.y);
-                if (shoulderSlope > 0.12) bad_posture = 1.0;
+                // Matches AnalyzeConfig: posture_shoulder_threshold = 0.12
+                if (Math.abs(bestShoulderLm[11].y - bestShoulderLm[12].y) >= 0.12) bad_posture = 1.0;
+                // Matches AnalyzeConfig: posture_tilt_threshold = 0.18
+                if (shoulderWidth > 1e-6 && Math.abs(bestShoulderLm[0].x - shoulderMidX) / shoulderWidth >= 0.18) bad_posture = 1.0;
+            }
+
+            // --- TEMPORAL MATH ---
+            temporalBufferRef.current.push({
+                eye_closed: eye_closed === 1.0,
+                rightWrist: bestWristLm && bestWristLm[16] ? { x: bestWristLm[16].x, y: bestWristLm[16].y } : null
+            });
+            if (temporalBufferRef.current.length > 10) temporalBufferRef.current.shift();
+
+            if (temporalBufferRef.current.length === 10) {
+                if (temporalBufferRef.current.every((frame: any) => frame.eye_closed)) long_eye_closure = 1.0;
+                
+                let totalPathLen = 0.0;
+                let validFrames = 0;
+                const xs: number[] = []; const ys: number[] = [];
+                const vectors: {x: number, y: number}[] = [];
+                
+                for (let i = 1; i < temporalBufferRef.current.length; i++) {
+                    const prev = temporalBufferRef.current[i-1].rightWrist;
+                    const curr = temporalBufferRef.current[i].rightWrist;
+                    if (prev && curr) {
+                        const dx = curr.x - prev.x;
+                        const dy = curr.y - prev.y;
+                        const mag = Math.hypot(dx, dy);
+                        
+                        totalPathLen += mag;
+                        xs.push(curr.x); ys.push(curr.y);
+                        
+                        // Exact python dot-product vector tracking for direction changes
+                        if (mag > 1e-6) vectors.push({ x: dx / mag, y: dy / mag });
+                        validFrames++;
+                    }
+                }
+
+                if (validFrames >= 7) {
+                    const first = temporalBufferRef.current[0].rightWrist || temporalBufferRef.current[1].rightWrist;
+                    const last = temporalBufferRef.current[9].rightWrist;
+                    const netDisp = Math.hypot(last.x - first.x, last.y - first.y);
+                    const xSpan = Math.max(...xs) - Math.min(...xs);
+                    const ySpan = Math.max(...ys) - Math.min(...ys);
+                    const bboxDiag = Math.hypot(xSpan, ySpan);
+                    
+                    let dirChanges = 0;
+                    for (let i = 1; i < vectors.length; i++) {
+                        const dot = (vectors[i-1].x * vectors[i].x) + (vectors[i-1].y * vectors[i].y);
+                        if (dot < 0.2) dirChanges++;
+                    }
+                    
+                    // Matches AnalyzeConfig Exact Thresholds
+                    if (totalPathLen >= 0.18 && netDisp >= 0.14 && xSpan >= 0.12 && ySpan <= 0.10 && dirChanges <= 2) {
+                        page_turn = 1.0; 
+                    } 
+                    else if (totalPathLen >= 0.18 && bboxDiag <= 0.12 && dirChanges >= 3) {
+                        pen_fidget = 1.0; 
+                    } 
+                    else if (totalPathLen >= 0.28 && bboxDiag >= 0.18 && dirChanges >= 2) {
+                        restless_hand = 1.0; 
+                    }
+                }
             }
 
             // Map the calculated flags into the exact tensor array
@@ -232,54 +327,109 @@ export function StudySession() {
             features[9] = head_down;
             features[10] = head_tilt;
             features[11] = (long_eye_closure && head_down) ? 1.0 : 0.0; // Drowsy proxy
-            features[12] = 0.0; // page_turn (Requires temporal history buffer)
-            features[13] = 0.0; // pen_fidget (Requires temporal history buffer)
-            features[14] = 0.0; // restless_hand (Requires temporal history buffer)
+            features[12] = page_turn; // page_turn (Requires temporal history buffer)
+            features[13] = pen_fidget; // pen_fidget (Requires temporal history buffer)
+            features[14] = restless_hand; // restless_hand (Requires temporal history buffer)
             features[15] = 0.0; // unknown
 
             try {
                 // Create the [1, 16] Tensor
                 const tensor = new ort.Tensor("float32", features, [1, 16]);
                 
-                // Fetch the dynamic input name ONNX assigned to your model
                 const inputName = onnxSessionRef.current.inputNames[0];
                 const feeds = { [inputName]: tensor };
                 
                 // Run the edge AI!
                 const results = await onnxSessionRef.current.run(feeds);
                 
-                // DEBUG: Print available output names to your browser console to inspect them
-                console.log("ONNX Outputs:", results);
-
-                // Scikit-learn to ONNX models often output label strings in outputNames[0] 
-                // and probabilities/scores in outputNames[1]
-                const outputName = onnxSessionRef.current.outputNames[0];
-                const outputData = results[outputName].data;
-
-                if (outputData && outputData.length > 0) {
-                    predictedState = String(outputData[0]);
-                }
+                // 1. Extract ONNX Outputs
+                const labelData = results[onnxSessionRef.current.outputNames[0]].data;
+                const probData = results[onnxSessionRef.current.outputNames[1]].data;
                 
+                let aiPrediction = "unknown";
+                let aiConfidence = 0.0;
+                
+                if (labelData && labelData.length > 0) {
+                    aiPrediction = String(labelData[0]);
+                    // Explicitly cast to Float32Array so TypeScript knows these are numbers
+                    const probabilities = probData as Float32Array;
+                    aiConfidence = Math.max(...probabilities); 
+                }
+
+                // 2. Apply Rule-Based Overrides (matching analyze.py logic)
+                let finalState = aiPrediction;
+                let decisionSource = "model";
+
+                // Check if we see a body even if the face is hidden
+                const pose_seen = (bestShoulderLm || bestWristLm) ? 1.0 : 0.0;
+
+                if (face_seen === 0.0 && pose_seen === 0.0) {
+                    finalState = "absent";
+                    decisionSource = "rule_absent";
+                } else if (face_seen === 0.0 && pose_seen === 1.0) {
+                    finalState = "unknown"; 
+                    decisionSource = "rule_face_hidden";
+                } else if (bad_posture === 1.0 && aiPrediction !== "gaze_side" && aiPrediction !== "gaze_down") {
+                    // FIX: Only enforce the posture penalty if the AI doesn't detect you looking away
+                    finalState = "bad_posture";
+                    decisionSource = "rule_bad_posture";
+                } else if (aiConfidence < 0.65) { 
+                    finalState = "unknown";
+                    decisionSource = "rule";
+                }
+
+                predictedState = finalState;
+
+                // 3. Format the JSON payload exactly like analyze.py
+                const currentT = timelineRef.current.length + 1;
+                const timelineEntry = {
+                    t: currentT,
+                    state: finalState,
+                    model_state: aiPrediction,
+                    model_confidence: Number(aiConfidence.toFixed(4)),
+                    rule_state: finalState,
+                    decision_source: decisionSource,
+                    states: [finalState],
+                    flags: {
+                        face_seen: Boolean(face_seen),
+                        gaze_side: Boolean(gaze_side),
+                        gaze_down: Boolean(gaze_down),
+                        bad_posture: Boolean(bad_posture),
+                        eye_closed: Boolean(eye_closed),
+                        blink: Boolean(blink),
+                        long_eye_closure: Boolean(long_eye_closure),
+                        head_down: Boolean(head_down),
+                        head_tilt: Boolean(head_tilt),
+                        raw_drowsy: Boolean(drowsy),
+                        drowsy: Boolean(drowsy),
+                        page_turn: Boolean(page_turn), 
+                        pen_fidget: Boolean(pen_fidget), 
+                        restless_hand: Boolean(restless_hand), 
+                        unknown: finalState === "unknown",
+                        absent: finalState === "absent"
+                    }
+                };
+
+                // Push the perfectly formatted JSON to the timeline array
+                timelineRef.current.push(timelineEntry);
+
             } catch (err) {
                 console.error("ONNX Inference Detailed Error:", err);
             }
         }
-
-        setCurrentState(predictedState);
-        setDebugData({
-          timestamp: Date.now(),
-          ai_tracking: {
-            faces: faceResult.faceLandmarks ? faceResult.faceLandmarks.length : 0,
-            poses: poseResult.landmarks ? poseResult.landmarks.length : 0
-          },
-          onnx_prediction: predictedState
-        });
-
-        const currentT = timelineRef.current.length + 1;
-        timelineRef.current.push({
-          t: currentT,
-          state: predictedState
-        });
+            
+            setCurrentState(predictedState);
+            setDebugData({
+              timestamp: Date.now(),
+              ai_tracking: {
+                front_faces: frontFaceRes.faceLandmarks ? frontFaceRes.faceLandmarks.length : 0,
+                desk_faces: deskFaceRes.faceLandmarks ? deskFaceRes.faceLandmarks.length : 0,
+                front_poses: frontPoseRes.landmarks ? frontPoseRes.landmarks.length : 0,
+                desk_poses: deskPoseRes.landmarks ? deskPoseRes.landmarks.length : 0
+              },
+              onnx_prediction: predictedState,
+              timeline_length: timelineRef.current.length
+            });
       }
     } catch (error) {
       console.warn("AI Inference skipped a frame due to an error:", error);

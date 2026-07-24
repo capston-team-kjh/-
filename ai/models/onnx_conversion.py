@@ -40,7 +40,7 @@ standard_model.theta_ = np.array(theta_matrix)
 standard_model.var_ = np.array(var_matrix)
 
 # We know exactly how many features it needs now
-num_features = 15
+num_features = 16
 initial_type = [('float_input', FloatTensorType([None, num_features]))]
 
 print("Converting to ONNX format...")

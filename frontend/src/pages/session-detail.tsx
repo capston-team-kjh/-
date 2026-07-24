@@ -69,7 +69,7 @@ export function SessionDetail() {
     if (!confirmDelete) return;
 
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/analytics/session/${sessionId}`, {
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/analytics/sessions/${sessionId}`, {
         method: "DELETE",
       });
 
@@ -92,9 +92,9 @@ export function SessionDetail() {
         setLoading(true);
         const headers = { "X-User-Id": userId };
 
-        // Fetch both the session analysis data and the full historical order list in parallel
         const [res, listRes] = await Promise.all([
-          fetch(`${import.meta.env.VITE_API_BASE_URL}/analytics/session/${sessionId}`),
+          // FIX 1 & 2: Changed /session/ to /sessions/ AND added the { headers } object
+          fetch(`${import.meta.env.VITE_API_BASE_URL}/analytics/sessions/${sessionId}`, { headers }),
           fetch(`${import.meta.env.VITE_API_BASE_URL}/analytics/list`, { headers })
         ]);
 
@@ -201,59 +201,48 @@ export function SessionDetail() {
     return bucketedData;
   }, [sessionMetrics]);
 
-  const getEventMetrics = (eventTypes: string[]) => {
-    // Safely check if report and events exist
-    const matchedEvents = report?.events?.filter(e => eventTypes.includes(e.event_type)) || [];
-    const count = matchedEvents.length;
-    const totalSec = matchedEvents.reduce((sum, e) => sum + (e.end_sec - e.start_sec), 0);
-    const timeMin = Math.round(totalSec / 60);
+  const getTimelineMetrics = (targetStates: string[]) => {
+    const timeline = report?.timeline || [];
     
-    // Use sessionMetrics.totalSeconds instead of the old redundant variable
-    const baseTotal = sessionMetrics.totalSeconds || 1; 
-    const percent = Math.min(Math.round((totalSec / baseTotal) * 100), 100);
-    
-    let score = 1; 
-    if (percent >= 5) score = 2;
-    if (percent >= 15) score = 3;
-    if (percent >= 25) score = 4;
-    if (percent >= 40) score = 5;
+    // Total duration is just the number of seconds the state appears
+    const totalSec = timeline.filter(t => targetStates.includes(t.state)).length;
 
-    return { count, totalSec, timeMin, percent, score };
-  };
-
-  const getFidgetingMetrics = () => {
-    const targetEvents = report?.events?.filter(e => ["bad_posture", "gaze_side"].includes(e.event_type)).sort((a, b) => a.start_sec - b.start_sec) || [];
+    // Calculate 'count' by finding contiguous blocks of the state
     let count = 0;
-    let totalSec = 0;
+    let inBlock = false;
+    const sortedTimeline = [...timeline].sort((a, b) => a.t - b.t);
 
-    for (let i = 1; i < targetEvents.length; i++) {
-      const prev = targetEvents[i - 1];
-      const curr = targetEvents[i];
-      const gapSeconds = curr.start_sec - prev.end_sec;
-
-      if (gapSeconds >= 0 && gapSeconds <= 5) {
-        count += 1;
-        totalSec += (curr.end_sec - curr.start_sec) + gapSeconds;
+    for (const item of sortedTimeline) {
+      if (targetStates.includes(item.state)) {
+        if (!inBlock) {
+          count++;
+          inBlock = true;
+        }
+      } else {
+        inBlock = false;
       }
     }
 
-    const timeMin = Math.round(totalSec / 60);
     const baseTotal = sessionMetrics.totalSeconds || 1;
     const percent = Math.min(Math.round((totalSec / baseTotal) * 100), 100);
     
+    // Scale 1-5 for the Radar Chart
     let score = 1; 
     if (percent >= 5) score = 2;
     if (percent >= 15) score = 3;
     if (percent >= 25) score = 4;
     if (percent >= 40) score = 5;
 
-    return { count, totalSec, timeMin, percent, score };
+    return { count, totalSec, timeMin: Math.round(totalSec / 60), percent, score };
   };
 
-  const absentMetrics = getEventMetrics(["absent"]);
-  const gazeMetrics = getEventMetrics(["gaze_side"]);
-  const postureMetrics = getEventMetrics(["bad_posture"]);
-  const fidgetingMetrics = getFidgetingMetrics();
+  // Derive everything dynamically!
+  const absentMetrics = getTimelineMetrics(["absent"]);
+  const gazeMetrics = getTimelineMetrics(["gaze_side", "gaze_down", "gaze_away"]);
+  const postureMetrics = getTimelineMetrics(["bad_posture"]);
+  
+  // Use "unknown" as a proxy for fidgeting, as rapid hand/body movement blurs landmarks
+  const fidgetingMetrics = getTimelineMetrics(["unknown"]); 
 
   const radarData = [
     { metric: "자리 이탈", value: absentMetrics.score, baseMark: 1, timeLabel: formatAdaptiveTime(absentMetrics.totalSec), fullMark: 5 },
