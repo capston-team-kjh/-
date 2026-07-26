@@ -20,6 +20,7 @@ interface SessionReportData {
   summary: {
     focus_score: number;
     session_id: string;
+    duration_sec: number;
     focus_ratio: number;
     absent_count: number;
     absent_total_sec: number;
@@ -153,10 +154,10 @@ export function SessionDetail() {
   const sessionMetrics = useMemo(() => {
     if (!report) return { totalSeconds: 0, focusScore: 0, actualFocusSeconds: 0, secondBySecond: [] };
     
-    // Determine exact session length in seconds
-    const tSecs = report.timeline?.length > 0 
+    // FIX: Pull exact clock time from the database summary first!
+    const tSecs = report.summary.duration_sec || (report.timeline?.length > 0 
       ? Math.floor(Math.max(...report.timeline.map(item => item.t))) + 1 
-      : Math.max(...(report.events?.map(e => e.end_sec) || [0]), 1);
+      : Math.max(...(report.events?.map(e => e.end_sec) || [0]), 1));
       
     // Baseline array: Assume 100% focus for every second
     const secondBySecond = new Array(tSecs).fill(100);

@@ -18,6 +18,9 @@ export function StudySession() {
   // NEW: 10-second sliding window for temporal AI features (like drowsiness)
   const temporalBufferRef = useRef<any[]>([]);
   const inferenceIntervalId = useRef<number | null>(null);
+
+  const calibrationBufferRef = useRef<{ear: number, headDown: number}[]>([]);
+  const personalThresholdsRef = useRef<{ear: number, headDown: number} | null>(null);
   
   // Refs for our video elements
   const faceVideoRef = useRef<HTMLVideoElement>(null);
@@ -210,9 +213,37 @@ export function StudySession() {
                 const rightEar = (getDist(159, 145) + getDist(158, 153)) / (2.0 * getDist(33, 133) + 1e-6);
                 const leftEar = (getDist(386, 374) + getDist(385, 380)) / (2.0 * getDist(362, 263) + 1e-6);
                 
-                // Matches AnalyzeConfig: drowsy_ear_threshold = 0.16
-                if (((rightEar + leftEar) / 2.0) <= 0.16) { 
+                const currentEar = (rightEar + leftEar) / 2.0;
+                const eyeMidY = (bestFaceLm[33].y + bestFaceLm[263].y) / 2.0;
+                const faceHeight = bestFaceLm[152].y - eyeMidY;
+                const currentHeadDown = faceHeight > 1e-6 ? ((bestFaceLm[1].y - eyeMidY) / faceHeight) : 0;
+
+                // --- CALIBRATION LOGIC ---
+                if (!personalThresholdsRef.current) {
+                    // Filter out blinks (< 0.10) to ensure a clean open-eye baseline
+                    if (currentEar > 0.10) {
+                        calibrationBufferRef.current.push({ ear: currentEar, headDown: currentHeadDown });
+                    }
+                    if (calibrationBufferRef.current.length >= 30) {
+                        const avgEar = calibrationBufferRef.current.reduce((acc, val) => acc + val.ear, 0) / 30;
+                        const avgHeadDown = calibrationBufferRef.current.reduce((acc, val) => acc + val.headDown, 0) / 30;
+
+                        personalThresholdsRef.current = {
+                            ear: avgEar * 0.8, // Threshold is 80% of their normal open eye size
+                            headDown: avgHeadDown * 1.2 // Threshold is 120% of their normal posture
+                        };
+                    }
+                }
+
+                // Apply the personalized thresholds (or fallback to defaults if still calibrating)
+                const earThreshold = personalThresholdsRef.current ? personalThresholdsRef.current.ear : 0.16;
+                const headDownThreshold = personalThresholdsRef.current ? personalThresholdsRef.current.headDown : 0.72;
+
+                if (currentEar <= earThreshold) { 
                     eye_closed = 1.0; blink = 1.0; 
+                }
+                if (currentHeadDown >= headDownThreshold) {
+                    head_down = 1.0;
                 }
 
                 if (bestFaceLm.length > 473) {
@@ -236,15 +267,12 @@ export function StudySession() {
                     if (avgY >= 0.62) gaze_down = 1.0;
                 }
                 
-                const eyeMidY = (bestFaceLm[33].y + bestFaceLm[263].y) / 2.0;
-                const faceHeight = bestFaceLm[152].y - eyeMidY;
                 const eyeWidth = Math.abs(bestFaceLm[263].x - bestFaceLm[33].x);
-                
-                // Matches AnalyzeConfig: face_head_down_threshold = 0.72
-                if (faceHeight > 1e-6 && ((bestFaceLm[1].y - eyeMidY) / faceHeight >= 0.72)) head_down = 1.0;
-                // Matches AnalyzeConfig: drowsy_head_tilt_threshold = 0.12
+        
+                // RESTORED: This was accidentally deleted!
                 if (eyeWidth > 1e-6 && (Math.abs(bestFaceLm[33].y - bestFaceLm[263].y) / eyeWidth >= 0.12)) head_tilt = 1.0;
-            }
+            } 
+                
             
             // --- POSE MATH ---
             if (bestShoulderLm) {
@@ -292,30 +320,36 @@ export function StudySession() {
                 if (validFrames >= 7) {
                     const first = temporalBufferRef.current[0].rightWrist || temporalBufferRef.current[1].rightWrist;
                     const last = temporalBufferRef.current[9].rightWrist;
-                    const netDisp = Math.hypot(last.x - first.x, last.y - first.y);
-                    const xSpan = Math.max(...xs) - Math.min(...xs);
-                    const ySpan = Math.max(...ys) - Math.min(...ys);
-                    const bboxDiag = Math.hypot(xSpan, ySpan);
                     
-                    let dirChanges = 0;
-                    for (let i = 1; i < vectors.length; i++) {
-                        const dot = (vectors[i-1].x * vectors[i].x) + (vectors[i-1].y * vectors[i].y);
-                        if (dot < 0.2) dirChanges++;
-                    }
-                    
-                    // Matches AnalyzeConfig Exact Thresholds
-                    if (totalPathLen >= 0.18 && netDisp >= 0.14 && xSpan >= 0.12 && ySpan <= 0.10 && dirChanges <= 2) {
-                        page_turn = 1.0; 
-                    } 
-                    else if (totalPathLen >= 0.18 && bboxDiag <= 0.12 && dirChanges >= 3) {
-                        pen_fidget = 1.0; 
-                    } 
-                    else if (totalPathLen >= 0.28 && bboxDiag >= 0.18 && dirChanges >= 2) {
-                        restless_hand = 1.0; 
-                    }
+                    // FIX: Prevent crash if the wrist leaves the camera on the edge frames
+                    if (first && last) {
+                        const netDisp = Math.hypot(last.x - first.x, last.y - first.y);
+                        const xSpan = Math.max(...xs) - Math.min(...xs);
+                        const ySpan = Math.max(...ys) - Math.min(...ys);
+                        const bboxDiag = Math.hypot(xSpan, ySpan);
+                        
+                        let dirChanges = 0;
+                        for (let i = 1; i < vectors.length; i++) {
+                            const dot = (vectors[i-1].x * vectors[i].x) + (vectors[i-1].y * vectors[i].y);
+                            if (dot < 0.2) dirChanges++;
+                        }
+                        
+                        // Matches AnalyzeConfig Exact Thresholds
+                        if (totalPathLen >= 0.18 && netDisp >= 0.14 && xSpan >= 0.12 && ySpan <= 0.10 && dirChanges <= 2) {
+                            page_turn = 1.0; 
+                            temporalBufferRef.current = []; // FIX: Flush buffer to prevent echo
+                        } 
+                        else if (totalPathLen >= 0.18 && bboxDiag <= 0.12 && dirChanges >= 3) {
+                            pen_fidget = 1.0; 
+                            temporalBufferRef.current = []; // FIX: Flush buffer to prevent echo
+                        } 
+                        else if (totalPathLen >= 0.28 && bboxDiag >= 0.18 && dirChanges >= 2) {
+                            restless_hand = 1.0; 
+                            temporalBufferRef.current = []; // FIX: Flush buffer to prevent echo
+                        }
+                     }
                 }
-            }
-
+             }
             // Map the calculated flags into the exact tensor array
             features[2] = face_seen;
             features[3] = gaze_side;
@@ -457,6 +491,8 @@ export function StudySession() {
       
       // Reset timeline array for a new session
       timelineRef.current = [];
+      calibrationBufferRef.current = [];
+      personalThresholdsRef.current = null;
 
       const { faceStream, deskStream } = await setupDualCameras();
       if (faceVideoRef.current) faceVideoRef.current.srcObject = faceStream;
@@ -562,7 +598,9 @@ export function StudySession() {
                   {formatTime(seconds)}
                 </div>
                 <div className="text-xl font-medium text-muted-foreground">
-                  현재 상태: <span className="font-bold text-primary">{currentState.toUpperCase()}</span>
+                  현재 상태: <span className="font-bold text-primary">
+                    {!personalThresholdsRef.current ? "영점 조절 중... (Calibrating)" : currentState.toUpperCase()}
+                  </span>
                 </div>
               </div>
 
