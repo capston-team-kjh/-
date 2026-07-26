@@ -4,6 +4,16 @@ import { setupDualCameras } from "@/utils/dualCamManager";
 import { FaceLandmarker, PoseLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
 import * as ort from "onnxruntime-web";
 
+// 상태 최소 지속 시간(초/State minimum duration in seconds)
+const SPLICING_INTERVAL_SECONDS = 300;
+const FILTER_CONFIG: Record<string, number> = {
+  gaze_side: 2,
+  gaze_down: 2,
+  bad_posture: 2,
+};
+const ENABLE_UNKNOWN_STATE = true;
+// ----------------------------------------- 여기까지 추가
+
 export function StudySession() {
   const [isRunning, setIsRunning] = useState(false);
   const [seconds, setSeconds] = useState(0);
@@ -21,6 +31,10 @@ export function StudySession() {
 
   const calibrationBufferRef = useRef<{ear: number, headDown: number}[]>([]);
   const personalThresholdsRef = useRef<{ear: number, headDown: number} | null>(null);
+  
+  //2. 히스토리 저장용 Ref(Ref for saving history)
+  const stateHistoryRef = useRef<string[]>([]);
+  // ----------------------------------------- 여기까지 추가
   
   // Refs for our video elements
   const faceVideoRef = useRef<HTMLVideoElement>(null);
@@ -411,6 +425,30 @@ export function StudySession() {
                     finalState = "unknown";
                     decisionSource = "rule";
                 }
+
+                // 분석 로직 수정(Modifying Analysis Logic)
+                stateHistoryRef.current.push(finalState);
+                
+                if (stateHistoryRef.current.length > 5) {
+                    stateHistoryRef.current.shift(); 
+                }
+                if (!ENABLE_UNKNOWN_STATE && finalState === "unknown") {
+                    finalState = "focus";
+                    decisionSource = "unknown_state_disabled";
+                }
+                if (finalState !== "focus" && finalState !== "absent") { 
+                    const requiredSec = FILTER_CONFIG[finalState] || 1;
+                    if (requiredSec > 1) {
+                        const recentStates = stateHistoryRef.current.slice(-requiredSec);
+                        const isMaintained = recentStates.length === requiredSec && 
+                                             recentStates.every(state => state === finalState);
+                        if (!isMaintained) {
+                            finalState = "focus";
+                            decisionSource = `filtered_by_${requiredSec}sec_rule`;
+                        }
+                    }
+                }
+                // ----------------------------------------- 여기까지 추가
 
                 predictedState = finalState;
 
