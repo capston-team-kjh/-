@@ -257,7 +257,7 @@ export function StudySession() {
                     eye_closed = 1.0; blink = 1.0; 
                 }
                 if (currentHeadDown >= headDownThreshold) {
-                    head_down = 1.0;
+                    //head_down = 1.0;
                 }
 
                 if (bestFaceLm.length > 473) {
@@ -284,7 +284,7 @@ export function StudySession() {
                 const eyeWidth = Math.abs(bestFaceLm[263].x - bestFaceLm[33].x);
         
                 // RESTORED: This was accidentally deleted!
-                if (eyeWidth > 1e-6 && (Math.abs(bestFaceLm[33].y - bestFaceLm[263].y) / eyeWidth >= 0.12)) head_tilt = 1.0;
+                //if (eyeWidth > 1e-6 && (Math.abs(bestFaceLm[33].y - bestFaceLm[263].y) / eyeWidth >= 0.12)) head_tilt = 1.0;
             } 
                 
             

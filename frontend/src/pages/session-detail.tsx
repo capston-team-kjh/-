@@ -17,10 +17,10 @@ import {
 } from "recharts";
 
 interface SessionReportData {
+  duration_sec: number;
   summary: {
     focus_score: number;
     session_id: string;
-    duration_sec: number;
     focus_ratio: number;
     absent_count: number;
     absent_total_sec: number;
@@ -114,13 +114,13 @@ export function SessionDetail() {
     fetchSessionDetail();
   }, [sessionId, userId]);
 
-  // Calculate the dynamic matching display_index based on your sorted history rows
-  const displayIndex = useMemo(() => {
-    if (!sessionId || allSessions.length === 0) return 1;
-    // Find where this session exists in your history list
-    const matched = allSessions.find((s) => String(s.id) === String(sessionId));
-    return matched ? matched.display_index : 1;
+  // Calculate the dynamic matching session from your sorted history rows
+  const matchedSession = useMemo(() => {
+    if (!sessionId || allSessions.length === 0) return null;
+    return allSessions.find((s) => String(s.id) === String(sessionId));
   }, [allSessions, sessionId]);
+
+  const displayIndex = matchedSession ? matchedSession.display_index : 1;
 
   // Helper formatting logic
   const formatAdaptiveTime = (totalSecs: number): string => {
@@ -152,31 +152,31 @@ export function SessionDetail() {
   };
 
   const sessionMetrics = useMemo(() => {
-    if (!report) return { totalSeconds: 0, focusScore: 0, actualFocusSeconds: 0, secondBySecond: [] };
+    if (!report) return { totalSeconds: 0, focusScore: 0, actualFocusSeconds: 0, distractionSeconds: 0, secondBySecond: [] };
     
-    // FIX: Pull exact clock time from the database summary first!
-    const tSecs = report.summary.duration_sec || (report.timeline?.length > 0 
+    // 1. Get official clock time from the database
+    const tSecs = report.duration_sec || matchedSession?.duration_sec || (report.timeline?.length > 0 
       ? Math.floor(Math.max(...report.timeline.map(item => item.t))) + 1 
-      : Math.max(...(report.events?.map(e => e.end_sec) || [0]), 1));
+      : 1);
       
-    // Baseline array: Assume 100% focus for every second
     const secondBySecond = new Array(tSecs).fill(100);
     
     report.timeline?.forEach(item => {
       const timeIndex = Math.floor(item.t);
       if (timeIndex < tSecs) {
-        // Look up the score for this specific state, default to 100 if missing
         secondBySecond[timeIndex] = STATE_WEIGHTS[item.state] ?? 100;
       }
     });
     
-    // Calculate actual focus seconds (only counting time where state === "focus")
-    const actualFocusSeconds = report.timeline?.filter(t => t.state === "focus").length || 0;
+    // 2. NEW: Count exactly how many frames were NOT focused (1 frame = 1 second of distraction)
+    const distractionSeconds = report.timeline?.filter(t => t.state !== "focus").length || 0;
 
-    // If the backend hasn't exposed it yet, fallback to a ratio, but rely on the DB.
+    // 3. NEW: Actual Focus Time is strictly Total Time - Distraction Time
+    const actualFocusSeconds = Math.max(0, tSecs - distractionSeconds);
+
     const focusScore = report.summary.focus_score || Math.round(report.summary.focus_ratio * 100) || 0;
     
-    return { totalSeconds: tSecs, focusScore, actualFocusSeconds, secondBySecond };
+    return { totalSeconds: tSecs, focusScore, actualFocusSeconds, distractionSeconds, secondBySecond };
   }, [report]);
 
   const parsedTimelineData = useMemo(() => {
@@ -202,13 +202,13 @@ export function SessionDetail() {
     return bucketedData;
   }, [sessionMetrics]);
 
+  // NEW: Completely restored frame-counting logic for the Radar Chart
   const getTimelineMetrics = (targetStates: string[]) => {
     const timeline = report?.timeline || [];
     
-    // Total duration is just the number of seconds the state appears
+    // 1 frame = 1 second
     const totalSec = timeline.filter(t => targetStates.includes(t.state)).length;
 
-    // Calculate 'count' by finding contiguous blocks of the state
     let count = 0;
     let inBlock = false;
     const sortedTimeline = [...timeline].sort((a, b) => a.t - b.t);
@@ -227,23 +227,20 @@ export function SessionDetail() {
     const baseTotal = sessionMetrics.totalSeconds || 1;
     const percent = Math.min(Math.round((totalSec / baseTotal) * 100), 100);
     
-    // Scale 1-5 for the Radar Chart
     let score = 1; 
-    if (percent >= 5) score = 2;
-    if (percent >= 15) score = 3;
-    if (percent >= 25) score = 4;
     if (percent >= 40) score = 5;
+    else if (percent >= 25) score = 4;
+    else if (percent >= 15) score = 3;
+    else if (percent >= 5) score = 2;
 
     return { count, totalSec, timeMin: Math.round(totalSec / 60), percent, score };
   };
 
-  // Derive everything dynamically!
+  // Derive everything dynamically directly from the frames!
   const absentMetrics = getTimelineMetrics(["absent"]);
   const gazeMetrics = getTimelineMetrics(["gaze_side", "gaze_down", "gaze_away"]);
   const postureMetrics = getTimelineMetrics(["bad_posture"]);
-  
-  // Use "unknown" as a proxy for fidgeting, as rapid hand/body movement blurs landmarks
-  const fidgetingMetrics = getTimelineMetrics(["unknown"]); 
+  const fidgetingMetrics = getTimelineMetrics(["unknown"]);
 
   const radarData = [
     { metric: "자리 이탈", value: absentMetrics.score, baseMark: 1, timeLabel: formatAdaptiveTime(absentMetrics.totalSec), fullMark: 5 },
@@ -309,7 +306,7 @@ export function SessionDetail() {
         <MetricCard 
           icon={<User className="w-5 h-5" />} 
           label="총 산만 시간" 
-          value={formatAdaptiveTime(sessionMetrics.totalSeconds - sessionMetrics.actualFocusSeconds)}
+          value={formatAdaptiveTime(sessionMetrics.distractionSeconds)} 
           color="bg-orange-500" 
         />
       </div>
