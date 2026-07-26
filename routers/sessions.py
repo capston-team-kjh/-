@@ -67,13 +67,17 @@ def update_session(session_id: int, session_data: schemas.SessionUpdate, db: Ses
     return session
 
 @router.post("/{session_id}/timeline", status_code=status.HTTP_201_CREATED)
-def save_session_timeline(session_id: str, payload: dict, db: Session = Depends(get_db)):
-    timeline_data = payload.get("timeline", [])
+def save_session_timeline(session_id: str, payload: schemas.TimelineBulkCreate, db: Session = Depends(get_db)):
+    
+    # 1. Strictly validated Pydantic data
+    timeline_data = payload.timeline
     if not timeline_data:
         return {"message": "저장할 타임라인 데이터가 없습니다."}
 
     duration_sec = len(timeline_data)
-    states = [item.get("state", "focus") for item in timeline_data]
+    
+    # Extract states using strict object notation instead of .get()
+    states = [item.state for item in timeline_data]
     events = _create_events_from_states(states)
 
     def count_state(target_state):
@@ -86,7 +90,7 @@ def save_session_timeline(session_id: str, payload: dict, db: Session = Depends(
     away_sec = count_state("gaze_side")
     bad_posture_sec = count_state("bad_posture")
 
-    # Give the focus_score.py file EXACTLY the data it requires to run the penalties
+    # Re-pack the timeline into dicts for your AI analysis engine
     raw_result = {
         "session_id": session_id,
         "status": "success",
@@ -97,7 +101,6 @@ def save_session_timeline(session_id: str, payload: dict, db: Session = Depends(
             "processing_time_sec": 0
         },
         "summary": {
-            # Total Times
             "focus_total_sec": count_state("focus"),
             "bad_posture_total_sec": bad_posture_sec,
             "gaze_side_total_sec": count_state("gaze_side"),
@@ -107,8 +110,6 @@ def save_session_timeline(session_id: str, payload: dict, db: Session = Depends(
             "absent_total_sec": absent_sec,
             "unknown_total_sec": count_state("unknown"),
             "present_total_sec": duration_sec - absent_sec,
-            
-            # Event Counts (Crucial for Focus Score calculation)
             "bad_posture_count": count_events("bad_posture"),
             "gaze_side_count": count_events("gaze_side"),
             "gaze_down_count": count_events("gaze_down"),
@@ -117,7 +118,7 @@ def save_session_timeline(session_id: str, payload: dict, db: Session = Depends(
             "absent_count": count_events("absent"),
             "unknown_count": count_events("unknown")
         },
-        "timeline": timeline_data,
+        "timeline": [item.model_dump() for item in timeline_data], 
         "events": events
     }
 
@@ -125,23 +126,21 @@ def save_session_timeline(session_id: str, payload: dict, db: Session = Depends(
     final_summary = finalized.get("summary", {})
     feedback_dict = finalized.get("feedback", {})
     
-    # Store the true Focus Score (0-100) as a decimal in the focus_ratio column 
-    # so we don't have to rewrite the database schema!
     real_focus_score = final_summary.get("focus_score", 0)
     hybrid_focus_ratio = real_focus_score / 100.0
     
-    # 4. Save to Database using SQLAlchemy
-    # Delete old records first to prevent duplicates
+    # Delete old records
     db.query(models.AnalysisTimeline).filter(models.AnalysisTimeline.session_id == session_id).delete()
     db.query(models.AnalysisEvent).filter(models.AnalysisEvent.session_id == session_id).delete()
     db.query(models.AnalysisSummary).filter(models.AnalysisSummary.session_id == session_id).delete()
 
-    # Insert Timeline
+    # --- FIX 1: HIGH-SPEED BULK INSERT ---
+    # Map data to ORM objects and bypass the heavy session tracking
     timeline_records = [
-        models.AnalysisTimeline(session_id=session_id, t=item["t"], state=item["state"])
+        models.AnalysisTimeline(session_id=session_id, t=item.t, state=item.state)
         for item in timeline_data
     ]
-    db.add_all(timeline_records)
+    db.bulk_save_objects(timeline_records)
 
     # Insert Events
     event_records = [
@@ -159,7 +158,7 @@ def save_session_timeline(session_id: str, payload: dict, db: Session = Depends(
     # Insert Summary
     summary_record = models.AnalysisSummary(
         session_id=session_id,
-        focus_ratio=hybrid_focus_ratio, # Adjusted metric
+        focus_ratio=hybrid_focus_ratio, 
         absent_count=final_summary.get("absent_count", 0),
         absent_total_sec=final_summary.get("absent_total_sec", 0),
         away_count=final_summary.get("away_count", 0),
@@ -171,7 +170,7 @@ def save_session_timeline(session_id: str, payload: dict, db: Session = Depends(
     )
     db.add(summary_record)
 
-    # Insert Feedback (Format dict to string exactly like analyze.py)
+    # Insert Feedback 
     feedback_text = "\n".join(
         str(feedback_dict.get(key)).strip()
         for key in ("summary_text", "weak_point", "recommendation")

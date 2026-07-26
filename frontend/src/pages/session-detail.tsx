@@ -240,7 +240,7 @@ export function SessionDetail() {
   const absentMetrics = getTimelineMetrics(["absent"]);
   const gazeMetrics = getTimelineMetrics(["gaze_side", "gaze_down", "gaze_away"]);
   const postureMetrics = getTimelineMetrics(["bad_posture"]);
-  const fidgetingMetrics = getTimelineMetrics(["unknown"]);
+  const fidgetingMetrics = getTimelineMetrics(["pen_fidget", "restless_hand"]);
 
   const radarData = [
     { metric: "자리 이탈", value: absentMetrics.score, baseMark: 1, timeLabel: formatAdaptiveTime(absentMetrics.totalSec), fullMark: 5 },

@@ -120,3 +120,10 @@ class AnalysisTimelineResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+class TimelineEntryCreate(BaseModel):
+    t: float
+    state: str
+
+class TimelineBulkCreate(BaseModel):
+    timeline: List[TimelineEntryCreate]

@@ -257,7 +257,7 @@ export function StudySession() {
                     eye_closed = 1.0; blink = 1.0; 
                 }
                 if (currentHeadDown >= headDownThreshold) {
-                    //head_down = 1.0;
+                    head_down = 1.0;
                 }
 
                 if (bestFaceLm.length > 473) {
@@ -284,7 +284,7 @@ export function StudySession() {
                 const eyeWidth = Math.abs(bestFaceLm[263].x - bestFaceLm[33].x);
         
                 // RESTORED: This was accidentally deleted!
-                //if (eyeWidth > 1e-6 && (Math.abs(bestFaceLm[33].y - bestFaceLm[263].y) / eyeWidth >= 0.12)) head_tilt = 1.0;
+                if (eyeWidth > 1e-6 && (Math.abs(bestFaceLm[33].y - bestFaceLm[263].y) / eyeWidth >= 0.12)) head_tilt = 1.0;
             } 
                 
             
@@ -417,10 +417,25 @@ export function StudySession() {
                 } else if (face_seen === 0.0 && pose_seen === 1.0) {
                     finalState = "unknown"; 
                     decisionSource = "rule_face_hidden";
+                } else if (long_eye_closure === 1.0) {
+                    // NEW: Expose Drowsiness to the UI
+                    finalState = "drowsy";
+                    decisionSource = "rule_drowsy";
                 } else if (bad_posture === 1.0 && aiPrediction !== "gaze_side" && aiPrediction !== "gaze_down") {
-                    // FIX: Only enforce the posture penalty if the AI doesn't detect you looking away
                     finalState = "bad_posture";
                     decisionSource = "rule_bad_posture";
+                } else if (page_turn === 1.0) {
+                    // NEW: Expose Hand Actions to the UI
+                    finalState = "page_turn";
+                    decisionSource = "rule_hand_action";
+                } else if (pen_fidget === 1.0) {
+                    // NEW: Expose Hand Actions to the UI
+                    finalState = "pen_fidget";
+                    decisionSource = "rule_hand_action";
+                } else if (restless_hand === 1.0) {
+                    // NEW: Expose Hand Actions to the UI
+                    finalState = "restless_hand";
+                    decisionSource = "rule_hand_action";
                 } else if (aiConfidence < 0.65) { 
                     finalState = "unknown";
                     decisionSource = "rule";
@@ -500,7 +515,9 @@ export function StudySession() {
                 desk_poses: deskPoseRes.landmarks ? deskPoseRes.landmarks.length : 0
               },
               onnx_prediction: predictedState,
-              timeline_length: timelineRef.current.length
+              timeline_length: timelineRef.current.length,
+              // FIX: Grab the last item pushed to the array to avoid scope errors!
+              latest_payload: timelineRef.current[timelineRef.current.length - 1] || null
             });
       }
     } catch (error) {
@@ -560,21 +577,37 @@ export function StudySession() {
       }
       if (animationFrameId.current) cancelAnimationFrame(animationFrameId.current);
 
-      // 1. End the session in `focus_sessions`
+      // --- FIX 1: PRUNE PAYLOAD ---
+      // Strip all the extra UI debug properties (flags, model_state, etc.) so 
+      // the JSON perfectly matches the 4 columns in the AnalysisTimeline DB schema.
+      const cleanTimeline = timelineRef.current.map(entry => ({
+          t: entry.t,
+          state: entry.state
+      }));
+
+      // Step 1: Bulk upload the clean timeline FIRST so the database is populated.
+      if (cleanTimeline.length > 0) {
+        // FIX: Added 'const timelineResponse =' to store the fetch result
+        const timelineResponse = await fetch(`${import.meta.env.VITE_API_BASE_URL}/sessions/${sessionId}/timeline`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ timeline: cleanTimeline }),
+        });
+        
+        // NEW: Catch backend validation errors!
+        if (!timelineResponse.ok) {
+            const errorData = await timelineResponse.json();
+            console.error("Backend rejected the timeline:", errorData);
+            throw new Error("Timeline database insertion failed");
+        }
+      }
+
+      // Step 2: Mark the session as completed SECOND to trigger the SQS worker.
       await fetch(`${import.meta.env.VITE_API_BASE_URL}/sessions/${sessionId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: "completed", end_time: new Date().toISOString() }),
       });
-
-      // 2. NEW: Bulk upload our accumulated timeline data to `analysis_timeline`
-      if (timelineRef.current.length > 0) {
-        await fetch(`${import.meta.env.VITE_API_BASE_URL}/sessions/${sessionId}/timeline`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ timeline: timelineRef.current }),
-        });
-      }
 
       setIsRunning(false);
       setSeconds(0);
