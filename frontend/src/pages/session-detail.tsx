@@ -154,30 +154,31 @@ export function SessionDetail() {
   const sessionMetrics = useMemo(() => {
     if (!report) return { totalSeconds: 0, focusScore: 0, actualFocusSeconds: 0, distractionSeconds: 0, secondBySecond: [] };
     
-    // 1. Get official clock time from the database
-    const tSecs = report.duration_sec || matchedSession?.duration_sec || (report.timeline?.length > 0 
-      ? Math.floor(Math.max(...report.timeline.map(item => item.t))) + 1 
-      : 1);
+    // FIX: Prioritize the official database wall-clock time over the raw frame count!
+    const tSecs = report.duration_sec || matchedSession?.duration_sec || (report.timeline?.length || 1);
       
+    // Pre-fill the ENTIRE real-world timeline with 100 (Focus)
     const secondBySecond = new Array(tSecs).fill(100);
     
+    // Overwrite the specific seconds where the AI successfully captured a frame
+    // If a frame dropped (e.g., t=40, then t=42), index 41 simply remains 100!
     report.timeline?.forEach(item => {
       const timeIndex = Math.floor(item.t);
-      if (timeIndex < tSecs) {
+      if (timeIndex >= 0 && timeIndex < tSecs) { 
         secondBySecond[timeIndex] = STATE_WEIGHTS[item.state] ?? 100;
       }
     });
     
-    // 2. NEW: Count exactly how many frames were NOT focused (1 frame = 1 second of distraction)
+    // Count exactly how many frames were NOT focused
     const distractionSeconds = report.timeline?.filter(t => t.state !== "focus").length || 0;
 
-    // 3. NEW: Actual Focus Time is strictly Total Time - Distraction Time
+    // Actual Focus Time is strictly Total Time - Distraction Time
     const actualFocusSeconds = Math.max(0, tSecs - distractionSeconds);
 
     const focusScore = report.summary.focus_score || Math.round(report.summary.focus_ratio * 100) || 0;
     
     return { totalSeconds: tSecs, focusScore, actualFocusSeconds, distractionSeconds, secondBySecond };
-  }, [report]);
+  }, [report, matchedSession]);
 
   const parsedTimelineData = useMemo(() => {
     const { totalSeconds, secondBySecond } = sessionMetrics;
@@ -236,17 +237,19 @@ export function SessionDetail() {
     return { count, totalSec, timeMin: Math.round(totalSec / 60), percent, score };
   };
 
-  // Derive everything dynamically directly from the frames!
+  // Derive everything dynamically directly from the frames
   const absentMetrics = getTimelineMetrics(["absent"]);
   const gazeMetrics = getTimelineMetrics(["gaze_side", "gaze_down", "gaze_away"]);
   const postureMetrics = getTimelineMetrics(["bad_posture"]);
-  const fidgetingMetrics = getTimelineMetrics(["pen_fidget", "restless_hand"]);
+  const fidgetingMetrics = getTimelineMetrics(["pen_fidget", "restless_hand", "unknown"]);
+  const drowsyMetrics = getTimelineMetrics(["drowsy", "sleep_suspect"]);
 
   const radarData = [
     { metric: "자리 이탈", value: absentMetrics.score, baseMark: 1, timeLabel: formatAdaptiveTime(absentMetrics.totalSec), fullMark: 5 },
     { metric: "시선 분산", value: gazeMetrics.score, baseMark: 1, timeLabel: formatAdaptiveTime(gazeMetrics.totalSec), fullMark: 5 },
     { metric: "자세 불량", value: postureMetrics.score, baseMark: 1, timeLabel: formatAdaptiveTime(postureMetrics.totalSec), fullMark: 5 },
-    { metric: "과도한 움직임", value: fidgetingMetrics.score, baseMark: 1, timeLabel: formatAdaptiveTime(fidgetingMetrics.totalSec), fullMark: 5 },
+    { metric: "불안정한 움직임", value: fidgetingMetrics.score, baseMark: 1, timeLabel: formatAdaptiveTime(fidgetingMetrics.totalSec), fullMark: 5 },
+    { metric: "졸음 감지", value: drowsyMetrics.score, baseMark: 1, timeLabel: formatAdaptiveTime(drowsyMetrics.totalSec), fullMark: 5 },
   ];
 
   if (loading) return <div className="p-8 text-center text-muted-foreground">세부 분석 리포트를 생성하는 중...</div>;
@@ -405,11 +408,18 @@ export function SessionDetail() {
               description={`거북목 및 구부정한 자세 감지: 총 ${postureMetrics.count}회`} 
             />
             <DistractionItem 
-              label="과도한 움직임" 
+              label="졸음 감지" 
+              valueText={formatAdaptiveTime(drowsyMetrics.totalSec)} 
+              percentage={drowsyMetrics.percent} 
+              color="bg-indigo-500" 
+              description={`눈 감김 및 졸음 의심 상태: 총 ${drowsyMetrics.count}회`} 
+            />
+            <DistractionItem 
+              label="불안정한 움직임 / 불확실한 상태" 
               valueText={formatAdaptiveTime(fidgetingMetrics.totalSec)} 
               percentage={fidgetingMetrics.percent} 
               color="bg-purple-500" 
-              description={`불안정한 움직임 감지: 총 ${fidgetingMetrics.count}회`} 
+              description={`불안정한 움직임 또는 카메라 앵글 이탈(엎드림 등): 총 ${fidgetingMetrics.count}회`} 
             />
           </div>
         </div>

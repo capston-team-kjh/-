@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { Link } from "react-router";
 import { Calendar, Clock, Target, TrendingUp, Play } from "lucide-react";
 import { ActivityHeatmap } from "../components/activity-heatmap";
@@ -26,30 +26,35 @@ export function Dashboard() {
     }
   };
 
+  // --- NEW: 1. Calculate the strict Sunday-Saturday range for the current week ---
+  const weekBounds = useMemo(() => {
+    const today = new Date();
+    const dayOfWeek = today.getDay(); // 0 = Sunday, 1 = Monday, etc.
+    
+    // FIX: Shift the start day to Sunday (0 days back if it's already Sunday)
+    const daysToSunday = dayOfWeek; 
+    
+    const sunday = new Date(today);
+    sunday.setDate(today.getDate() - daysToSunday);
+    
+    const saturday = new Date(sunday);
+    saturday.setDate(sunday.getDate() + 6);
+    
+    const format = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    
+    return { start: format(sunday), end: format(saturday), sunday }; // Changed 'monday' key to 'sunday'
+  }, []);
+
   useEffect(() => {
     if (!userId) return;
 
     const fetchDashboardData = async () => {
       try {
         const headers = { "X-User-Id": userId };
-        
-        const getPastDateString = (daysAgo: number) => {
-        const d = new Date();
-        d.setDate(d.getDate() - daysAgo);
-        
-        const year = d.getFullYear();
-        const month = String(d.getMonth() + 1).padStart(2, '0');
-        const day = String(d.getDate()).padStart(2, '0');
-        
-        return `${year}-${month}-${day}`;
-      };
 
-      const startDate = getPastDateString(7);
-      const endDate = getPastDateString(0);
-
-        // Fetch both summary and recent sessions in parallel
+        // FIX: Fetch exactly Monday to Sunday instead of a rolling 7-day window
         const [summaryRes, recentRes] = await Promise.all([
-          fetch(`${import.meta.env.VITE_API_BASE_URL}/analytics/summary?start_date=${startDate}&end_date=${endDate}`, { headers }),
+          fetch(`${import.meta.env.VITE_API_BASE_URL}/analytics/summary?start_date=${weekBounds.start}&end_date=${weekBounds.end}`, { headers }),
           fetch(`${import.meta.env.VITE_API_BASE_URL}/analytics/list`, { headers })
         ]);
 
@@ -66,7 +71,55 @@ export function Dashboard() {
     };
 
     fetchDashboardData();
-  }, [userId]);
+  }, [userId, weekBounds]);
+
+  // --- NEW: 2. Pad the sparse data to ensure Recharts always gets exactly 7 days ---
+  const fixedWeeklyData = useMemo(() => {
+    const dayNames = ["일", "월", "화", "수", "목", "금", "토"];
+    
+    // Added 'shortMatch' to our TypeScript definition
+    const template: { dateMatch: string; shortMatch: string; day: string; seconds: number; hours: number }[] = [];
+    
+    for(let i = 0; i < 7; i++) {
+      const d = new Date(weekBounds.sunday);
+      d.setDate(weekBounds.sunday.getDate() + i);
+      
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      
+      const isoDate = `${y}-${m}-${day}`; // Format: "2026-07-31"
+      const shortDate = `${m}/${day}`;    // Format: "07/31"
+      
+      template.push({
+        dateMatch: isoDate,
+        shortMatch: shortDate, // Add a short date to the template
+        day: `${m}/${day}(${dayNames[d.getDay()]})`, 
+        seconds: 0,
+        hours: 0
+      });
+    }
+
+    if (reportData?.weekly_chart_data) {
+      reportData.weekly_chart_data.forEach((item: any) => {
+        // FIX: Broaden the matching logic so it catches "YYYY-MM-DD", "MM/DD", or "MM/DD(Day)"
+        const target = template.find(t => 
+          t.dateMatch === item.date || 
+          t.dateMatch === item.day || 
+          t.shortMatch === item.day || 
+          t.day === item.day
+        );
+        
+        if (target) {
+          // Fallbacks added to safely grab the time regardless of the API naming convention
+          target.seconds = Number(item.seconds || item.total_seconds || item.duration_sec || 0);
+          target.hours = item.hours !== undefined ? Number(item.hours) : (target.seconds / 3600);
+        }
+      });
+    }
+    
+    return template;
+  }, [reportData, weekBounds]);
 
   if (loading) return <div className="p-8 text-center">학습 데이터를 불러오는 중...</div>;
 
@@ -127,7 +180,7 @@ export function Dashboard() {
         <div className="bg-white rounded-2xl border border-border p-6">
           <h2 className="text-xl font-semibold mb-4">주간 학습 시간</h2>
           <ResponsiveContainer width="100%" height={250}>
-            <AreaChart data={reportData?.weekly_chart_data || []}>
+            <AreaChart data={fixedWeeklyData}>
               <defs>
                 <linearGradient id="colorHours" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#1a667a" stopOpacity={0.3} />
@@ -143,10 +196,11 @@ export function Dashboard() {
                   border: "1px solid #e5e5e5",
                   borderRadius: "8px",
                 }}
-                formatter={(value: number, name: string, props: any) => [
-                  formatAdaptiveTime(props.payload.seconds),
-                  "학습 시간"
-                ]}
+                formatter={(value: number, name: string, props: any) => {
+                  // FIX: Directly extract the seconds from the parent data payload!
+                  const actualSeconds = props.payload.seconds || 0;
+                  return [formatAdaptiveTime(actualSeconds), "학습 시간"];
+                }}
               />
               <Area
                 type="monotone"

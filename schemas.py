@@ -49,6 +49,7 @@ class SessionCreate(BaseModel):
 class SessionUpdate(BaseModel):
     end_time: datetime
     status: str
+    duration_sec: Optional[int] = None
 
 # 세션 정보 응답
 class SessionResponse(BaseModel):

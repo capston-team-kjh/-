@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Request
 from sqlalchemy.orm import Session
 from typing import List
 from datetime import datetime, timezone, timedelta
@@ -8,7 +8,10 @@ import models, schemas
 from database import get_db
 from time_utils import as_local_naive_datetime, calculate_duration_sec, normalize_session_end_time
 # Adjust this import path depending on where your analyze.py is located!
-from ai.focus_ai.analyze import _finalize_analysis_result, _create_events_from_states
+from ai.focus_ai.analyze import _finalize_analysis_result
+from ai.focus_ai.analyze import _create_events_from_states 
+from ai.analyzer.focus_score import calculate_focus_score
+from ai.focus_ai.feedback_generator import generate_personal_feedback_payload, generate_feedback
 
 # 라우터 설정
 router = APIRouter(
@@ -47,15 +50,17 @@ def start_session(session_data: schemas.SessionCreate, db: Session = Depends(get
 @router.patch("/{session_id}", response_model=schemas.SessionResponse)
 def update_session(session_id: int, session_data: schemas.SessionUpdate, db: Session = Depends(get_db)):
     """진행 중인 집중 세션을 종료하거나 상태를 업데이트합니다."""
-    # 1. 업데이트할 세션 찾기
     session = db.query(models.FocusSession).filter(models.FocusSession.id == session_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="해당 세션을 찾을 수 없습니다.")
     
-    # 2. 데이터 업데이트 (종료 시간 및 상태 반영)
     try:
         session.end_time = normalize_session_end_time(session.start_time, session_data.end_time)
-        session.duration_sec = calculate_duration_sec(session.start_time, session.end_time)
+        # FIX: Trust the highly accurate client-side stopwatch, fallback to backend calculation only if missing
+        if getattr(session_data, "duration_sec", None) is not None:
+            session.duration_sec = session_data.duration_sec
+        else:
+            session.duration_sec = calculate_duration_sec(session.start_time, session.end_time)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -67,17 +72,17 @@ def update_session(session_id: int, session_data: schemas.SessionUpdate, db: Ses
     return session
 
 @router.post("/{session_id}/timeline", status_code=status.HTTP_201_CREATED)
-def save_session_timeline(session_id: str, payload: schemas.TimelineBulkCreate, db: Session = Depends(get_db)):
+async def save_session_timeline(session_id: str, request: Request, db: Session = Depends(get_db)):
+    # 1. Catch the full JSON payload
+    payload = await request.json()
+    timeline_data = payload.get("timeline", [])
     
-    # 1. Strictly validated Pydantic data
-    timeline_data = payload.timeline
     if not timeline_data:
         return {"message": "저장할 타임라인 데이터가 없습니다."}
 
     duration_sec = len(timeline_data)
     
-    # Extract states using strict object notation instead of .get()
-    states = [item.state for item in timeline_data]
+    states = [item.get("state", "focus") for item in timeline_data]
     events = _create_events_from_states(states)
 
     def count_state(target_state):
@@ -86,66 +91,82 @@ def save_session_timeline(session_id: str, payload: schemas.TimelineBulkCreate, 
     def count_events(target_type):
         return sum(1 for e in events if e["type"] == target_type)
 
-    absent_sec = count_state("absent")
-    away_sec = count_state("gaze_side")
-    bad_posture_sec = count_state("bad_posture")
+    # NEW: Helper function to accurately extract flags from the timeline array
+    def count_flag(flag_name):
+        return sum(1 for item in timeline_data if item.get("flags", {}).get(flag_name))
 
-    # Re-pack the timeline into dicts for your AI analysis engine
+    absent_sec = count_state("absent")
+
+    # 2. Build the Raw Summary with ALL required metrics
+    raw_summary = {
+        "focus_total_sec": count_state("focus"),
+        "bad_posture_total_sec": count_state("bad_posture"),
+        "gaze_side_total_sec": count_state("gaze_side"),
+        "gaze_down_total_sec": count_state("gaze_down"),
+        "away_total_sec": count_state("gaze_side") + count_state("gaze_down") + count_state("gaze_away"),
+        "drowsy_total_sec": count_state("drowsy"),
+        "absent_total_sec": absent_sec,
+        "unknown_total_sec": count_state("unknown"),
+        "present_total_sec": duration_sec - absent_sec,
+        "bad_posture_count": count_events("bad_posture"),
+        "gaze_side_count": count_events("gaze_side"),
+        "gaze_down_count": count_events("gaze_down"),
+        "away_count": count_events("gaze_side") + count_events("gaze_down") + count_events("gaze_away"),
+        "drowsy_count": count_events("drowsy"),
+        "absent_count": count_events("absent"),
+        "unknown_count": count_events("unknown"),
+        
+        # FIX: Expose specific flags to the feedback generator so it knows exactly what went wrong
+        "eye_closed_total_sec": count_flag("eye_closed"),
+        "long_eye_closure_count": count_flag("long_eye_closure"),
+        "head_down_total_sec": count_flag("head_down"),
+        "head_tilt_total_sec": count_flag("head_tilt")
+    }
+
+    # 3. EXPLICITLY EXECUTE THE AI ENGINES
+    scored_summary = calculate_focus_score(raw_summary, duration_sec)
+    
+    formatted_timeline = []
+    for item in timeline_data:
+        formatted_timeline.append({
+            "t": int(item.get("t", 0)),
+            "state": str(item.get("state", "focus")),
+            "decision_source": str(item.get("decision_source", "rule")),
+            "states": item.get("states", [item.get("state", "focus")]),
+            "flags": item.get("flags", {})
+        })
+
     raw_result = {
         "session_id": session_id,
-        "status": "success",
-        "meta": {
-            "duration_sec": duration_sec,
-            "camera_type": "edge_web",
-            "version": "ai-edge-1.0",
-            "processing_time_sec": 0
-        },
-        "summary": {
-            "focus_total_sec": count_state("focus"),
-            "bad_posture_total_sec": bad_posture_sec,
-            "gaze_side_total_sec": count_state("gaze_side"),
-            "gaze_down_total_sec": count_state("gaze_down"),
-            "away_total_sec": away_sec,
-            "drowsy_total_sec": count_state("drowsy"),
-            "absent_total_sec": absent_sec,
-            "unknown_total_sec": count_state("unknown"),
-            "present_total_sec": duration_sec - absent_sec,
-            "bad_posture_count": count_events("bad_posture"),
-            "gaze_side_count": count_events("gaze_side"),
-            "gaze_down_count": count_events("gaze_down"),
-            "away_count": count_events("gaze_side"),
-            "drowsy_count": count_events("drowsy"),
-            "absent_count": count_events("absent"),
-            "unknown_count": count_events("unknown")
-        },
-        "timeline": [item.model_dump() for item in timeline_data], 
+        "meta": {"duration_sec": duration_sec},
+        "summary": scored_summary,
+        "timeline": formatted_timeline, 
         "events": events
     }
 
-    finalized = _finalize_analysis_result(raw_result)
-    final_summary = finalized.get("summary", {})
-    feedback_dict = finalized.get("feedback", {})
+    feedback_payload = generate_personal_feedback_payload(raw_result)
+    pf_dict = feedback_payload.get("personal_feedback")
     
-    real_focus_score = final_summary.get("focus_score", 0)
-    hybrid_focus_ratio = real_focus_score / 100.0
+    feedback_dict = generate_feedback(scored_summary)
     
-    # Delete old records
-    db.query(models.AnalysisTimeline).filter(models.AnalysisTimeline.session_id == session_id).delete()
-    db.query(models.AnalysisEvent).filter(models.AnalysisEvent.session_id == session_id).delete()
-    db.query(models.AnalysisSummary).filter(models.AnalysisSummary.session_id == session_id).delete()
+    # 4. Clear old records to prevent database locks
+    db.query(models.AnalysisTimeline).filter(models.AnalysisTimeline.session_id == str(session_id)).delete()
+    db.query(models.AnalysisEvent).filter(models.AnalysisEvent.session_id == str(session_id)).delete()
+    db.query(models.AnalysisSummary).filter(models.AnalysisSummary.session_id == str(session_id)).delete()
+    db.commit() 
 
-    # --- FIX 1: HIGH-SPEED BULK INSERT ---
-    # Map data to ORM objects and bypass the heavy session tracking
+    # 5. Insert Timeline
     timeline_records = [
-        models.AnalysisTimeline(session_id=session_id, t=item.t, state=item.state)
+        models.AnalysisTimeline(session_id=str(session_id), t=int(item["t"]), state=str(item["state"]))
         for item in timeline_data
     ]
-    db.bulk_save_objects(timeline_records)
+    db.add_all(timeline_records)
+    db.flush() 
 
-    # Insert Events
+    # 6. Insert Events
     event_records = [
         models.AnalysisEvent(
-            session_id=session_id,
+            session_id=str(session_id),
             event_type=e["type"],
             start_sec=e["start_sec"],
             end_sec=e["end_sec"],
@@ -155,41 +176,42 @@ def save_session_timeline(session_id: str, payload: schemas.TimelineBulkCreate, 
     ]
     db.add_all(event_records)
 
-    # Insert Summary
+    # 7. Insert Summary
     summary_record = models.AnalysisSummary(
-        session_id=session_id,
-        focus_ratio=hybrid_focus_ratio, 
-        absent_count=final_summary.get("absent_count", 0),
-        absent_total_sec=final_summary.get("absent_total_sec", 0),
-        away_count=final_summary.get("away_count", 0),
-        away_total_sec=final_summary.get("away_total_sec", 0),
-        bad_posture_ratio=final_summary.get("bad_posture_ratio", 0),
+        session_id=str(session_id),
+        focus_ratio=scored_summary.get("focus_score", 0) / 100.0, 
+        absent_count=scored_summary.get("absent_count", 0),
+        absent_total_sec=scored_summary.get("absent_total_sec", 0),
+        away_count=scored_summary.get("away_count", 0),
+        away_total_sec=scored_summary.get("away_total_sec", 0),
+        bad_posture_ratio=scored_summary.get("bad_posture_total_sec", 0) / max(duration_sec, 1),
         processing_time_sec=0,
         camera_type="edge_web",
         version="ai-edge-1.0"
     )
     db.add(summary_record)
 
-    # Insert Feedback 
+    # 8. Format & Insert AI Feedback
     feedback_text = "\n".join(
         str(feedback_dict.get(key)).strip()
         for key in ("summary_text", "weak_point", "recommendation")
         if feedback_dict.get(key)
     )
 
-    existing_feedback = db.query(models.AnalysisFeedback).filter(models.AnalysisFeedback.session_id == session_id).first()
+    # FIX: Remove json.dumps. SQLAlchemy will automatically cast this python dictionary safely into the DB!
+    existing_feedback = db.query(models.AnalysisFeedback).filter(models.AnalysisFeedback.session_id == str(session_id)).first()
     if existing_feedback:
         existing_feedback.feedback_text = feedback_text
-        existing_feedback.personal_feedback = finalized.get("personal_feedback")
-        existing_feedback.feedback_source = finalized.get("feedback_source")
-        existing_feedback.feedback_version = finalized.get("feedback_version")
+        existing_feedback.personal_feedback = pf_dict 
+        existing_feedback.feedback_source = feedback_payload.get("feedback_source")
+        existing_feedback.feedback_version = feedback_payload.get("feedback_version")
     else:
         new_feedback = models.AnalysisFeedback(
-            session_id=session_id,
+            session_id=str(session_id),
             feedback_text=feedback_text,
-            personal_feedback=finalized.get("personal_feedback"),
-            feedback_source=finalized.get("feedback_source"),
-            feedback_version=finalized.get("feedback_version")
+            personal_feedback=pf_dict,
+            feedback_source=feedback_payload.get("feedback_source"),
+            feedback_version=feedback_payload.get("feedback_version")
         )
         db.add(new_feedback)
 

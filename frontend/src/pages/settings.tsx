@@ -9,6 +9,11 @@ export function Settings() {
   // View state: 'main', 'password', 'delete'
   const [view, setView] = useState<'main' | 'password' | 'delete'>('main');
 
+  // NEW: State for the Presentation Alarm
+  const [alarmEnabled, setAlarmEnabled] = useState(
+    localStorage.getItem("focus_alarm_enabled") === "true"
+  );
+
   // Form states
   const [profile, setProfile] = useState({
     name: localStorage.getItem("name") || "",
@@ -25,6 +30,7 @@ export function Settings() {
   const [deletePassword, setDeletePassword] = useState("");
   const [isDeleting, setIsDeleting] = useState(false);
 
+
   // --- 1. Handle Bulk Profile Save ---
   const handleSaveAll = async () => {
     if (!userId) return;
@@ -40,6 +46,8 @@ export function Settings() {
       if (response.ok) {
         localStorage.setItem("name", profile.name);
         localStorage.setItem("email", profile.email);
+        // NEW: Save the alarm toggle state
+        localStorage.setItem("focus_alarm_enabled", alarmEnabled.toString());
         alert("모든 변경사항이 저장되었습니다.");
       } else {
         alert("저장에 실패했습니다.");
@@ -270,6 +278,30 @@ export function Settings() {
           >
             계정 삭제
           </button>
+        </div>
+      </section>
+
+      <section className="bg-white rounded-2xl border border-border p-6">
+        <div className="flex items-center gap-3 mb-6">
+          <div className="p-2 bg-accent rounded-lg text-primary">
+            <AlertTriangle className="w-5 h-5" />
+          </div>
+          <h2 className="text-xl font-semibold">학습 환경 설정</h2>
+        </div>
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="font-medium text-foreground">집중력 저하 경고 알람</div>
+            <div className="text-sm text-muted-foreground mt-1">집중 상태를 이탈할 경우 화면 깜빡임과 알림음을 발생시킵니다. (프레젠테이션 시연용)</div>
+          </div>
+          <label className="relative inline-flex items-center cursor-pointer">
+            <input 
+              type="checkbox" 
+              className="sr-only peer" 
+              checked={alarmEnabled} 
+              onChange={(e) => setAlarmEnabled(e.target.checked)} 
+            />
+            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-destructive"></div>
+          </label>
         </div>
       </section>
 
