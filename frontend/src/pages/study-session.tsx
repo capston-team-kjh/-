@@ -86,7 +86,7 @@ export function StudySession() {
   const [debugData, setDebugData] = useState<any>({});
 
   // --- NEW: UI Toggle States ---
-  const [showCameras, setShowCameras] = useState(true);
+  const [showCameras, setShowCameras] = useState(false);
   const [showChart, setShowChart] = useState(true);
   const [showDebug, setShowDebug] = useState(false);
 
