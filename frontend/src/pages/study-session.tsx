@@ -1,29 +1,176 @@
-import { useState, useEffect, useRef } from "react";
-import { Play, Square, Activity } from "lucide-react";
+import { useState, useEffect, useRef, useMemo } from "react";
+import { Play, Square, Activity, TrendingUp, Camera, Settings2 } from "lucide-react";
 import { setupDualCameras } from "@/utils/dualCamManager"; 
 import { FaceLandmarker, PoseLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
 import * as ort from "onnxruntime-web";
+import {
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
+} from "recharts";
+
+// Add the State Weights for the Real-Time Chart
+const STATE_WEIGHTS: Record<string, number> = {
+  "focus": 100, "bad_posture": 60, "gaze_away": 40, "gaze_side": 40,
+  "gaze_down": 40, "unknown": 50, "present_unknown": 50,
+  "drowsy": 20, "sleep_suspect": 20, "absent": 0,
+};
+
+const FILTER_CONFIG: Record<string, number> = {
+  gaze_side: 2,
+  gaze_down: 2,
+  bad_posture: 2,
+  absent: 4,
+};
+
+// EXACT PARITY CONFIG (Matched to analyze.py)
+const ANALYZE_CONFIG = {
+  page_turn_min_path_len: 0.18,
+  page_turn_min_net_disp: 0.14,
+  page_turn_max_dir_changes: 2,
+  page_turn_min_x_span: 0.12,
+  page_turn_max_y_span: 0.10,
+
+  pen_fidget_min_path_len: 0.18,
+  pen_fidget_max_bbox_diag: 0.12,
+  pen_fidget_min_dir_changes: 3,
+
+  restless_hand_min_path_len: 0.28,
+  restless_hand_min_bbox_diag: 0.18,
+  restless_hand_min_dir_changes: 2,
+
+  ear_baseline_ratio: 0.58,
+  ear_reopen_baseline_ratio: 0.72,
+  drowsy_ear_threshold: 0.16,
+  drowsy_ear_reopen_threshold: 0.20,
+  face_head_down_threshold: 0.72,
+  face_head_down_offset: 0.10,
+};
+
+const getHandFeatures = (points: {x: number, y: number}[]) => {
+  if (points.length < 2) return null;
+  let pathLen = 0;
+  for (let i = 1; i < points.length; i++) {
+    pathLen += Math.hypot(points[i].x - points[i-1].x, points[i].y - points[i-1].y);
+  }
+  const netDisp = Math.hypot(points[points.length-1].x - points[0].x, points[points.length-1].y - points[0].y);
+  const xs = points.map(p => p.x);
+  const ys = points.map(p => p.y);
+  const xSpan = Math.max(...xs) - Math.min(...xs);
+  const ySpan = Math.max(...ys) - Math.min(...ys);
+  const bboxDiag = Math.hypot(xSpan, ySpan);
+
+  let dirChanges = 0;
+  if (points.length >= 3) {
+    const vectors = [];
+    for (let i = 1; i < points.length; i++) {
+      const dx = points[i].x - points[i-1].x;
+      const dy = points[i].y - points[i-1].y;
+      const mag = Math.hypot(dx, dy);
+      if (mag > 1e-6) vectors.push({x: dx/mag, y: dy/mag});
+    }
+    for (let i = 1; i < vectors.length; i++) {
+      const dot = vectors[i-1].x * vectors[i].x + vectors[i-1].y * vectors[i].y;
+      if (dot < 0.2) dirChanges++;
+    }
+  }
+  return { pathLen, netDisp, xSpan, ySpan, bboxDiag, dirChanges };
+};
+
+const ENABLE_UNKNOWN_STATE = true;
 
 export function StudySession() {
   const [isRunning, setIsRunning] = useState(false);
   const [seconds, setSeconds] = useState(0);
   const [sessionId, setSessionId] = useState<number | null>(null);
-  
+
   const [currentState, setCurrentState] = useState<string>("idle");
   const [debugData, setDebugData] = useState<any>({});
-  
-  // NEW: Array to hold the timeline data for the database
+
+  // --- NEW: UI Toggle States ---
+  const [showCameras, setShowCameras] = useState(false);
+  const [showChart, setShowChart] = useState(true);
+  const [showDebug, setShowDebug] = useState(false);
+
+  // NEW: Read the alarm setting and prepare an Audio Context
+  const alarmEnabledRef = useRef(localStorage.getItem("focus_alarm_enabled") === "true");
+  const audioCtxRef = useRef<AudioContext | null>(null);
+
+  // NEW: A zero-dependency function to synthesize a system beep
+  const playBeep = () => {
+    try {
+      if (!audioCtxRef.current) {
+        audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+      }
+      const ctx = audioCtxRef.current;
+      if (ctx.state === 'suspended') ctx.resume();
+
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(600, ctx.currentTime); // Pitch
+      gain.gain.setValueAtTime(0.1, ctx.currentTime); // Volume
+      
+      osc.start();
+      gain.gain.exponentialRampToValueAtTime(0.00001, ctx.currentTime + 0.3);
+      osc.stop(ctx.currentTime + 0.3);
+    } catch (e) {
+      console.warn("Audio playback failed", e);
+    }
+  };
+
+  // NEW: Monitor state changes and fire the alarm!
+  useEffect(() => {
+    if (isRunning && alarmEnabledRef.current && currentState !== "focus" && currentState !== "idle") {
+      playBeep();
+    }
+  }, [currentState, isRunning]);
+
+  // Array to hold the timeline data for the database
   const timelineRef = useRef<{t: number, state: string}[]>([]);
   
-  // NEW: 10-second sliding window for temporal AI features (like drowsiness)
+  // 10-second sliding window for temporal AI features (like drowsiness)
   const temporalBufferRef = useRef<any[]>([]);
   const inferenceIntervalId = useRef<number | null>(null);
+
+  const startTimeRef = useRef<number | null>(null);
+
+  // Update the types to accept the new exact-parity variables
+  const calibrationBufferRef = useRef<{
+    ear: number; 
+    rEar: number; 
+    lEar: number; 
+    headDown: number; 
+    eyeWidth: number;
+  }[]>([]);
+
+  // Start with system defaults so inference can begin immediately
+  const personalThresholdsRef = useRef<{
+    ear: number; rClose: number; rReopen: number; 
+    lClose: number; lReopen: number; headDown: number; eyeWidth: number;
+  }>({
+    ear: 0.25,
+    rClose: ANALYZE_CONFIG.drowsy_ear_threshold,
+    rReopen: ANALYZE_CONFIG.drowsy_ear_reopen_threshold,
+    lClose: ANALYZE_CONFIG.drowsy_ear_threshold,
+    lReopen: ANALYZE_CONFIG.drowsy_ear_reopen_threshold,
+    headDown: ANALYZE_CONFIG.face_head_down_threshold,
+    eyeWidth: 9999 // Safely high default so posture fallback doesn't false-trigger early
+  });
+  
+  // Tracks the current state of each eye to prevent flickering (Hysteresis)
+  const eyeStateRef = useRef({ rightClosed: false, leftClosed: false });
+
+  //2. 히스토리 저장용 Ref(Ref for saving history)
+  const stateHistoryRef = useRef<string[]>([]);
+  // ----------------------------------------- 여기까지 추가
   
   // Refs for our video elements
   const faceVideoRef = useRef<HTMLVideoElement>(null);
   const deskVideoRef = useRef<HTMLVideoElement>(null);
 
-  // NEW: Canvas refs for drawing the landmarks
+  // Canvas refs for drawing the landmarks
   const faceCanvasRef = useRef<HTMLCanvasElement>(null);
   const deskCanvasRef = useRef<HTMLCanvasElement>(null);
   
@@ -37,10 +184,35 @@ export function StudySession() {
   const deskPoseRef = useRef<PoseLandmarker | null>(null);
   const [modelsLoaded, setModelsLoaded] = useState(false);
 
-  // NEW: ONNX Model Ref
+  // ONNX Model Ref
   const onnxSessionRef = useRef<ort.InferenceSession | null>(null);
 
-  // NEW: Load MediaPipe models on component mount
+  // NEW: Real-time chart data processor
+  const liveChartData = useMemo(() => {
+    if (!isRunning || timelineRef.current.length === 0) return [];
+    
+    const totalSecs = timelineRef.current.length;
+    // Cap the graph at 60 data points to ensure it remains highly performant during long sessions
+    const bucketSize = Math.max(1, Math.floor(totalSecs / 60));
+
+    const bucketedData = [];
+    for (let i = 0; i < totalSecs; i += bucketSize) {
+      const chunk = timelineRef.current.slice(i, i + bucketSize);
+      // Calculate average score for this time bucket
+      const avgScore = chunk.reduce((sum, val) => sum + (STATE_WEIGHTS[val.state] ?? 100), 0) / chunk.length;
+      
+      const tIndex = chunk[chunk.length - 1].t; 
+      const mins = Math.floor(tIndex / 60);
+      const secs = tIndex % 60;
+      bucketedData.push({
+        time: `${mins}:${String(secs).padStart(2, "0")}`,
+        score: Math.round(avgScore),
+      });
+    }
+    return bucketedData;
+  }, [seconds, isRunning]);
+  
+  // Load MediaPipe models on component mount
   useEffect(() => {
     const initModels = async () => {
       try {
@@ -87,16 +259,6 @@ export function StudySession() {
     initModels();
   }, []);
 
-  useEffect(() => {
-    let interval: number | undefined;
-    if (isRunning) {
-      interval = window.setInterval(() => {
-        setSeconds((s) => s + 1);
-      }, 1000);
-    }
-    return () => clearInterval(interval);
-  }, [isRunning]);
-
   const formatTime = (totalSeconds: number) => {
     const hours = Math.floor(totalSeconds / 3600);
     const minutes = Math.floor((totalSeconds % 3600) / 60);
@@ -122,6 +284,13 @@ export function StudySession() {
 
     try {
       const nowMs = performance.now();
+
+      if (startTimeRef.current) {
+         const elapsedRealSeconds = Math.floor((nowMs - startTimeRef.current) / 1000);
+         // React will automatically ignore this if the second hasn't actually changed
+         setSeconds(elapsedRealSeconds); 
+      }
+
       const faceCanvas = faceCanvasRef.current;
       const deskCanvas = deskCanvasRef.current;
 
@@ -210,9 +379,75 @@ export function StudySession() {
                 const rightEar = (getDist(159, 145) + getDist(158, 153)) / (2.0 * getDist(33, 133) + 1e-6);
                 const leftEar = (getDist(386, 374) + getDist(385, 380)) / (2.0 * getDist(362, 263) + 1e-6);
                 
-                // Matches AnalyzeConfig: drowsy_ear_threshold = 0.16
-                if (((rightEar + leftEar) / 2.0) <= 0.16) { 
-                    eye_closed = 1.0; blink = 1.0; 
+                const currentEar = (rightEar + leftEar) / 2.0;
+                const eyeMidY = (bestFaceLm[33].y + bestFaceLm[263].y) / 2.0;
+                const faceHeight = bestFaceLm[152].y - eyeMidY;
+                const currentHeadDown = faceHeight > 1e-6 ? ((bestFaceLm[1].y - eyeMidY) / faceHeight) : 0;
+                
+                // Declare eyeWidth here so it's accessible to both FACE MATH and POSE MATH
+                const currentEyeWidth = Math.abs(bestFaceLm[263].x - bestFaceLm[33].x);
+
+                // --- CALIBRATION LOGIC (Silent Background Refinement) ---
+            if (calibrationBufferRef.current.length < 30) {
+                if (currentEar > 0.10) {
+                    calibrationBufferRef.current.push({ 
+                        ear: currentEar, 
+                        rEar: rightEar, 
+                        lEar: leftEar, 
+                        headDown: currentHeadDown, 
+                        eyeWidth: currentEyeWidth 
+                    });
+                }
+
+                // Continuously refine the baseline if we have at least a few valid frames
+                if (calibrationBufferRef.current.length >= 5) {
+                    const getBaseline = (vals: number[]) => {
+                        const valid = vals.filter(v => v > 0).sort((a, b) => a - b);
+                        if (!valid.length) return 0.25;
+                        const upperCount = Math.max(1, Math.round(valid.length * 0.35));
+                        const upperThird = valid.slice(-upperCount);
+                        const mid = Math.floor(upperThird.length / 2);
+                        return upperThird.length % 2 !== 0 ? upperThird[mid] : (upperThird[mid - 1] + upperThird[mid]) / 2.0;
+                    };
+
+                    const rBase = getBaseline(calibrationBufferRef.current.map(v => v.rEar || v.ear));
+                    const lBase = getBaseline(calibrationBufferRef.current.map(v => v.lEar || v.ear));
+                    const avgHeadDown = calibrationBufferRef.current.reduce((acc, val) => acc + val.headDown, 0) / calibrationBufferRef.current.length;
+                    const avgEyeWidth = calibrationBufferRef.current.reduce((acc, val) => acc + val.eyeWidth, 0) / calibrationBufferRef.current.length;
+
+                    let rClose = Math.min(ANALYZE_CONFIG.drowsy_ear_threshold, rBase * ANALYZE_CONFIG.ear_baseline_ratio);
+                    let rReopen = Math.min(ANALYZE_CONFIG.drowsy_ear_reopen_threshold, rBase * ANALYZE_CONFIG.ear_reopen_baseline_ratio);
+                    rReopen = Math.max(rReopen, rClose + 0.01);
+
+                    let lClose = Math.min(ANALYZE_CONFIG.drowsy_ear_threshold, lBase * ANALYZE_CONFIG.ear_baseline_ratio);
+                    let lReopen = Math.min(ANALYZE_CONFIG.drowsy_ear_reopen_threshold, lBase * ANALYZE_CONFIG.ear_reopen_baseline_ratio);
+                    lReopen = Math.max(lReopen, lClose + 0.01);
+
+                    personalThresholdsRef.current = {
+                        ear: (rBase + lBase) / 2,
+                        rClose, rReopen, lClose, lReopen,
+                        headDown: Math.max(ANALYZE_CONFIG.face_head_down_threshold, avgHeadDown + ANALYZE_CONFIG.face_head_down_offset),
+                        eyeWidth: avgEyeWidth * 1.25
+                    };
+                }
+            }
+
+                // --- HYSTERESIS EVALUATION ---
+                if (personalThresholdsRef.current) {
+                    const tRef = personalThresholdsRef.current;
+                    
+                    if (eyeStateRef.current.rightClosed) eyeStateRef.current.rightClosed = rightEar < tRef.rReopen;
+                    else eyeStateRef.current.rightClosed = rightEar <= tRef.rClose;
+                    
+                    if (eyeStateRef.current.leftClosed) eyeStateRef.current.leftClosed = leftEar < tRef.lReopen;
+                    else eyeStateRef.current.leftClosed = leftEar <= tRef.lClose;
+
+                    if (eyeStateRef.current.rightClosed && eyeStateRef.current.leftClosed) {
+                        eye_closed = 1.0; blink = 1.0;
+                    }
+                    if (currentHeadDown >= tRef.headDown) {
+                        head_down = 1.0;
+                    }
                 }
 
                 if (bestFaceLm.length > 473) {
@@ -230,92 +465,88 @@ export function StudySession() {
                     const avgX = (getRatioX(468, 33, 133) + getRatioX(473, 362, 263)) / 2.0;
                     const avgY = (getRatioY(468, 159, 145) + getRatioY(473, 386, 374)) / 2.0;
 
-                    // Matches AnalyzeConfig: gaze_side_left_threshold = 0.35, gaze_side_right_threshold = 0.65
                     if (avgX <= 0.35 || avgX >= 0.65) gaze_side = 1.0;
-                    // Matches AnalyzeConfig: gaze_down_threshold = 0.62
                     if (avgY >= 0.62) gaze_down = 1.0;
                 }
                 
-                const eyeMidY = (bestFaceLm[33].y + bestFaceLm[263].y) / 2.0;
-                const faceHeight = bestFaceLm[152].y - eyeMidY;
-                const eyeWidth = Math.abs(bestFaceLm[263].x - bestFaceLm[33].x);
+                // Use the globally scoped currentEyeWidth here
+                if (currentEyeWidth > 1e-6 && (Math.abs(bestFaceLm[33].y - bestFaceLm[263].y) / currentEyeWidth >= 0.12)) head_tilt = 1.0;
+            } 
                 
-                // Matches AnalyzeConfig: face_head_down_threshold = 0.72
-                if (faceHeight > 1e-6 && ((bestFaceLm[1].y - eyeMidY) / faceHeight >= 0.72)) head_down = 1.0;
-                // Matches AnalyzeConfig: drowsy_head_tilt_threshold = 0.12
-                if (eyeWidth > 1e-6 && (Math.abs(bestFaceLm[33].y - bestFaceLm[263].y) / eyeWidth >= 0.12)) head_tilt = 1.0;
-            }
             
             // --- POSE MATH ---
-            if (bestShoulderLm) {
+            // If shoulders are visible with decent confidence, use standard vector math
+            if (bestShoulderLm && bestShoulderLm[11] && bestShoulderLm[11].visibility > 0.5) {
                 const shoulderWidth = Math.abs(bestShoulderLm[12].x - bestShoulderLm[11].x);
                 const shoulderMidX = (bestShoulderLm[11].x + bestShoulderLm[12].x) / 2.0;
                 
-                // Matches AnalyzeConfig: posture_shoulder_threshold = 0.12
                 if (Math.abs(bestShoulderLm[11].y - bestShoulderLm[12].y) >= 0.12) bad_posture = 1.0;
-                // Matches AnalyzeConfig: posture_tilt_threshold = 0.18
                 if (shoulderWidth > 1e-6 && Math.abs(bestShoulderLm[0].x - shoulderMidX) / shoulderWidth >= 0.18) bad_posture = 1.0;
+            } else if (bestFaceLm && personalThresholdsRef.current) {
+                // FALLBACK: Head-only posture tracking when body is hidden
+                const fallbackEyeWidth = Math.abs(bestFaceLm[263].x - bestFaceLm[33].x);
+                
+                // 1. Turtle Neck: Face is significantly closer to the screen than baseline
+                if (fallbackEyeWidth >= personalThresholdsRef.current.eyeWidth) {
+                    bad_posture = 1.0;
+                }
+                // 2. Severe Slouch: Eyes are heavily tilted off the horizontal axis
+                if (fallbackEyeWidth > 1e-6 && (Math.abs(bestFaceLm[33].y - bestFaceLm[263].y) / fallbackEyeWidth >= 0.15)) {
+                    bad_posture = 1.0;
+                }
             }
 
             // --- TEMPORAL MATH ---
             temporalBufferRef.current.push({
                 eye_closed: eye_closed === 1.0,
-                rightWrist: bestWristLm && bestWristLm[16] ? { x: bestWristLm[16].x, y: bestWristLm[16].y } : null
+                rightWrist: bestWristLm && bestWristLm[16] ? { 
+                    x: bestWristLm[16].x, y: bestWristLm[16].y, visibility: bestWristLm[16].visibility || 1.0 
+                } : null,
+                leftWrist: bestWristLm && bestWristLm[15] ? { 
+                    x: bestWristLm[15].x, y: bestWristLm[15].y, visibility: bestWristLm[15].visibility || 1.0 
+                } : null
             });
             if (temporalBufferRef.current.length > 10) temporalBufferRef.current.shift();
 
             if (temporalBufferRef.current.length === 10) {
                 if (temporalBufferRef.current.every((frame: any) => frame.eye_closed)) long_eye_closure = 1.0;
                 
-                let totalPathLen = 0.0;
-                let validFrames = 0;
-                const xs: number[] = []; const ys: number[] = [];
-                const vectors: {x: number, y: number}[] = [];
-                
-                for (let i = 1; i < temporalBufferRef.current.length; i++) {
-                    const prev = temporalBufferRef.current[i-1].rightWrist;
-                    const curr = temporalBufferRef.current[i].rightWrist;
-                    if (prev && curr) {
-                        const dx = curr.x - prev.x;
-                        const dy = curr.y - prev.y;
-                        const mag = Math.hypot(dx, dy);
-                        
-                        totalPathLen += mag;
-                        xs.push(curr.x); ys.push(curr.y);
-                        
-                        // Exact python dot-product vector tracking for direction changes
-                        if (mag > 1e-6) vectors.push({ x: dx / mag, y: dy / mag });
-                        validFrames++;
-                    }
-                }
+                // Extract valid frames for each hand
+                const rPoints = temporalBufferRef.current.map(f => f.rightWrist).filter(w => w && w.visibility > 0.5);
+                const lPoints = temporalBufferRef.current.map(f => f.leftWrist).filter(w => w && w.visibility > 0.5);
 
-                if (validFrames >= 7) {
-                    const first = temporalBufferRef.current[0].rightWrist || temporalBufferRef.current[1].rightWrist;
-                    const last = temporalBufferRef.current[9].rightWrist;
-                    const netDisp = Math.hypot(last.x - first.x, last.y - first.y);
-                    const xSpan = Math.max(...xs) - Math.min(...xs);
-                    const ySpan = Math.max(...ys) - Math.min(...ys);
-                    const bboxDiag = Math.hypot(xSpan, ySpan);
+                const classifyHand = (points: {x: number, y: number}[]) => {
+                    const features = getHandFeatures(points);
+                    if (!features) return null;
                     
-                    let dirChanges = 0;
-                    for (let i = 1; i < vectors.length; i++) {
-                        const dot = (vectors[i-1].x * vectors[i].x) + (vectors[i-1].y * vectors[i].y);
-                        if (dot < 0.2) dirChanges++;
-                    }
-                    
-                    // Matches AnalyzeConfig Exact Thresholds
-                    if (totalPathLen >= 0.18 && netDisp >= 0.14 && xSpan >= 0.12 && ySpan <= 0.10 && dirChanges <= 2) {
-                        page_turn = 1.0; 
-                    } 
-                    else if (totalPathLen >= 0.18 && bboxDiag <= 0.12 && dirChanges >= 3) {
-                        pen_fidget = 1.0; 
-                    } 
-                    else if (totalPathLen >= 0.28 && bboxDiag >= 0.18 && dirChanges >= 2) {
-                        restless_hand = 1.0; 
-                    }
-                }
-            }
+                    if (features.pathLen >= ANALYZE_CONFIG.page_turn_min_path_len &&
+                        features.netDisp >= ANALYZE_CONFIG.page_turn_min_net_disp &&
+                        features.xSpan >= ANALYZE_CONFIG.page_turn_min_x_span &&
+                        features.ySpan <= ANALYZE_CONFIG.page_turn_max_y_span &&
+                        features.dirChanges <= ANALYZE_CONFIG.page_turn_max_dir_changes) return "page_turn";
+                        
+                    if (features.pathLen >= ANALYZE_CONFIG.pen_fidget_min_path_len &&
+                        features.bboxDiag <= ANALYZE_CONFIG.pen_fidget_max_bbox_diag &&
+                        features.dirChanges >= ANALYZE_CONFIG.pen_fidget_min_dir_changes) return "pen_fidget";
+                        
+                    if (features.pathLen >= ANALYZE_CONFIG.restless_hand_min_path_len &&
+                        features.bboxDiag >= ANALYZE_CONFIG.restless_hand_min_bbox_diag &&
+                        features.dirChanges >= ANALYZE_CONFIG.restless_hand_min_dir_changes) return "restless_hand";
+                        
+                    return null;
+                };
 
+                const rAction = classifyHand(rPoints);
+                const lAction = classifyHand(lPoints);
+
+                if (rAction === "page_turn" || lAction === "page_turn") page_turn = 1.0;
+                if (rAction === "pen_fidget" || lAction === "pen_fidget") pen_fidget = 1.0;
+                if (rAction === "restless_hand" || lAction === "restless_hand") restless_hand = 1.0;
+
+                if (page_turn || pen_fidget || restless_hand) {
+                    temporalBufferRef.current = []; // Flush buffer to prevent action echoing
+                }
+             }
             // Map the calculated flags into the exact tensor array
             features[2] = face_seen;
             features[3] = gaze_side;
@@ -369,19 +600,58 @@ export function StudySession() {
                 } else if (face_seen === 0.0 && pose_seen === 1.0) {
                     finalState = "unknown"; 
                     decisionSource = "rule_face_hidden";
+                } else if (long_eye_closure === 1.0) {
+                    // NEW: Expose Drowsiness to the UI
+                    finalState = "drowsy";
+                    decisionSource = "rule_drowsy";
                 } else if (bad_posture === 1.0 && aiPrediction !== "gaze_side" && aiPrediction !== "gaze_down") {
-                    // FIX: Only enforce the posture penalty if the AI doesn't detect you looking away
                     finalState = "bad_posture";
                     decisionSource = "rule_bad_posture";
+                } else if (page_turn === 1.0) {
+                    // NEW: Expose Hand Actions to the UI
+                    finalState = "page_turn";
+                    decisionSource = "rule_hand_action";
+                } else if (pen_fidget === 1.0) {
+                    // NEW: Expose Hand Actions to the UI
+                    finalState = "pen_fidget";
+                    decisionSource = "rule_hand_action";
+                } else if (restless_hand === 1.0) {
+                    // NEW: Expose Hand Actions to the UI
+                    finalState = "restless_hand";
+                    decisionSource = "rule_hand_action";
                 } else if (aiConfidence < 0.65) { 
                     finalState = "unknown";
                     decisionSource = "rule";
                 }
 
+                // 분석 로직 수정(Modifying Analysis Logic)
+                stateHistoryRef.current.push(finalState);
+                
+                if (stateHistoryRef.current.length > 5) {
+                    stateHistoryRef.current.shift(); 
+                }
+                if (!ENABLE_UNKNOWN_STATE && finalState === "unknown") {
+                    finalState = "focus";
+                    decisionSource = "unknown_state_disabled";
+                }
+                if (finalState !== "focus" && finalState !== "absent") { 
+                    const requiredSec = FILTER_CONFIG[finalState] || 1;
+                    if (requiredSec > 1) {
+                        const recentStates = stateHistoryRef.current.slice(-requiredSec);
+                        const isMaintained = recentStates.length === requiredSec && 
+                                             recentStates.every(state => state === finalState);
+                        if (!isMaintained) {
+                            finalState = "focus";
+                            decisionSource = `filtered_by_${requiredSec}sec_rule`;
+                        }
+                    }
+                }
+                // ----------------------------------------- 여기까지 추가
+
                 predictedState = finalState;
 
                 // 3. Format the JSON payload exactly like analyze.py
-                const currentT = timelineRef.current.length + 1;
+                const currentT = startTimeRef.current ? Math.floor((nowMs - startTimeRef.current) / 1000) : 0;
                 const timelineEntry = {
                     t: currentT,
                     state: finalState,
@@ -428,7 +698,9 @@ export function StudySession() {
                 desk_poses: deskPoseRes.landmarks ? deskPoseRes.landmarks.length : 0
               },
               onnx_prediction: predictedState,
-              timeline_length: timelineRef.current.length
+              timeline_length: timelineRef.current.length,
+              // FIX: Grab the last item pushed to the array to avoid scope errors!
+              latest_payload: timelineRef.current[timelineRef.current.length - 1] || null
             });
       }
     } catch (error) {
@@ -457,11 +729,22 @@ export function StudySession() {
       
       // Reset timeline array for a new session
       timelineRef.current = [];
+      calibrationBufferRef.current = [];
+      personalThresholdsRef.current = {
+        ear: 0.25,
+        rClose: ANALYZE_CONFIG.drowsy_ear_threshold,
+        rReopen: ANALYZE_CONFIG.drowsy_ear_reopen_threshold,
+        lClose: ANALYZE_CONFIG.drowsy_ear_threshold,
+        lReopen: ANALYZE_CONFIG.drowsy_ear_reopen_threshold,
+        headDown: ANALYZE_CONFIG.face_head_down_threshold,
+        eyeWidth: 9999 
+      };
 
       const { faceStream, deskStream } = await setupDualCameras();
       if (faceVideoRef.current) faceVideoRef.current.srcObject = faceStream;
       if (deskVideoRef.current) deskVideoRef.current.srcObject = deskStream;
-
+      
+      startTimeRef.current = performance.now();
       setIsRunning(true);
       lastInferenceTime.current = performance.now(); // Reset timer
       animationFrameId.current = requestAnimationFrame(runInference);
@@ -486,21 +769,35 @@ export function StudySession() {
       }
       if (animationFrameId.current) cancelAnimationFrame(animationFrameId.current);
 
-      // 1. End the session in `focus_sessions`
+      // Step 1: Upload the FULL timeline (with flags!) so the backend AI scripts can generate feedback
+      if (timelineRef.current.length > 0) {
+        const timelineResponse = await fetch(`${import.meta.env.VITE_API_BASE_URL}/sessions/${sessionId}/timeline`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ timeline: timelineRef.current }), // Send the full rich array
+        });
+        
+        if (!timelineResponse.ok) {
+            const errorData = await timelineResponse.json();
+            console.error("Backend rejected the timeline:", errorData);
+            throw new Error("Timeline database insertion failed");
+        }
+      }
+      // Calculate the exact final real-world duration
+      const finalDuration = startTimeRef.current 
+        ? Math.floor((performance.now() - startTimeRef.current) / 1000) 
+        : seconds;
+
+      // Step 2: Mark the session as completed SECOND to trigger the SQS worker.
       await fetch(`${import.meta.env.VITE_API_BASE_URL}/sessions/${sessionId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "completed", end_time: new Date().toISOString() }),
+        body: JSON.stringify({ 
+            status: "completed", 
+            end_time: new Date().toISOString(),
+            duration_sec: finalDuration // Pass the real-world time
+        }),
       });
-
-      // 2. NEW: Bulk upload our accumulated timeline data to `analysis_timeline`
-      if (timelineRef.current.length > 0) {
-        await fetch(`${import.meta.env.VITE_API_BASE_URL}/sessions/${sessionId}/timeline`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ timeline: timelineRef.current }),
-        });
-      }
 
       setIsRunning(false);
       setSeconds(0);
@@ -512,13 +809,54 @@ export function StudySession() {
     }
   };
 
+  // NEW: Determine if we should currently be flashing red
+  const isDistracted = isRunning && alarmEnabledRef.current && currentState !== "focus" && currentState !== "idle";
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-accent/20 to-white p-8">
+    // FIX: Replaced the static wrapper with a dynamic one
+    <div className={`min-h-screen p-8 transition-colors duration-700 ${isDistracted ? 'bg-red-50 border-8 border-red-500/30' : 'bg-gradient-to-br from-accent/20 to-white border-8 border-transparent'}`}>
+      
+      {/* --- NEW: FLOATING CONTROL PANEL --- */}
+      {isRunning && (
+        <div className="fixed right-6 top-1/2 -translate-y-1/2 bg-white/90 backdrop-blur-md rounded-2xl border border-border p-3 shadow-lg flex flex-col gap-3 z-50">
+          <div className="flex items-center justify-center p-2 border-b border-border/50 mb-1">
+            <Settings2 className="w-5 h-5 text-muted-foreground" />
+          </div>
+          
+          <button 
+            onClick={() => setShowCameras(!showCameras)} 
+            className={`p-3 rounded-xl flex flex-col items-center gap-1.5 transition-all ${showCameras ? 'bg-primary/10 text-primary shadow-sm' : 'hover:bg-accent text-muted-foreground'}`}
+            title="카메라 뷰 토글"
+          >
+            <Camera className="w-5 h-5" />
+            <span className="text-[10px] font-bold">카메라</span>
+          </button>
+          
+          <button 
+            onClick={() => setShowChart(!showChart)} 
+            className={`p-3 rounded-xl flex flex-col items-center gap-1.5 transition-all ${showChart ? 'bg-primary/10 text-primary shadow-sm' : 'hover:bg-accent text-muted-foreground'}`}
+            title="실시간 차트 토글"
+          >
+            <TrendingUp className="w-5 h-5" />
+            <span className="text-[10px] font-bold">차트</span>
+          </button>
+          
+          <button 
+            onClick={() => setShowDebug(!showDebug)} 
+            className={`p-3 rounded-xl flex flex-col items-center gap-1.5 transition-all ${showDebug ? 'bg-slate-800 text-emerald-400 shadow-sm' : 'hover:bg-accent text-muted-foreground'}`}
+            title="AI 디버그 모드 토글"
+          >
+            <Activity className="w-5 h-5" />
+            <span className="text-[10px] font-bold">디버그</span>
+          </button>
+        </div>
+      )}
+      
       <div className="max-w-4xl mx-auto">
         <h1 className="text-3xl font-bold text-foreground mb-8">학습 세션</h1>
 
         {/* Re-styled Camera Preview Elements */}
-        <div className={`flex gap-4 mb-6 ${!isRunning ? 'hidden' : ''}`}>
+        <div className={`flex gap-4 mb-6 ${(!isRunning || !showCameras) ? 'hidden' : ''}`}>
           
           {/* FACE CAM */}
           <div className="w-1/2 relative rounded-xl overflow-hidden border-2 border-primary/20 bg-black shadow-sm">
@@ -561,9 +899,6 @@ export function StudySession() {
                 <div className="text-7xl font-bold text-primary mb-4 font-mono">
                   {formatTime(seconds)}
                 </div>
-                <div className="text-xl font-medium text-muted-foreground">
-                  현재 상태: <span className="font-bold text-primary">{currentState.toUpperCase()}</span>
-                </div>
               </div>
 
               <button
@@ -577,8 +912,40 @@ export function StudySession() {
           )}
         </div>
 
+        {/* --- NEW: REAL-TIME FOCUS CHART DROPDOWN --- */}
+        {isRunning && showChart && liveChartData.length > 0 && (
+          <details className="p-6 bg-white rounded-xl border border-border text-left mb-6 group cursor-pointer shadow-sm" open>
+            <summary className="font-semibold text-foreground flex items-center gap-2 outline-none">
+              <TrendingUp className="w-5 h-5 text-primary" />
+              실시간 집중도 분석
+              <span className="ml-auto text-xs text-muted-foreground group-open:hidden">클릭하여 펼치기</span>
+            </summary>
+            
+            <div className="mt-6 pt-4 border-t border-border cursor-default" onClick={(e) => e.preventDefault()}>
+              <ResponsiveContainer width="100%" height={250}>
+                <AreaChart data={liveChartData}>
+                  <defs>
+                    <linearGradient id="liveFocusGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#1a667a" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#1a667a" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis dataKey="time" stroke="#888" fontSize={12} tickLine={false} dy={10} />
+                  <YAxis stroke="#888" fontSize={12} domain={[0, 100]} ticks={[0, 25, 50, 75, 100]} tickLine={false} dx={-5} />
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: "#fff", border: "1px solid #e5e5e5", borderRadius: "8px" }} 
+                    formatter={(value: number) => [`${value}%`, "집중도"]} 
+                  />
+                  <Area type="monotone" dataKey="score" stroke="#1a667a" strokeWidth={3} fillOpacity={1} fill="url(#liveFocusGradient)" isAnimationActive={false} />
+                </AreaChart>
+              </ResponsiveContainer> 
+            </div>
+          </details>
+        )}
+
         {/* --- NEW: DEBUG DROPDOWN FOR AI MODEL --- */}
-        {isRunning && (
+        {isRunning && showDebug && (
           <details className="p-6 bg-slate-900 rounded-xl border border-slate-700 text-left mb-6 group cursor-pointer">
             <summary className="font-semibold text-slate-300 flex items-center gap-2 outline-none">
               <Activity className="w-5 h-5 text-emerald-400" />

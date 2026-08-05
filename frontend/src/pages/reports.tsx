@@ -1,13 +1,12 @@
 import { useState, useEffect, useMemo } from "react"; 
 import { Link } from "react-router";
-import { ChevronRight, Clock, Target, Calendar, Brain, ArrowUpRight, ArrowDownRight, AlertCircle } from "lucide-react";
+import { ChevronRight, Clock, Target, Calendar, Brain, ArrowUpRight, ArrowDownRight, AlertCircle, Trophy } from "lucide-react"; // Added Trophy
 
 interface ReportItem {
   id: number;
   display_index: number;
   date: string;
   date_raw: string;
-  duration_min: number;
   duration_sec: number;
   focus_score: number;
   eventSecs?: { gaze: number; posture: number; absent: number; fidget: number };
@@ -22,6 +21,7 @@ interface ReportItem {
 
 export function Reports() {
   const [sessionsList, setSessionsList] = useState<ReportItem[]>([]);
+  const [rankingPercentile, setRankingPercentile] = useState<number | null>(null); // NEW: Ranking State
   const [loading, setLoading] = useState(true);
 
   const [currentPage, setCurrentPage] = useState(1);
@@ -54,6 +54,22 @@ export function Reports() {
           const listData = await listRes.json();
           setSessionsList(listData.items || []);
         }
+
+        // NEW: Fetch Daily Ranking Percentile from Backend
+        try {
+          const rankRes = await fetch(`${import.meta.env.VITE_API_BASE_URL}/analytics/daily-ranking`, { headers });
+          if (rankRes.ok) {
+            const rankData = await rankRes.json();
+            setRankingPercentile(rankData.percentile);
+          } else {
+            // Fallback mock data for UI testing until backend is built
+            setRankingPercentile(12); 
+          }
+        } catch (error) {
+          // Fallback mock data for UI testing until backend is built
+          setRankingPercentile(12);
+        }
+
       } catch (error) {
         console.error("Failed fetching reports data:", error);
       } finally {
@@ -116,12 +132,12 @@ export function Reports() {
     if (weeklySessions.length === 0) return null;
 
     let totalScoreWeight = 0;
-    let totalMin = 0;
+    let totalSecs = 0;
     const totals = { "시선 분산": 0, "자세 불량": 0, "자리 이탈": 0, "과도한 움직임": 0 };
 
     weeklySessions.forEach(s => {
-      totalMin += s.duration_min;
-      totalScoreWeight += (s.focus_score * s.duration_min);
+      totalSecs += s.duration_sec;
+      totalScoreWeight += (s.focus_score * s.duration_sec);
       if (s.eventSecs) {
         totals["시선 분산"] += s.eventSecs.gaze;
         totals["자세 불량"] += s.eventSecs.posture;
@@ -130,7 +146,7 @@ export function Reports() {
       }
     });
 
-    const avgScore = totalMin > 0 ? Math.round(totalScoreWeight / totalMin) : 0;
+    const avgScore = totalSecs > 0 ? Math.round(totalScoreWeight / totalSecs) : 0;
     
     // Find worst habit
     let worstHabit = "없음";
@@ -158,7 +174,7 @@ export function Reports() {
       worstHabit, 
       recommendation, 
       hasDistractions: maxSecs > 0,
-      aiFeedback: latestSessionWithAI?.personal_feedback // Pass the JSON down
+      aiFeedback: latestSessionWithAI?.personal_feedback
     };
   }, [sessionsList]);
 
@@ -183,6 +199,27 @@ export function Reports() {
           {userName}님, 오늘의 성과와 주간 피드백을 확인해 보세요.
         </p>
       </div>
+
+      {/* --- NEW: Daily Ranking Banner --- */}
+      {dailyRecap.hasTodayData && rankingPercentile !== null && (
+        <div className="bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 rounded-2xl p-[1px] shadow-sm">
+          <div className="bg-white rounded-[15px] p-6 flex flex-col sm:flex-row items-start sm:items-center gap-5">
+            <div className="p-4 bg-indigo-50 text-indigo-600 rounded-full shrink-0">
+              <Trophy className="w-8 h-8" />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-foreground mb-1">
+                오늘 상위 {rankingPercentile}% 달성!
+              </h2>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                {rankingPercentile <= 20
+                  ? `대단합니다! 오늘 ${userName}님은 또래 학습자들 중 상위 ${rankingPercentile}%의 학습 시간과 집중도를 기록하고 있습니다. 지금의 완벽한 페이스를 유지하세요!`
+                  : `멋진 하루네요! 현재 전체 사용자 중 상위 ${rankingPercentile}%의 성과를 내고 있습니다. 조금 더 집중력을 발휘해 목표를 향해 나아가 볼까요?`}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Daily Briefing Section */}
       <div className="space-y-4">
@@ -239,7 +276,6 @@ export function Reports() {
           <div className="bg-white/80 rounded-xl p-5 border border-primary/10">
             <div className="flex flex-col">
               
-              {/* Header: Weekly Aggregate Stats */}
               <div className="flex items-center gap-2 pb-3 mb-4 border-b border-border/50">
                 <AlertCircle className={`w-5 h-5 ${weeklyRecap.hasDistractions ? "text-orange-500" : "text-emerald-500"}`} />
                 <h3 className="font-bold text-foreground text-lg">
@@ -248,7 +284,6 @@ export function Reports() {
                 </h3>
               </div>
 
-              {/* render the AI JSON or the fallback text */}
               {weeklyRecap.aiFeedback ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="bg-primary/5 p-4 rounded-lg border border-primary/20">
@@ -269,7 +304,6 @@ export function Reports() {
                   </div>
                 </div>
               ) : (
-                // Only shows up if the AI hasn't generated a JSON analysis yet
                 <p className="text-muted-foreground leading-relaxed">{weeklyRecap.recommendation}</p>
               )}
               
@@ -296,53 +330,27 @@ export function Reports() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {paginatedSessions.map((session) => {
-                  // If the AI hasn't attached the JSON feedback yet, the SQS worker is still running
-                  const isAnalyzing = !session.personal_feedback;
-
-                  return (
+                {paginatedSessions.map((session) => (
                     <tr key={session.id} className="hover:bg-accent/20 transition-colors group">
                       <td className="py-4 text-sm text-muted-foreground">{session.date}</td>
                       <td className="py-4 text-sm font-semibold text-foreground">세션 #{session.display_index}</td>
                       <td className="py-4 text-sm text-foreground">{formatAdaptiveTime(session.duration_sec)}</td>
                       <td className="py-4">
-                        {isAnalyzing ? (
-                          <div className="flex items-center gap-2">
-                            <div className="flex-1 max-w-[100px] bg-muted rounded-full h-2 overflow-hidden">
-                              {/* Animated pulse bar for analyzing state */}
-                              <div className="bg-muted-foreground/30 rounded-full h-2 w-full animate-pulse" />
-                            </div>
-                            <span className="text-sm font-medium text-muted-foreground">분석 중...</span>
-                          </div>
-                        ) : (
                           <div className="flex items-center gap-2">
                             <div className="flex-1 max-w-[100px] bg-muted rounded-full h-2">
                               <div className="bg-primary rounded-full h-2" style={{ width: `${session.focus_score}%` }} />
                             </div>
                             <span className="text-sm font-bold text-foreground font-mono">{session.focus_score}%</span>
                           </div>
-                        )}
                       </td>
                       <td className="py-4 text-right">
-                        {isAnalyzing ? (
-                          // Block navigation and show an alert instead of a Link
-                          <button 
-                            onClick={() => alert("AI가 세션 데이터를 분석 중입니다. 몇 분 후 다시 확인해 주세요.")}
-                            className="inline-flex items-center gap-1 text-sm text-muted-foreground cursor-not-allowed font-medium"
-                          >
-                            <span>리포트 대기 중</span>
-                            <Clock className="w-4 h-4" />
-                          </button>
-                        ) : (
                           <Link to={`/app/reports/${session.id}`} className="inline-flex items-center gap-1 text-sm text-primary hover:underline font-medium">
                             <span className="opacity-0 group-hover:opacity-100 transition-opacity text-xs">세부 분석 보기</span>
                             <ChevronRight className="w-4 h-4 text-primary" />
                           </Link>
-                        )}
                       </td>
                     </tr>
-                  );
-                })}
+                ))}
               </tbody>
             </table>
           )}

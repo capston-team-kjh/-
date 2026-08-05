@@ -335,3 +335,75 @@ def delete_session_data(
     db.commit()
 
     return {"message": "세션 및 모든 분석 데이터가 성공적으로 삭제되었습니다."}
+
+@router.get("/daily-ranking")
+def get_daily_ranking(
+    db: Session = Depends(get_db),
+    x_user_id: int = Header(..., alias="X-User-Id")
+):
+    """오늘 전체 사용자의 학습 시간과 집중도를 비교하여 상위 %를 반환합니다."""
+    
+    # 한국 시간(KST) 기준으로 '오늘'의 자정(00:00:00)부터 23:59:59까지 계산
+    now_kst = datetime.utcnow() + timedelta(hours=9)
+    start_of_day = datetime(now_kst.year, now_kst.month, now_kst.day)
+    end_of_day = start_of_day.replace(hour=23, minute=59, second=59)
+
+    # 오늘 완료된 '모든' 사용자의 세션 조회
+    sessions = db.query(models.FocusSession).filter(
+        models.FocusSession.start_time >= start_of_day,
+        models.FocusSession.start_time <= end_of_day,
+        models.FocusSession.status == "completed"
+    ).all()
+
+    if not sessions:
+        return {"percentile": 1} 
+
+    # 1. 유저별 '유효 학습 시간(Effective Study Time)' 집계 해시맵
+    user_stats = {}
+    for s in sessions:
+        if s.user_id not in user_stats:
+            user_stats[s.user_id] = 0.0
+
+        dur = _session_duration_sec(s) or 0
+        if dur <= 0: continue
+
+        # analysis_summary에서 해당 세션의 집중도(focus_ratio) 가져오기
+        summary_row = db.execute(
+            text("SELECT focus_ratio FROM analysis_summary WHERE session_id = :sid"),
+            {"sid": str(s.id)}
+        ).mappings().first()
+
+        f_ratio = summary_row.get("focus_ratio", 0) if summary_row else 0
+        
+        # 유효 학습 시간 = 실제 학습 시간 * 집중도 (예: 100초 * 0.9 = 90초)
+        user_stats[s.user_id] += (dur * f_ratio)
+
+    # 현재 유저가 오늘 학습 기록이 없는 경우 100%로 처리하여 UI에서 배너를 숨기거나 유도
+    if x_user_id not in user_stats:
+        return {"percentile": 100}
+
+    # 2. 유효 학습 시간을 기준으로 내림차순 정렬
+    ranked_users = sorted(
+        user_stats.items(),
+        key=lambda x: x[1],
+        reverse=True
+    )
+
+    # 3. 현재 유저의 등수 및 백분위(Percentile) 알고리즘
+    total_users = len(ranked_users)
+    rank = 0
+    for i, (uid, score) in enumerate(ranked_users):
+        if uid == x_user_id:
+            rank = i + 1
+            break
+            
+    if total_users <= 1:
+        percentile = 1
+    else:
+        # 상위 % 계산 (예: 1등 / 5명 = 20%)
+        percentile = int(round((rank / total_users) * 100))
+        
+    # UI 표기를 위해 최소 1%로 보정 (0% 방지)
+    percentile = max(1, percentile)
+
+    return {"percentile": percentile}
