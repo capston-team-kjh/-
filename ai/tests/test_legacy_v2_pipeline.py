@@ -4,6 +4,7 @@ import csv
 import json
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 from ai.browser_ml.legacy_sources import (
@@ -12,6 +13,12 @@ from ai.browser_ml.legacy_sources import (
     load_blind_visual_labels,
     load_frame_segment_labels,
     load_human_point_labels,
+)
+from ai.browser_ml.legacy_extraction import (
+    CacheIdentity,
+    cache_key,
+    choose_front_half,
+    requested_seconds,
 )
 
 
@@ -68,6 +75,59 @@ class LegacySourceTests(unittest.TestCase):
             self.assertEqual(label.source_path, clip.resolve())
             self.assertTrue(label.eligible)
 
+
+class LegacyExtractionTests(unittest.TestCase):
+    def test_cache_key_changes_when_contract_or_source_identity_changes(self) -> None:
+        identity = CacheIdentity(
+            source_sha256="a" * 64,
+            contract_sha256="b" * 64,
+            face_model_sha256="c" * 64,
+            pose_model_sha256="d" * 64,
+            extractor_version="legacy-v2-extractor-1",
+            sampling_fps=1,
+            camera_half="left",
+        )
+
+        self.assertNotEqual(
+            cache_key(identity),
+            cache_key(replace(identity, contract_sha256="e" * 64)),
+        )
+        self.assertNotEqual(
+            cache_key(identity),
+            cache_key(replace(identity, source_sha256="f" * 64)),
+        )
+
+    def test_merged_camera_selection_requires_stronger_front_face_evidence(self) -> None:
+        decision = choose_front_half(left_face_score=8.0, right_face_score=0.2)
+
+        self.assertEqual(decision.role, "front")
+        self.assertEqual(decision.half, "left")
+        self.assertTrue(decision.confident)
+
+        ambiguous = choose_front_half(left_face_score=0.2, right_face_score=0.1)
+        self.assertFalse(ambiguous.confident)
+        self.assertIsNone(ambiguous.half)
+
+    def test_requested_timestamps_include_initial_calibration_and_temporal_history(self) -> None:
+        label = type(
+            "Label",
+            (),
+            {
+                "eligible": True,
+                "timestamp_ms": 60_000,
+                "start_ms": None,
+                "end_ms": None,
+            },
+        )()
+
+        seconds = requested_seconds([label], duration_sec=180.0)
+
+        self.assertTrue(set(range(30)).issubset(seconds))
+        self.assertTrue(set(range(50, 61)).issubset(seconds))
+        self.assertNotIn(61, seconds)
+
+
+class LegacyAdditionalSourceTests(unittest.TestCase):
     def test_ambiguous_blind_rows_are_audited_but_not_eligible(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
