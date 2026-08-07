@@ -12,6 +12,8 @@ from ai.focus_ai.analyze import _finalize_analysis_result
 from ai.focus_ai.analyze import _create_events_from_states 
 from ai.analyzer.focus_score import calculate_focus_score
 from ai.focus_ai.feedback_generator import generate_personal_feedback_payload, generate_feedback
+from dotenv import load_dotenv
+load_dotenv() 
 
 # 라우터 설정
 router = APIRouter(
@@ -95,6 +97,19 @@ async def save_session_timeline(session_id: str, request: Request, db: Session =
     def count_flag(flag_name):
         return sum(1 for item in timeline_data if item.get("flags", {}).get(flag_name))
 
+    # FIX: Helper function to count segments (events) rather than raw seconds
+    def count_flag_segments(flag_name):
+        count = 0
+        in_seg = False
+        for item in timeline_data:
+            flag_val = item.get("flags", {}).get(flag_name, False)
+            if flag_val and not in_seg:
+                count += 1
+                in_seg = True
+            elif not flag_val:
+                in_seg = False
+        return count
+
     absent_sec = count_state("absent")
 
     # 2. Build the Raw Summary with ALL required metrics
@@ -116,16 +131,15 @@ async def save_session_timeline(session_id: str, request: Request, db: Session =
         "absent_count": count_events("absent"),
         "unknown_count": count_events("unknown"),
         
-        # FIX: Expose specific flags to the feedback generator so it knows exactly what went wrong
+        # FIX: Ensure accurate flag tracking for the feedback generator
         "eye_closed_total_sec": count_flag("eye_closed"),
-        "long_eye_closure_count": count_flag("long_eye_closure"),
+        "long_eye_closure_count": count_flag_segments("long_eye_closure"), # Now correctly counts events
         "head_down_total_sec": count_flag("head_down"),
-        "head_tilt_total_sec": count_flag("head_tilt")
+        "head_tilt_total_sec": count_flag("head_tilt"),
+        "sleep_suspect_total_sec": count_flag("sleep_suspect") # Added missing metric
     }
 
     # 3. EXPLICITLY EXECUTE THE AI ENGINES
-    scored_summary = calculate_focus_score(raw_summary, duration_sec)
-    
     formatted_timeline = []
     for item in timeline_data:
         formatted_timeline.append({
@@ -136,18 +150,24 @@ async def save_session_timeline(session_id: str, request: Request, db: Session =
             "flags": item.get("flags", {})
         })
 
+    # FIX: Added "status": "success" so the finalize logic knows it's safe to process
     raw_result = {
         "session_id": session_id,
+        "status": "success", 
         "meta": {"duration_sec": duration_sec},
-        "summary": scored_summary,
+        "summary": raw_summary, 
         "timeline": formatted_timeline, 
         "events": events
     }
 
-    feedback_payload = generate_personal_feedback_payload(raw_result)
-    pf_dict = feedback_payload.get("personal_feedback")
-    
-    feedback_dict = generate_feedback(scored_summary)
+    # FIX: Route the raw data through the finalized pipeline!
+    # This automatically generates the 5-minute time_patterns, scores the summary, and builds the feedback
+    final_result = _finalize_analysis_result(raw_result)
+
+    # Extract the properly processed dictionaries
+    scored_summary = final_result.get("summary", {})
+    pf_dict = final_result.get("personal_feedback")
+    feedback_dict = final_result.get("feedback")
     
     # 4. Clear old records to prevent database locks
     db.query(models.AnalysisTimeline).filter(models.AnalysisTimeline.session_id == str(session_id)).delete()
@@ -192,6 +212,9 @@ async def save_session_timeline(session_id: str, request: Request, db: Session =
     db.add(summary_record)
 
     # 8. Format & Insert AI Feedback
+    if not feedback_dict:
+        feedback_dict = {}
+        
     feedback_text = "\n".join(
         str(feedback_dict.get(key)).strip()
         for key in ("summary_text", "weak_point", "recommendation")
@@ -203,15 +226,17 @@ async def save_session_timeline(session_id: str, request: Request, db: Session =
     if existing_feedback:
         existing_feedback.feedback_text = feedback_text
         existing_feedback.personal_feedback = pf_dict 
-        existing_feedback.feedback_source = feedback_payload.get("feedback_source")
-        existing_feedback.feedback_version = feedback_payload.get("feedback_version")
+        # FIX: Pull source and version directly from final_result instead of the deleted feedback_payload
+        existing_feedback.feedback_source = final_result.get("feedback_source")
+        existing_feedback.feedback_version = final_result.get("feedback_version")
     else:
         new_feedback = models.AnalysisFeedback(
             session_id=str(session_id),
             feedback_text=feedback_text,
             personal_feedback=pf_dict,
-            feedback_source=feedback_payload.get("feedback_source"),
-            feedback_version=feedback_payload.get("feedback_version")
+            # FIX: Pull source and version directly from final_result
+            feedback_source=final_result.get("feedback_source"),
+            feedback_version=final_result.get("feedback_version")
         )
         db.add(new_feedback)
 

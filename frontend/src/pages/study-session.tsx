@@ -85,16 +85,13 @@ export function StudySession() {
   const [currentState, setCurrentState] = useState<string>("idle");
   const [debugData, setDebugData] = useState<any>({});
 
-  // --- NEW: UI Toggle States ---
   const [showCameras, setShowCameras] = useState(false);
   const [showChart, setShowChart] = useState(true);
   const [showDebug, setShowDebug] = useState(false);
 
-  // NEW: Read the alarm setting and prepare an Audio Context
   const alarmEnabledRef = useRef(localStorage.getItem("focus_alarm_enabled") === "true");
   const audioCtxRef = useRef<AudioContext | null>(null);
 
-  // NEW: A zero-dependency function to synthesize a system beep
   const playBeep = () => {
     try {
       if (!audioCtxRef.current) {
@@ -109,8 +106,8 @@ export function StudySession() {
       gain.connect(ctx.destination);
       
       osc.type = 'triangle';
-      osc.frequency.setValueAtTime(600, ctx.currentTime); // Pitch
-      gain.gain.setValueAtTime(0.1, ctx.currentTime); // Volume
+      osc.frequency.setValueAtTime(600, ctx.currentTime);
+      gain.gain.setValueAtTime(0.1, ctx.currentTime);
       
       osc.start();
       gain.gain.exponentialRampToValueAtTime(0.00001, ctx.currentTime + 0.3);
@@ -120,32 +117,22 @@ export function StudySession() {
     }
   };
 
-  // NEW: Monitor state changes and fire the alarm!
   useEffect(() => {
     if (isRunning && alarmEnabledRef.current && currentState !== "focus" && currentState !== "idle") {
       playBeep();
     }
   }, [currentState, isRunning]);
 
-  // Array to hold the timeline data for the database
   const timelineRef = useRef<{t: number, state: string}[]>([]);
-  
-  // 10-second sliding window for temporal AI features (like drowsiness)
   const temporalBufferRef = useRef<any[]>([]);
   const inferenceIntervalId = useRef<number | null>(null);
-
   const startTimeRef = useRef<number | null>(null);
+  const missingFramesRef = useRef(0);
 
-  // Update the types to accept the new exact-parity variables
   const calibrationBufferRef = useRef<{
-    ear: number; 
-    rEar: number; 
-    lEar: number; 
-    headDown: number; 
-    eyeWidth: number;
+    ear: number; rEar: number; lEar: number; headDown: number; eyeWidth: number;
   }[]>([]);
 
-  // Start with system defaults so inference can begin immediately
   const personalThresholdsRef = useRef<{
     ear: number; rClose: number; rReopen: number; 
     lClose: number; lReopen: number; headDown: number; eyeWidth: number;
@@ -156,51 +143,38 @@ export function StudySession() {
     lClose: ANALYZE_CONFIG.drowsy_ear_threshold,
     lReopen: ANALYZE_CONFIG.drowsy_ear_reopen_threshold,
     headDown: ANALYZE_CONFIG.face_head_down_threshold,
-    eyeWidth: 9999 // Safely high default so posture fallback doesn't false-trigger early
+    eyeWidth: 9999 
   });
   
-  // Tracks the current state of each eye to prevent flickering (Hysteresis)
   const eyeStateRef = useRef({ rightClosed: false, leftClosed: false });
-
-  //2. 히스토리 저장용 Ref(Ref for saving history)
   const stateHistoryRef = useRef<string[]>([]);
-  // ----------------------------------------- 여기까지 추가
   
-  // Refs for our video elements
   const faceVideoRef = useRef<HTMLVideoElement>(null);
   const deskVideoRef = useRef<HTMLVideoElement>(null);
-
-  // Canvas refs for drawing the landmarks
   const faceCanvasRef = useRef<HTMLCanvasElement>(null);
   const deskCanvasRef = useRef<HTMLCanvasElement>(null);
   
-  // Replace inferenceIntervalId with an animation frame ID and a timestamp tracker
   const animationFrameId = useRef<number | null>(null);
   const lastInferenceTime = useRef<number>(0);
 
+  // FIX 1: Restored the 4 independent models to fix the aspect ratio squish!
   const frontFaceRef = useRef<FaceLandmarker | null>(null);
-  const frontPoseRef = useRef<PoseLandmarker | null>(null);
   const deskFaceRef = useRef<FaceLandmarker | null>(null);
+  const frontPoseRef = useRef<PoseLandmarker | null>(null);
   const deskPoseRef = useRef<PoseLandmarker | null>(null);
+  
   const [modelsLoaded, setModelsLoaded] = useState(false);
-
-  // ONNX Model Ref
   const onnxSessionRef = useRef<ort.InferenceSession | null>(null);
 
-  // NEW: Real-time chart data processor
   const liveChartData = useMemo(() => {
     if (!isRunning || timelineRef.current.length === 0) return [];
-    
     const totalSecs = timelineRef.current.length;
-    // Cap the graph at 60 data points to ensure it remains highly performant during long sessions
     const bucketSize = Math.max(1, Math.floor(totalSecs / 60));
 
     const bucketedData = [];
     for (let i = 0; i < totalSecs; i += bucketSize) {
       const chunk = timelineRef.current.slice(i, i + bucketSize);
-      // Calculate average score for this time bucket
       const avgScore = chunk.reduce((sum, val) => sum + (STATE_WEIGHTS[val.state] ?? 100), 0) / chunk.length;
-      
       const tIndex = chunk[chunk.length - 1].t; 
       const mins = Math.floor(tIndex / 60);
       const secs = tIndex % 60;
@@ -212,7 +186,6 @@ export function StudySession() {
     return bucketedData;
   }, [seconds, isRunning]);
   
-  // Load MediaPipe models on component mount
   useEffect(() => {
     const initModels = async () => {
       try {
@@ -222,21 +195,22 @@ export function StudySession() {
 
         const faceOptions = {
           baseOptions: {
-            modelAssetPath: "/face_landmarker.task", // Full Local Face Model
+            modelAssetPath: "/face_landmarker.task", 
             delegate: "GPU" as const,
           },
           outputFacialTransformationMatrixes: true,
           runningMode: "VIDEO" as const,
-          numFaces: 1,
+          numFaces: 1, 
         };
 
         const poseOptions = {
           baseOptions: {
-            modelAssetPath: "/pose_landmarker.task", // Full Local Pose Model
+            // Utilizes the new heavy model correctly on unstitched standard frames!
+            modelAssetPath: "/pose_landmarker_heavy.task", 
             delegate: "GPU" as const,
           },
           runningMode: "VIDEO" as const,
-          numPoses: 1,
+          numPoses: 1, 
         };
 
         frontFaceRef.current = await FaceLandmarker.createFromOptions(vision, faceOptions);
@@ -278,34 +252,27 @@ export function StudySession() {
     const deskVideo = deskVideoRef.current;
 
     if (faceVideo.readyState < 2 || deskVideo.readyState < 2) return;
-
-    // Use the 4 new independent models!
     if (!frontFaceRef.current || !frontPoseRef.current || !deskFaceRef.current || !deskPoseRef.current) return;
 
     try {
       const nowMs = performance.now();
-
       if (startTimeRef.current) {
-         const elapsedRealSeconds = Math.floor((nowMs - startTimeRef.current) / 1000);
-         // React will automatically ignore this if the second hasn't actually changed
-         setSeconds(elapsedRealSeconds); 
+         setSeconds(Math.floor((nowMs - startTimeRef.current) / 1000)); 
       }
 
       const faceCanvas = faceCanvasRef.current;
       const deskCanvas = deskCanvasRef.current;
-
       if (faceVideo.videoWidth > 0) {
         faceCanvas.width = faceVideo.videoWidth; faceCanvas.height = faceVideo.videoHeight;
         deskCanvas.width = deskVideo.videoWidth; deskCanvas.height = deskVideo.videoHeight;
       }
 
-      // 1. Run all 4 independent trackers
+      // Execute on pristine, un-squished video frames!
       const frontFaceRes = frontFaceRef.current.detectForVideo(faceVideo, nowMs);
       const frontPoseRes = frontPoseRef.current.detectForVideo(faceVideo, nowMs);
       const deskFaceRes = deskFaceRef.current.detectForVideo(deskVideo, nowMs);
       const deskPoseRes = deskPoseRef.current.detectForVideo(deskVideo, nowMs);
 
-      // 2. Draw Face Landmarks (Cyan) using the Front Camera data
       const faceCtx = faceCanvas.getContext("2d");
       if (faceCtx) {
         faceCtx.clearRect(0, 0, faceCanvas.width, faceCanvas.height);
@@ -320,15 +287,13 @@ export function StudySession() {
         }
       }
 
-      // 3. Draw Posture Landmarks (Yellow wrists) using the Desk Camera data
       const deskCtx = deskCanvas.getContext("2d");
       if (deskCtx) {
         deskCtx.clearRect(0, 0, deskCanvas.width, deskCanvas.height);
         if (deskPoseRes.landmarks && deskPoseRes.landmarks.length > 0) {
-          const lm = deskPoseRes.landmarks[0];
           deskCtx.strokeStyle = "#facc15";
           deskCtx.lineWidth = 2;
-          
+          const lm = deskPoseRes.landmarks[0];
           [15, 16].forEach((idx) => {
             if (lm[idx]) {
               deskCtx.beginPath();
@@ -339,7 +304,6 @@ export function StudySession() {
         }
       }
 
-      // Throttled Database & ONNX Logic (1 FPS)
       if (nowMs - lastInferenceTime.current >= 1000) {
         lastInferenceTime.current = nowMs;
         let predictedState = "focus";
@@ -352,26 +316,18 @@ export function StudySession() {
             let eye_closed = 0, blink = 0, long_eye_closure = 0, head_down = 0, head_tilt = 0, drowsy = 0;
             let page_turn = 0, pen_fidget = 0, restless_hand = 0;
 
-            // =====================================
-            // FALLBACK ROUTING ENGINE
-            // =====================================
-            // Prefer Front Cam for Face, fallback to Desk Cam (e.g. sleeping on desk)
             const bestFaceLm = (frontFaceRes.faceLandmarks && frontFaceRes.faceLandmarks.length > 0) 
                 ? frontFaceRes.faceLandmarks[0] 
                 : ((deskFaceRes.faceLandmarks && deskFaceRes.faceLandmarks.length > 0) ? deskFaceRes.faceLandmarks[0] : null);
 
-            // Prefer Front Cam for Shoulders (Posture), fallback to Desk
             const bestShoulderLm = (frontPoseRes.landmarks && frontPoseRes.landmarks.length > 0)
                 ? frontPoseRes.landmarks[0]
                 : ((deskPoseRes.landmarks && deskPoseRes.landmarks.length > 0) ? deskPoseRes.landmarks[0] : null);
 
-            // Prefer Desk Cam for Wrists (Fidgeting), fallback to Front
             const bestWristLm = (deskPoseRes.landmarks && deskPoseRes.landmarks.length > 0)
                 ? deskPoseRes.landmarks[0]
                 : ((frontPoseRes.landmarks && frontPoseRes.landmarks.length > 0) ? frontPoseRes.landmarks[0] : null);
-            // =====================================
             
-            // --- FACE MATH ---
             if (bestFaceLm) {
                 face_seen = 1.0;
                 const getDist = (p1: number, p2: number) => Math.hypot(bestFaceLm[p1].x - bestFaceLm[p2].x, bestFaceLm[p1].y - bestFaceLm[p2].y);
@@ -384,22 +340,15 @@ export function StudySession() {
                 const faceHeight = bestFaceLm[152].y - eyeMidY;
                 const currentHeadDown = faceHeight > 1e-6 ? ((bestFaceLm[1].y - eyeMidY) / faceHeight) : 0;
                 
-                // Declare eyeWidth here so it's accessible to both FACE MATH and POSE MATH
                 const currentEyeWidth = Math.abs(bestFaceLm[263].x - bestFaceLm[33].x);
 
-                // --- CALIBRATION LOGIC (Silent Background Refinement) ---
             if (calibrationBufferRef.current.length < 30) {
                 if (currentEar > 0.10) {
                     calibrationBufferRef.current.push({ 
-                        ear: currentEar, 
-                        rEar: rightEar, 
-                        lEar: leftEar, 
-                        headDown: currentHeadDown, 
-                        eyeWidth: currentEyeWidth 
+                        ear: currentEar, rEar: rightEar, lEar: leftEar, headDown: currentHeadDown, eyeWidth: currentEyeWidth 
                     });
                 }
 
-                // Continuously refine the baseline if we have at least a few valid frames
                 if (calibrationBufferRef.current.length >= 5) {
                     const getBaseline = (vals: number[]) => {
                         const valid = vals.filter(v => v > 0).sort((a, b) => a - b);
@@ -432,7 +381,6 @@ export function StudySession() {
                 }
             }
 
-                // --- HYSTERESIS EVALUATION ---
                 if (personalThresholdsRef.current) {
                     const tRef = personalThresholdsRef.current;
                     
@@ -469,13 +417,9 @@ export function StudySession() {
                     if (avgY >= 0.62) gaze_down = 1.0;
                 }
                 
-                // Use the globally scoped currentEyeWidth here
                 if (currentEyeWidth > 1e-6 && (Math.abs(bestFaceLm[33].y - bestFaceLm[263].y) / currentEyeWidth >= 0.12)) head_tilt = 1.0;
             } 
                 
-            
-            // --- POSE MATH ---
-            // If shoulders are visible with decent confidence, use standard vector math
             if (bestShoulderLm && bestShoulderLm[11] && bestShoulderLm[11].visibility > 0.5) {
                 const shoulderWidth = Math.abs(bestShoulderLm[12].x - bestShoulderLm[11].x);
                 const shoulderMidX = (bestShoulderLm[11].x + bestShoulderLm[12].x) / 2.0;
@@ -483,22 +427,19 @@ export function StudySession() {
                 if (Math.abs(bestShoulderLm[11].y - bestShoulderLm[12].y) >= 0.12) bad_posture = 1.0;
                 if (shoulderWidth > 1e-6 && Math.abs(bestShoulderLm[0].x - shoulderMidX) / shoulderWidth >= 0.18) bad_posture = 1.0;
             } else if (bestFaceLm && personalThresholdsRef.current) {
-                // FALLBACK: Head-only posture tracking when body is hidden
                 const fallbackEyeWidth = Math.abs(bestFaceLm[263].x - bestFaceLm[33].x);
-                
-                // 1. Turtle Neck: Face is significantly closer to the screen than baseline
                 if (fallbackEyeWidth >= personalThresholdsRef.current.eyeWidth) {
                     bad_posture = 1.0;
                 }
-                // 2. Severe Slouch: Eyes are heavily tilted off the horizontal axis
                 if (fallbackEyeWidth > 1e-6 && (Math.abs(bestFaceLm[33].y - bestFaceLm[263].y) / fallbackEyeWidth >= 0.15)) {
                     bad_posture = 1.0;
                 }
             }
 
-            // --- TEMPORAL MATH ---
             temporalBufferRef.current.push({
                 eye_closed: eye_closed === 1.0,
+                head_y: bestFaceLm ? bestFaceLm[1].y : 0, 
+                head_x: bestFaceLm ? bestFaceLm[1].x : 0,
                 rightWrist: bestWristLm && bestWristLm[16] ? { 
                     x: bestWristLm[16].x, y: bestWristLm[16].y, visibility: bestWristLm[16].visibility || 1.0 
                 } : null,
@@ -509,9 +450,17 @@ export function StudySession() {
             if (temporalBufferRef.current.length > 10) temporalBufferRef.current.shift();
 
             if (temporalBufferRef.current.length === 10) {
-                if (temporalBufferRef.current.every((frame: any) => frame.eye_closed)) long_eye_closure = 1.0;
+                const headYs = temporalBufferRef.current.map(f => f.head_y);
+                const headXs = temporalBufferRef.current.map(f => f.head_x);
+                const headMotionY = Math.max(...headYs) - Math.min(...headYs);
+                const headMotionX = Math.max(...headXs) - Math.min(...headXs);
                 
-                // Extract valid frames for each hand
+                // THE FIREWALL: Only trigger sleep if the head is completely dead-still in BOTH directions!
+                // If headMotionX > 0.015, they are scanning lines of text (Reading), so block the penalty!
+                if (temporalBufferRef.current.every((frame: any) => frame.eye_closed) && headMotionY < 0.035 && headMotionX < 0.015) {
+                    long_eye_closure = 1.0;
+                }
+                
                 const rPoints = temporalBufferRef.current.map(f => f.rightWrist).filter(w => w && w.visibility > 0.5);
                 const lPoints = temporalBufferRef.current.map(f => f.leftWrist).filter(w => w && w.visibility > 0.5);
 
@@ -544,10 +493,10 @@ export function StudySession() {
                 if (rAction === "restless_hand" || lAction === "restless_hand") restless_hand = 1.0;
 
                 if (page_turn || pen_fidget || restless_hand) {
-                    temporalBufferRef.current = []; // Flush buffer to prevent action echoing
+                    temporalBufferRef.current = []; 
                 }
              }
-            // Map the calculated flags into the exact tensor array
+             
             features[2] = face_seen;
             features[3] = gaze_side;
             features[4] = gaze_down;
@@ -557,23 +506,18 @@ export function StudySession() {
             features[8] = long_eye_closure; 
             features[9] = head_down;
             features[10] = head_tilt;
-            features[11] = (long_eye_closure && head_down) ? 1.0 : 0.0; // Drowsy proxy
-            features[12] = page_turn; // page_turn (Requires temporal history buffer)
-            features[13] = pen_fidget; // pen_fidget (Requires temporal history buffer)
-            features[14] = restless_hand; // restless_hand (Requires temporal history buffer)
-            features[15] = 0.0; // unknown
+            features[11] = (long_eye_closure && head_down) ? 1.0 : 0.0; 
+            features[12] = page_turn; 
+            features[13] = pen_fidget; 
+            features[14] = restless_hand; 
+            features[15] = 0.0; 
 
             try {
-                // Create the [1, 16] Tensor
                 const tensor = new ort.Tensor("float32", features, [1, 16]);
-                
                 const inputName = onnxSessionRef.current.inputNames[0];
                 const feeds = { [inputName]: tensor };
-                
-                // Run the edge AI!
                 const results = await onnxSessionRef.current.run(feeds);
                 
-                // 1. Extract ONNX Outputs
                 const labelData = results[onnxSessionRef.current.outputNames[0]].data;
                 const probData = results[onnxSessionRef.current.outputNames[1]].data;
                 
@@ -582,49 +526,58 @@ export function StudySession() {
                 
                 if (labelData && labelData.length > 0) {
                     aiPrediction = String(labelData[0]);
-                    // Explicitly cast to Float32Array so TypeScript knows these are numbers
                     const probabilities = probData as Float32Array;
                     aiConfidence = Math.max(...probabilities); 
                 }
 
-                // 2. Apply Rule-Based Overrides (matching analyze.py logic)
                 let finalState = aiPrediction;
                 let decisionSource = "model";
 
-                // Check if we see a body even if the face is hidden
                 const pose_seen = (bestShoulderLm || bestWristLm) ? 1.0 : 0.0;
 
                 if (face_seen === 0.0 && pose_seen === 0.0) {
-                    finalState = "absent";
-                    decisionSource = "rule_absent";
+                    missingFramesRef.current += 1;
+                    if (missingFramesRef.current >= 5) {
+                        finalState = "absent";
+                        decisionSource = "rule_absent";
+                    } else {
+                        finalState = timelineRef.current.length > 0 ? timelineRef.current[timelineRef.current.length - 1].state : "unknown";
+                    }
                 } else if (face_seen === 0.0 && pose_seen === 1.0) {
-                    finalState = "unknown"; 
-                    decisionSource = "rule_face_hidden";
-                } else if (long_eye_closure === 1.0) {
-                    // NEW: Expose Drowsiness to the UI
-                    finalState = "drowsy";
-                    decisionSource = "rule_drowsy";
-                } else if (bad_posture === 1.0 && aiPrediction !== "gaze_side" && aiPrediction !== "gaze_down") {
-                    finalState = "bad_posture";
-                    decisionSource = "rule_bad_posture";
-                } else if (page_turn === 1.0) {
-                    // NEW: Expose Hand Actions to the UI
-                    finalState = "page_turn";
-                    decisionSource = "rule_hand_action";
-                } else if (pen_fidget === 1.0) {
-                    // NEW: Expose Hand Actions to the UI
-                    finalState = "pen_fidget";
-                    decisionSource = "rule_hand_action";
-                } else if (restless_hand === 1.0) {
-                    // NEW: Expose Hand Actions to the UI
-                    finalState = "restless_hand";
-                    decisionSource = "rule_hand_action";
-                } else if (aiConfidence < 0.65) { 
-                    finalState = "unknown";
-                    decisionSource = "rule";
-                }
+                    missingFramesRef.current += 1;
+                    if (missingFramesRef.current >= 5) {
+                        finalState = "drowsy"; 
+                        decisionSource = "rule_sleeping_on_desk";
+                    } else {
+                        finalState = timelineRef.current.length > 0 ? timelineRef.current[timelineRef.current.length - 1].state : "unknown";
+                    }
+                } else {
+                    missingFramesRef.current = 0; 
+                    
+                    // FIX 2: Replicate the 'drowsy_suppressed_by_activity' firewall from analyze.py
+                    const hasHandActivity = page_turn === 1.0 || pen_fidget === 1.0 || restless_hand === 1.0;
 
-                // 분석 로직 수정(Modifying Analysis Logic)
+                    if (long_eye_closure === 1.0 && !hasHandActivity) {
+                        finalState = "drowsy";
+                        decisionSource = "rule_drowsy";
+                    } else if (bad_posture === 1.0 && aiPrediction !== "gaze_side" && aiPrediction !== "gaze_down") {
+                        finalState = "bad_posture";
+                        decisionSource = "rule_bad_posture";
+                    } else if (page_turn === 1.0) {
+                        finalState = "page_turn";
+                        decisionSource = "rule_hand_action";
+                    } else if (pen_fidget === 1.0) {
+                        finalState = "pen_fidget";
+                        decisionSource = "rule_hand_action";
+                    } else if (restless_hand === 1.0) {
+                        finalState = "restless_hand";
+                        decisionSource = "rule_hand_action";
+                    } else if (aiConfidence < 0.65) { 
+                        finalState = "unknown";
+                        decisionSource = "rule";
+                    }
+                } 
+
                 stateHistoryRef.current.push(finalState);
                 
                 if (stateHistoryRef.current.length > 5) {
@@ -646,12 +599,13 @@ export function StudySession() {
                         }
                     }
                 }
-                // ----------------------------------------- 여기까지 추가
 
                 predictedState = finalState;
-
-                // 3. Format the JSON payload exactly like analyze.py
                 const currentT = startTimeRef.current ? Math.floor((nowMs - startTimeRef.current) / 1000) : 0;
+                
+                // Helper to check if they are actively sleeping face-down
+                const isSleepingOnDesk = face_seen === 0.0 && pose_seen === 1.0 && finalState === "drowsy";
+
                 const timelineEntry = {
                     t: currentT,
                     state: finalState,
@@ -664,14 +618,17 @@ export function StudySession() {
                         face_seen: Boolean(face_seen),
                         gaze_side: Boolean(gaze_side),
                         gaze_down: Boolean(gaze_down),
-                        bad_posture: Boolean(bad_posture),
+                        // FIX 2: Supressing posture flags when sleeping prevents the double penalty in feedback!
+                        bad_posture: finalState === "bad_posture",
                         eye_closed: Boolean(eye_closed),
                         blink: Boolean(blink),
                         long_eye_closure: Boolean(long_eye_closure),
-                        head_down: Boolean(head_down),
-                        head_tilt: Boolean(head_tilt),
-                        raw_drowsy: Boolean(drowsy),
-                        drowsy: Boolean(drowsy),
+                        head_down: (finalState !== "drowsy" && finalState !== "absent") && Boolean(head_down),
+                        head_tilt: (finalState !== "drowsy" && finalState !== "absent") && Boolean(head_tilt),
+                        // FIX 3: Added the sleep_suspect tracker to inform the backend exactly what happened
+                        raw_drowsy: Boolean(drowsy) || isSleepingOnDesk,
+                        drowsy: finalState === "drowsy",
+                        sleep_suspect: isSleepingOnDesk,
                         page_turn: Boolean(page_turn), 
                         pen_fidget: Boolean(pen_fidget), 
                         restless_hand: Boolean(restless_hand), 
@@ -680,7 +637,6 @@ export function StudySession() {
                     }
                 };
 
-                // Push the perfectly formatted JSON to the timeline array
                 timelineRef.current.push(timelineEntry);
 
             } catch (err) {
@@ -699,7 +655,6 @@ export function StudySession() {
               },
               onnx_prediction: predictedState,
               timeline_length: timelineRef.current.length,
-              // FIX: Grab the last item pushed to the array to avoid scope errors!
               latest_payload: timelineRef.current[timelineRef.current.length - 1] || null
             });
       }
@@ -727,7 +682,6 @@ export function StudySession() {
       const data = await response.json();
       setSessionId(data.id);
       
-      // Reset timeline array for a new session
       timelineRef.current = [];
       calibrationBufferRef.current = [];
       personalThresholdsRef.current = {
@@ -746,7 +700,7 @@ export function StudySession() {
       
       startTimeRef.current = performance.now();
       setIsRunning(true);
-      lastInferenceTime.current = performance.now(); // Reset timer
+      lastInferenceTime.current = performance.now(); 
       animationFrameId.current = requestAnimationFrame(runInference);
 
     } catch (error) {
@@ -769,12 +723,11 @@ export function StudySession() {
       }
       if (animationFrameId.current) cancelAnimationFrame(animationFrameId.current);
 
-      // Step 1: Upload the FULL timeline (with flags!) so the backend AI scripts can generate feedback
       if (timelineRef.current.length > 0) {
         const timelineResponse = await fetch(`${import.meta.env.VITE_API_BASE_URL}/sessions/${sessionId}/timeline`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ timeline: timelineRef.current }), // Send the full rich array
+          body: JSON.stringify({ timeline: timelineRef.current }), 
         });
         
         if (!timelineResponse.ok) {
@@ -783,19 +736,17 @@ export function StudySession() {
             throw new Error("Timeline database insertion failed");
         }
       }
-      // Calculate the exact final real-world duration
       const finalDuration = startTimeRef.current 
         ? Math.floor((performance.now() - startTimeRef.current) / 1000) 
         : seconds;
 
-      // Step 2: Mark the session as completed SECOND to trigger the SQS worker.
       await fetch(`${import.meta.env.VITE_API_BASE_URL}/sessions/${sessionId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
             status: "completed", 
             end_time: new Date().toISOString(),
-            duration_sec: finalDuration // Pass the real-world time
+            duration_sec: finalDuration 
         }),
       });
 
@@ -809,14 +760,11 @@ export function StudySession() {
     }
   };
 
-  // NEW: Determine if we should currently be flashing red
   const isDistracted = isRunning && alarmEnabledRef.current && currentState !== "focus" && currentState !== "idle";
 
   return (
-    // FIX: Replaced the static wrapper with a dynamic one
     <div className={`min-h-screen p-8 transition-colors duration-700 ${isDistracted ? 'bg-red-50 border-8 border-red-500/30' : 'bg-gradient-to-br from-accent/20 to-white border-8 border-transparent'}`}>
       
-      {/* --- NEW: FLOATING CONTROL PANEL --- */}
       {isRunning && (
         <div className="fixed right-6 top-1/2 -translate-y-1/2 bg-white/90 backdrop-blur-md rounded-2xl border border-border p-3 shadow-lg flex flex-col gap-3 z-50">
           <div className="flex items-center justify-center p-2 border-b border-border/50 mb-1">
@@ -855,18 +803,14 @@ export function StudySession() {
       <div className="max-w-4xl mx-auto">
         <h1 className="text-3xl font-bold text-foreground mb-8">학습 세션</h1>
 
-        {/* Re-styled Camera Preview Elements */}
         <div className={`flex gap-4 mb-6 ${(!isRunning || !showCameras) ? 'hidden' : ''}`}>
           
-          {/* FACE CAM */}
           <div className="w-1/2 relative rounded-xl overflow-hidden border-2 border-primary/20 bg-black shadow-sm">
              <span className="absolute top-2 left-2 bg-black/60 text-white text-xs px-2 py-1 rounded z-10">얼굴 캠</span>
              <video ref={faceVideoRef} autoPlay playsInline muted className="w-full transform scale-x-[-1]" />
-             {/* The canvas sits directly on top of the video */}
              <canvas ref={faceCanvasRef} className="absolute inset-0 w-full h-full transform scale-x-[-1] pointer-events-none" />
           </div>
 
-          {/* DESK CAM */}
           <div className="w-1/2 relative rounded-xl overflow-hidden border-2 border-primary/20 bg-black shadow-sm">
              <span className="absolute top-2 left-2 bg-black/60 text-white text-xs px-2 py-1 rounded z-10">책상 캠</span>
              <video ref={deskVideoRef} autoPlay playsInline muted className="w-full" />
@@ -874,8 +818,6 @@ export function StudySession() {
           </div>
           
         </div>
-
-        {/* ... (The rest of the UI remains identical) ... */}
 
         <div className="bg-white rounded-2xl border border-border p-12 mb-6 text-center shadow-lg">
           {!isRunning ? (
@@ -912,7 +854,6 @@ export function StudySession() {
           )}
         </div>
 
-        {/* --- NEW: REAL-TIME FOCUS CHART DROPDOWN --- */}
         {isRunning && showChart && liveChartData.length > 0 && (
           <details className="p-6 bg-white rounded-xl border border-border text-left mb-6 group cursor-pointer shadow-sm" open>
             <summary className="font-semibold text-foreground flex items-center gap-2 outline-none">
@@ -944,7 +885,6 @@ export function StudySession() {
           </details>
         )}
 
-        {/* --- NEW: DEBUG DROPDOWN FOR AI MODEL --- */}
         {isRunning && showDebug && (
           <details className="p-6 bg-slate-900 rounded-xl border border-slate-700 text-left mb-6 group cursor-pointer">
             <summary className="font-semibold text-slate-300 flex items-center gap-2 outline-none">
