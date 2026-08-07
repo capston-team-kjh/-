@@ -21,6 +21,7 @@ from ai.browser_ml.legacy_sources import (
     load_frame_segment_labels,
     load_human_point_labels,
 )
+from ai.browser_ml.legacy_training import train_legacy_candidates
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -308,6 +309,67 @@ class LegacyDatasetTests(unittest.TestCase):
 
         self.assertEqual(rows, ())
         self.assertEqual(exclusions[0].reason, "feature_row_not_model_ready")
+
+
+class LegacyTrainingTests(unittest.TestCase):
+    def _training_rows(self) -> list[dict[str, object]]:
+        rows: list[dict[str, object]] = []
+        for split, per_class in (("train", 8), ("validation", 4), ("test", 4)):
+            for class_index, label in enumerate(CONTRACT.class_names):
+                for sample_index in range(per_class):
+                    row: dict[str, object] = {
+                        "split": split,
+                        "label": label,
+                        "source_group_id": f"{split}-group",
+                        "source_sha256": str(class_index) * 64,
+                        "label_category": HUMAN_DIRECT,
+                    }
+                    row.update(
+                        {
+                            name: class_index * 10.0 + sample_index * 0.01 + feature_index * 0.0001
+                            for feature_index, name in enumerate(CONTRACT.feature_names)
+                        }
+                    )
+                    rows.append(row)
+        return rows
+
+    def test_all_candidates_share_explicit_split_and_export_unverifiable_subject_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "candidate"
+
+            result = train_legacy_candidates(
+                self._training_rows(),
+                CONTRACT,
+                output_dir=output,
+                dataset_version="legacy-v2-test-fixture",
+                label_source="human-direct-fixture",
+                random_seed=42,
+            )
+
+            self.assertEqual(
+                set(result.candidate_validation_metrics),
+                {"logistic_regression", "random_forest", "gradient_boosting", "gaussian_nb"},
+            )
+            metadata = json.loads(result.artifacts["metadata"].read_text(encoding="utf-8"))
+            self.assertFalse(metadata["subject_generalization_valid"])
+            self.assertEqual(metadata["evaluation_scope"], "source_session_generalization")
+            self.assertEqual(metadata["feature_names"], list(CONTRACT.feature_names))
+            self.assertEqual(metadata["class_names"], list(CONTRACT.class_names))
+            self.assertEqual(metadata["training"]["test_groups"], ["test-group"])
+
+            import onnxruntime as ort
+
+            session = ort.InferenceSession(
+                str(result.artifacts["onnx"]),
+                providers=["CPUExecutionProvider"],
+            )
+            self.assertEqual(session.get_inputs()[0].shape[1], 34)
+            outputs = session.run(
+                None,
+                {session.get_inputs()[0].name: [[0.0] * 34]},
+            )
+            self.assertEqual(len(outputs), 2)
+            self.assertEqual(outputs[1].shape, (1, 4))
 
 
 if __name__ == "__main__":
