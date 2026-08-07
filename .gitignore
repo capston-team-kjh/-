@@ -40,3 +40,6 @@ logs/
 
 # Reproducible AI training intermediates
 ai/state_classifier_training/analysis_results/
+
+# Offline browser ML candidates, extracted landmarks, and reports
+ai/browser_ml/artifacts/

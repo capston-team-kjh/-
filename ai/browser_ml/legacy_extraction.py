@@ -48,6 +48,7 @@ class ExtractionRequest:
     pose_model_path: Path
     camera_layout: str = "merged"
     sampling_fps: int = 1
+    source_sha256: str | None = None
 
 
 @dataclass(frozen=True)
@@ -300,7 +301,7 @@ def extract_source_features(request: ExtractionRequest) -> ExtractionResult:
     if request.sampling_fps != 1:
         raise ValueError("Browser v2 production currently samples at exactly 1 FPS")
     source = request.source_path.resolve()
-    source_hash = sha256_file(source)
+    source_hash = request.source_sha256 or sha256_file(source)
     contract_path = request.project_root.resolve() / CONTRACT_RELATIVE_PATH
     contract = load_feature_contract(request.project_root)
 

@@ -22,6 +22,7 @@ from ai.browser_ml.legacy_sources import (
     load_human_point_labels,
 )
 from ai.browser_ml.legacy_training import train_legacy_candidates
+from ai.build_legacy_v2_candidate import build_report_document, create_run_directory
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -370,6 +371,38 @@ class LegacyTrainingTests(unittest.TestCase):
             )
             self.assertEqual(len(outputs), 2)
             self.assertEqual(outputs[1].shape, (1, 4))
+
+
+class LegacyPipelineCliTests(unittest.TestCase):
+    def test_existing_run_directory_is_never_overwritten(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            existing = Path(directory) / "run"
+            existing.mkdir()
+
+            with self.assertRaisesRegex(FileExistsError, "overwrite"):
+                create_run_directory(existing)
+
+    def test_final_report_document_contains_every_required_section(self) -> None:
+        report = build_report_document(
+            inventory={},
+            labels={},
+            matching={},
+            dataset={},
+            features=["feature-a"],
+            quality={},
+            split={},
+            model_comparison={},
+            candidate={},
+            v1_comparison={},
+            compatibility={},
+            production={},
+            generalization={},
+            recommendations={},
+            changed_files={},
+            tests={},
+        )
+
+        self.assertEqual(list(report), list("ABCDEFGHIJKLMNOP"))
 
 
 if __name__ == "__main__":
