@@ -7,13 +7,24 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 
+from ai.browser_ml.contracts import load_feature_contract
+from ai.browser_ml.legacy_dataset import (
+    LeakageError,
+    join_source_labels,
+    validate_split_leakage,
+)
 from ai.browser_ml.legacy_sources import (
     HUMAN_DIRECT,
+    LegacyLabel,
     VISUAL_DIRECT,
     load_blind_visual_labels,
     load_frame_segment_labels,
     load_human_point_labels,
 )
+
+
+ROOT = Path(__file__).resolve().parents[2]
+CONTRACT = load_feature_contract(ROOT)
 from ai.browser_ml.legacy_extraction import (
     CacheIdentity,
     cache_key,
@@ -233,6 +244,70 @@ class LegacyAdditionalSourceTests(unittest.TestCase):
             self.assertEqual(label.review_status, "provisional")
             self.assertEqual(label.source_sha256, "a" * 64)
             self.assertTrue(label.eligible)
+
+
+class LegacyDatasetTests(unittest.TestCase):
+    def _feature_row(self, timestamp_ms: int) -> dict[str, object]:
+        row: dict[str, object] = {
+            "timestamp_ms": timestamp_ms,
+            "vector_ready": "True",
+            "missing_features": "",
+        }
+        row.update({name: 0.25 for name in CONTRACT.feature_names})
+        return row
+
+    def _point_label(self) -> LegacyLabel:
+        return LegacyLabel(
+            label_id="H1",
+            source_path=Path("source.mp4"),
+            source_group_id="recording-a",
+            source_id="source-a",
+            source_sha256="a" * 64,
+            label="focus",
+            category=HUMAN_DIRECT,
+            label_source="human.csv",
+            review_status="accepted",
+            confidence="human_direct",
+            annotator="human",
+            eligible=True,
+            exclusion_reason=None,
+            split_hint="train",
+            timestamp_ms=10_000,
+        )
+
+    def test_point_label_selects_only_the_nearest_one_fps_row(self) -> None:
+        rows, exclusions = join_source_labels(
+            [self._feature_row(9_000), self._feature_row(10_000), self._feature_row(11_000)],
+            [self._point_label()],
+            CONTRACT,
+        )
+
+        self.assertEqual([row["timestamp_ms"] for row in rows], [10_000])
+        self.assertEqual(rows[0]["label_id"], "H1")
+        self.assertEqual(exclusions, ())
+
+    def test_same_original_recording_or_hash_cannot_cross_splits(self) -> None:
+        base = {
+            "source_group_id": "recording-a",
+            "session_id": "recording-a",
+            "source_sha256": "a" * 64,
+            "label_id": "H1",
+            "timestamp_ms": 10_000,
+        }
+
+        with self.assertRaisesRegex(LeakageError, "source_group_id"):
+            validate_split_leakage(
+                [{**base, "split": "train"}, {**base, "split": "test", "label_id": "H2"}]
+            )
+
+    def test_rows_without_all_finite_contract_features_are_excluded(self) -> None:
+        feature = self._feature_row(10_000)
+        feature[CONTRACT.feature_names[3]] = ""
+
+        rows, exclusions = join_source_labels([feature], [self._point_label()], CONTRACT)
+
+        self.assertEqual(rows, ())
+        self.assertEqual(exclusions[0].reason, "feature_row_not_model_ready")
 
 
 if __name__ == "__main__":
