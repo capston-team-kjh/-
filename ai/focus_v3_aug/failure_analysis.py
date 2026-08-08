@@ -61,11 +61,19 @@ def _number(value: object) -> float | None:
         return None
 
 
+def _is_true(value: object) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() in {'1', 'true', 'yes'}
+    return value is True
+
+
 def analyze_feature_failures(
     rows: Iterable[Mapping[str, object]], feature_names: Sequence[str]
 ) -> list[FailureRecord]:
     failures: list[FailureRecord] = []
     for index, row in enumerate(rows):
+        if 'vector_ready' in row and _is_true(row.get('vector_ready')):
+            continue
         reason_features: dict[str, set[str]] = defaultdict(set)
         status = str(row.get('status', '')).lower()
         if (

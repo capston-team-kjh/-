@@ -37,6 +37,19 @@ class AnalysisTests(unittest.TestCase):
             result.priority_semantics, 'human_review_priority_not_truth'
         )
 
+    def test_vector_ready_row_is_not_reclassified_as_unusable(self):
+        row = {
+            'sample_id': 'S2',
+            'vector_ready': 'True',
+            'face_seen': 0.0,
+            'pose_seen': 0.0,
+            'calibration_valid': 1.0,
+        }
+        failures = analyze_feature_failures(
+            [row], ('face_seen', 'pose_seen', 'calibration_valid')
+        )
+        self.assertEqual(failures, [])
+
 
 if __name__ == '__main__':
     unittest.main()
