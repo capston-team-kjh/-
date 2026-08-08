@@ -275,9 +275,9 @@ classification and rationale before augmentation.
 
 ### 8.2 Full-stream re-extraction
 
-For each selected transform and source group, the source recording is replayed
-from the beginning in timestamp order using fresh MediaPipe Face/Pose and
-`BrowserFeatureStream` state:
+For each selected transform and selected train source group, the source
+recording is replayed from the beginning in timestamp order using fresh
+MediaPipe Face/Pose and `BrowserFeatureStream` state:
 
 ```text
 source frame
@@ -293,11 +293,12 @@ copied, randomized, or numerically perturbed.
 
 ### 8.3 SAFE transform eligibility gate
 
-Before the full run, each transform is tested on a deterministic non-test pilot
-set. Development groups are ordered by descending valid labeled support and
-then by `source_group_id`; groups are accumulated until at least 20 comparable
-labeled samples are available. A transform is automatically disabled if any of
-the following exceeds the untransformed pilot by more than 5 percentage points:
+After the final development split is selected, each transform is tested on a
+deterministic pilot set drawn only from selected train groups. Selected train
+groups are ordered by descending valid labeled support and then by
+`source_group_id`; groups are accumulated until at least 20 comparable labeled
+samples are available. A transform is automatically disabled if any of the
+following exceeds the untransformed pilot by more than 5 percentage points:
 
 - vector-not-ready rate;
 - face detection failure rate;
@@ -305,9 +306,14 @@ the following exceeds the untransformed pilot by more than 5 percentage points:
 - calibration failure rate.
 
 The 5-point threshold, minimum sample count, observed deltas, and exclusion
-decision are locked before test evaluation. If the development data cannot
+decision are locked before test evaluation. If the selected train data cannot
 provide 20 comparable pilot samples, the transform is disabled with
 `insufficient_pilot_support` rather than enabled without evidence.
+
+Validation and frozen-test recordings are prohibited from augmentation
+generation, augmentation pilots, transform-eligibility transforms, and parity
+augmentation streams. Validation is used only for evaluation of its original
+features.
 
 ### 8.4 B and C row limits
 
@@ -353,24 +359,44 @@ of `1e-9`. Near duplicates are reported separately but are not automatically
 removed. Reports include duplicate type, original/derived relationship,
 affected sample IDs, and counts by class and transform.
 
-## 10. Parity and safety verification before full training
+## 10. Protection and parity verification
 
-The full A/B/C run cannot start until all checks pass:
+### 10.1 Implementation verification before an experiment run
 
-1. Verify the live protected-artifact hashes and frozen-test manifest.
-2. Mutate temporary artifact copies and prove the SHA guard rejects them.
-3. Inject a frozen-test row into a temporary training manifest and prove the
-   test guard rejects it.
-4. Inject test lineage into a temporary augmentation manifest and prove the
-   leakage guard rejects it.
-5. Apply one enabled SAFE transform to a non-test sample recording and verify
-   that accepted rows contain exactly the ordered 34 features.
-6. Replay an untransformed stream through the adapter and existing extraction
-   path, comparing every finite feature with `abs_tol=1e-9` and
-   `rel_tol=1e-9`.
-7. Verify calibration readiness and rolling/temporal outputs arise at the same
-   timestamps and use the same causal history.
-8. Run group, original-lineage, and test leakage checks across all manifests.
+Unit, integration, and negative guard tests are implementation verification;
+they do not replace or reorder the fixed experiment-run stages in Section 17.
+Before an actual run, temporary copies and temporary manifests verify that:
+
+1. mutating a temporary protected-artifact copy makes the SHA guard fail;
+2. injecting a frozen-test row into a temporary training manifest makes the
+   test guard reject it;
+3. injecting test lineage into a temporary augmentation manifest makes the
+   leakage guard reject it.
+
+### 10.2 Run-stage protection gate
+
+At fixed run stage 5, the pipeline verifies the live protected-artifact hashes,
+the frozen-test manifest, selected split, original lineage, and absence of test
+rows from all train and augmentation requests. Failure stops the run before
+augmentation generation or training.
+
+### 10.3 Selected-train pilot and parity gate
+
+At fixed run stage 6, the pipeline selects sample recordings only from the
+final selected train groups. It then:
+
+1. applies one enabled SAFE transform and verifies that accepted rows contain
+   exactly the ordered 34 features;
+2. replays an untransformed selected-train stream through the adapter and the
+   existing extraction path, comparing every finite feature with
+   `abs_tol=1e-9` and `rel_tol=1e-9`;
+3. verifies calibration readiness and rolling/temporal outputs arise at the
+   same timestamps and use the same causal history;
+4. runs group, original-lineage, and test leakage checks across the generated
+   pilot manifests.
+
+No validation or frozen-test recording is decoded into an augmented or parity
+stream.
 
 The report records the configured tolerances, maximum absolute error, maximum
 relative error, feature and timestamp where each maximum occurred, and pass or
@@ -381,24 +407,39 @@ failure. Production artifacts are never modified to test a guard.
 Validation may be used to choose which predeclared SAFE transforms remain
 enabled and to confirm thresholds. Test may not be read for those choices.
 
-After validation decisions, the pipeline writes `experiment-lock.json` with:
+After validation decisions, the pipeline writes `experiment-lock.json` as a
+canonical snapshot of the complete experiment state immediately before test
+evaluation. It contains canonical content or hashes for:
 
 - run ID and seed;
 - full data and source hashes;
-- frozen-test manifest hash;
-- exact train/validation/test group and row identities;
-- enabled/disabled augmentation types and parameters;
+- selected train/validation/test split plus group and row identities;
+- frozen-test manifest;
+- feature schema, ordered 34 features, and class mapping;
+- random seed;
+- GaussianNB model type and parameter settings;
+- preprocessing/scaler policy;
+- sample-weight enablement, calculation rule, and weight-label identity;
+- A/B/C validation and final-fit sample-weight vector hashes;
+- complete augmentation configuration;
+- transform-eligibility results;
 - derivative caps and minority targets;
 - feature-failure and transform-eligibility thresholds;
-- model type, hyperparameters, and preprocessing;
-- schema file hash, ordered 34 features, and class mapping;
+- accepted augmentation manifest;
+- augmentation-rejected manifest;
+- exact and near-duplicate manifest;
+- A/B/C final training-input manifests;
+- A/B/C validation metrics;
+- A/B/C validation predictions;
+- A/B/C canonical raw and row-normalized validation confusion matrices;
 - metric and final-decision thresholds;
 - code/version identifiers needed to reproduce the run.
 
 The lock has its own canonical SHA-256. Test evaluation recomputes every locked
-field before and after predictions. A difference sets test status to
-`INVALIDATED_LOCK_CHANGED`; such metrics are not presented as valid test
-results.
+artifact and field before and after predictions. If any listed input, manifest,
+validation result, or configuration changes, existing test results are set to
+`INVALIDATED_LOCK_CHANGED` and are not presented as valid. Continuing after
+such a change requires a new run ID, output directory, and experiment lock.
 
 Any post-test setting change requires a new run ID, a new output directory,
 and a new experiment lock. Previous results remain separate and are never
@@ -406,11 +447,25 @@ rewritten.
 
 ## 12. Controlled experiments
 
-All experiments use `GaussianNB` with the exact baseline preprocessing and
-defaults. The current baseline uses no separate feature scaler; if code
-inspection or a baseline artifact proves otherwise, that exact fitted
-preprocessing pipeline is locked and applied identically to A/B/C. No new
-scaling is introduced for only one experiment.
+All experiments use the exact legacy baseline fit policy:
+
+```text
+model_type = GaussianNB
+model_parameters = {priors: null, var_smoothing: 1e-9}
+scaler = none
+preprocessing = ordered 34-feature float matrix without additional scaling
+sample_weight_enabled = true
+sample_weight_rule = compute_sample_weight("balanced", y_train)
+sample_weight_labels = the actual labels in that experiment's current fit input
+```
+
+These settings are stored in config and the experiment lock. For every
+validation and final fit, A/B/C independently recompute
+`compute_sample_weight("balanced", y_train)` from that experiment's actual
+training labels and pass the result to `GaussianNB.fit`. A's weights are never
+copied to B or C. When augmentation changes class support, the same rule is
+recalculated against the changed labels. No new scaling or preprocessing is
+introduced for only one experiment.
 
 - A: original development rows only.
 - B: original rows plus accepted SAFE derivatives, capped at one per train
@@ -452,6 +507,7 @@ minimum_focus_recall_delta = 0.10
 minimum_focus_precision_when_recall_improves = 0.25
 maximum_per_class_recall_drop = 0.05
 maximum_validation_metric_regression = 0.01
+maximum_focus_precision_drop = 0.05
 maximum_prediction_concentration = 0.80
 ```
 
@@ -480,16 +536,25 @@ alter the run.
 
 ## 15. Final decision
 
-`IMPROVED` requires all of the following on test relative to A:
+`IMPROVED` requires all of the following relative to A:
 
-- Macro F1 delta at least `0.01`;
-- Balanced Accuracy delta at least `0.01`;
-- Focus Recall delta at least `0.10`;
-- Focus Precision at least `0.25` when Focus Recall increases;
-- no class recall drop greater than `0.05`;
+- test Macro F1 delta at least `0.01`;
+- test Balanced Accuracy delta at least `0.01`;
+- test Focus Recall delta at least `0.10`;
+- validation and test Focus Precision at least `0.25` when Focus Recall
+  increases;
+- validation and test Focus Precision drop no greater than `0.05`;
+- no validation or test class Recall drop greater than `0.05`, including Focus
+  Recall;
 - validation Macro F1 and Balanced Accuracy not more than `0.01` below A;
-- prediction concentration no greater than `0.80`;
+- validation and test prediction concentration no greater than `0.80`;
 - no guard, lock, leakage, or parity failure.
+
+A validation class Recall regression above `0.05` blocks `IMPROVED` even when
+validation Macro F1 or Balanced Accuracy increases. A Focus Recall increase
+also does not qualify if Focus Precision misses the absolute floor or regresses
+by more than its locked threshold. All class-level thresholds are fixed in
+config and the experiment lock before test is read.
 
 Otherwise the primary outcome is selected from:
 
@@ -550,22 +615,31 @@ augmentation/
 experiments/
   A_baseline/
     validation-metrics.json
+    validation-predictions.csv
+    validation-confusion-raw.csv
+    validation-confusion-row-normalized.csv
     test-metrics.json
-    confusion-raw.csv
-    confusion-row-normalized.csv
-    predictions.csv
+    test-predictions.csv
+    test-confusion-raw.csv
+    test-confusion-row-normalized.csv
   B_safe/
     validation-metrics.json
+    validation-predictions.csv
+    validation-confusion-raw.csv
+    validation-confusion-row-normalized.csv
     test-metrics.json
-    confusion-raw.csv
-    confusion-row-normalized.csv
-    predictions.csv
+    test-predictions.csv
+    test-confusion-raw.csv
+    test-confusion-row-normalized.csv
   C_minority/
     validation-metrics.json
+    validation-predictions.csv
+    validation-confusion-raw.csv
+    validation-confusion-row-normalized.csv
     test-metrics.json
-    confusion-raw.csv
-    confusion-row-normalized.csv
-    predictions.csv
+    test-predictions.csv
+    test-confusion-raw.csv
+    test-confusion-row-normalized.csv
 reports/
   final-report.json
   final-report.md
@@ -576,7 +650,27 @@ requested sections for data counts, label review, augmentation accepted and
 rejected rows, A/B/C metrics, confusion matrices, final judgment, human review
 work, changed files, and commands actually executed.
 
-## 17. Verification strategy
+## 17. Fixed experiment run and verification strategy
+
+### 17.1 Fixed experiment run order
+
+The actual experiment run executes these stages in this exact order:
+
+1. Record read-only data and artifact inventory plus hashes.
+2. Analyze feature failures.
+3. Generate `label_review.csv`.
+4. Review and, when valid, reconstruct development-group validation.
+5. Verify protection guards.
+6. Apply sample SAFE augmentation and 34-feature/temporal parity verification
+   using recordings from selected train groups only.
+7. Generate all augmentation data and analyze rejects and duplicates.
+8. Evaluate A/B/C on validation without reading test.
+9. Freeze configuration and canonical validation state in
+   `experiment-lock.json`.
+10. Evaluate A/B/C final candidates on the same frozen test.
+11. Re-verify protected-artifact hashes after execution.
+
+### 17.2 Implementation verification
 
 Unit tests cover canonical identities, frozen-test rejection, protected hashes,
 lock invalidation, multi-cause failures, group leakage, deterministic
@@ -588,18 +682,10 @@ Integration tests use temporary copies and a small non-test recording to cover
 full-stream augmentation, MediaPipe re-extraction, 34-feature ordering,
 calibration/temporal parity, reject output, and no-write boundaries.
 
-The required execution order is:
-
-1. relevant unit tests;
-2. live read-only preflight;
-3. negative guard tests on temporary copies/manifests;
-4. sample-video extraction and parity verification;
-5. complete lineage/split leakage verification;
-6. A/B/C validation;
-7. experiment lock creation;
-8. A/B/C frozen-test evaluation;
-9. post-run artifact-hash verification;
-10. final report and repository diff review.
+These unit, integration, and negative guard tests run as implementation
+verification before the fixed experiment run. During implementation handoff,
+the repository test suite, final report checks, and repository diff review are
+also executed, but they do not replace or reorder the 11 run stages above.
 
 No success or performance claim is made unless the corresponding command and
 result exist in the run report.
