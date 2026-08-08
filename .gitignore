@@ -43,3 +43,6 @@ ai/state_classifier_training/analysis_results/
 
 # Offline browser ML candidates, extracted landmarks, and reports
 ai/browser_ml/artifacts/
+
+# FocusAI v3 isolated experiment runs
+ai/experiments/focus_v3_aug/runs/
