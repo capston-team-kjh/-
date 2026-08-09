@@ -21,11 +21,13 @@ router = APIRouter(
     tags=["Sessions (집중 세션 관리)"]
 )
 
-SQS_QUEUE_URL = "https://sqs.ap-northeast-2.amazonaws.com/003344631039/joljak-video-queue.fifo"
-S3_BUCKET_NAME = "jolljak-storage-2026"
+# SQS_QUEUE_URL = "https://sqs.ap-northeast-2.amazonaws.com/003344631039/joljak-video-queue.fifo"
+# S3_BUCKET_NAME = "jolljak-storage-2026"
 
-s3_client = boto3.client('s3', region_name='ap-northeast-2')
-sqs_client = boto3.client('sqs', region_name='ap-northeast-2')
+# s3_client = boto3.client('s3', region_name='ap-northeast-2')
+# sqs_client = boto3.client('sqs', region_name='ap-northeast-2')
+
+KST = timezone(timedelta(hours=9))
 
 @router.post("/", response_model=schemas.SessionResponse, status_code=status.HTTP_201_CREATED)
 def start_session(session_data: schemas.SessionCreate, db: Session = Depends(get_db)):
@@ -38,7 +40,7 @@ def start_session(session_data: schemas.SessionCreate, db: Session = Depends(get
     # 2. 새 세션 생성
     new_session = models.FocusSession(
         user_id=session_data.user_id,
-        start_time=as_local_naive_datetime(datetime.now().astimezone()),
+        start_time=datetime.now(KST).replace(tzinfo=None),
         duration_sec=None,
     )
     
@@ -57,9 +59,8 @@ def update_session(session_id: int, session_data: schemas.SessionUpdate, db: Ses
         raise HTTPException(status_code=404, detail="해당 세션을 찾을 수 없습니다.")
     
     try:
-        # FIX: Ignore the frontend's UTC string. Use the perfectly synced EC2 KST clock, 
-        # exactly matching the logic used in start_session!
-        session.end_time = as_local_naive_datetime(datetime.now().astimezone())
+        # FIX: Force KST directly in Python for the end time as well!
+        session.end_time = datetime.now(KST).replace(tzinfo=None)
         
         # FIX: Trust the highly accurate client-side stopwatch, fallback to backend calculation only if missing
         if getattr(session_data, "duration_sec", None) is not None:
