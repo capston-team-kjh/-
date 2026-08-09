@@ -62,16 +62,25 @@ describe("hybrid browser decision", () => {
     expect(decision).toMatchObject({ state: "drowsy", decisionSource: "drowsy_rule", modelState: "focus" });
   });
 
-  it("keeps drowsy above the gaze-down rule", () => {
+  it("keeps hard-rule drowsy above the gaze-down fallback", () => {
     expect(resolveHybridDecision(validInput({ continuousEyeClosedSec: 10, gazeDownRuleMatched: true })))
       .toMatchObject({ state: "drowsy", decisionSource: "drowsy_rule" });
   });
 
-  it("restores gaze_down only when the existing rule matches", () => {
+  it("keeps every usable B prediction ahead of the gaze-down fallback", () => {
     expect(resolveHybridDecision(validInput({ gazeDownRuleMatched: true })))
-      .toMatchObject({ state: "gaze_down", decisionSource: "gaze_down_rule" });
-    expect(resolveHybridDecision(validInput({ prediction: { state: "gaze_side", confidence: 0.9 }, gazeDownRuleMatched: false })))
+      .toMatchObject({ state: "focus", decisionSource: "model" });
+    expect(resolveHybridDecision(validInput({ prediction: { state: "gaze_side", confidence: 0.9 }, gazeDownRuleMatched: true })))
       .toMatchObject({ state: "gaze_side", decisionSource: "model" });
+    expect(resolveHybridDecision(validInput({ prediction: { state: "drowsy", confidence: 0.9 }, gazeDownRuleMatched: true })))
+      .toMatchObject({ state: "drowsy", decisionSource: "model" });
+  });
+
+  it("uses gaze_down only when B inference is unavailable", () => {
+    expect(resolveHybridDecision(validInput({ prediction: null, gazeDownRuleMatched: true })))
+      .toMatchObject({ state: "gaze_down", decisionSource: "gaze_down_rule" });
+    expect(resolveHybridDecision(validInput({ prediction: null, gazeDownRuleMatched: false })))
+      .toMatchObject({ state: "unknown", decisionSource: "model_unavailable" });
   });
 
   it("keeps bad posture as an initial hard rule", () => {
@@ -84,11 +93,9 @@ describe("hybrid browser decision", () => {
     expect(decision).toMatchObject({ state: "page_turn", decisionSource: "overhead_activity", modelState: "focus" });
   });
 
-  it("uses a confidence gate and otherwise accepts the ML state", () => {
+  it("does not reject a usable B prediction because of confidence", () => {
     expect(resolveHybridDecision(validInput({ prediction: { state: "gaze_side", confidence: 0.4 } })))
-      .toMatchObject({ state: "unknown", decisionSource: "confidence_gate", modelState: "gaze_side" });
-    expect(resolveHybridDecision(validInput({ prediction: { state: "gaze_down", confidence: 0.8 } })))
-      .toMatchObject({ state: "gaze_down", decisionSource: "model", modelState: "gaze_down" });
+      .toMatchObject({ state: "gaze_side", decisionSource: "model", modelState: "gaze_side" });
   });
 
   it("allows the legacy face-only model to disable the pose-quality gate explicitly", () => {

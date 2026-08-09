@@ -120,23 +120,19 @@ export const resolveHybridDecision = (input: HybridDecisionInput): HybridDecisio
     return ruleDecision(input.overheadActivity, "overhead_activity", prediction);
   }
 
+  if (prediction !== null) {
+    return {
+      state: prediction.state,
+      modelState: prediction.state,
+      confidence: prediction.confidence,
+      ruleState: null,
+      decisionSource: "model",
+    };
+  }
+
   if (input.gazeDownRuleMatched) {
-    return ruleDecision("gaze_down", "gaze_down_rule", prediction);
+    return ruleDecision("gaze_down", "gaze_down_rule", null);
   }
 
-  if (prediction === null) {
-    return ruleDecision("unknown", "model_unavailable", null);
-  }
-
-  if (prediction.confidence < thresholds.minimumConfidence) {
-    return ruleDecision("unknown", "confidence_gate", prediction);
-  }
-
-  return {
-    state: prediction.state,
-    modelState: prediction.state,
-    confidence: prediction.confidence,
-    ruleState: null,
-    decisionSource: "model",
-  };
+  return ruleDecision("unknown", "model_unavailable", null);
 };
