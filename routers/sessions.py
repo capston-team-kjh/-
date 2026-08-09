@@ -55,7 +55,10 @@ def update_session(session_id: int, session_data: schemas.SessionUpdate, db: Ses
         raise HTTPException(status_code=404, detail="해당 세션을 찾을 수 없습니다.")
     
     try:
-        session.end_time = normalize_session_end_time(session.start_time, session_data.end_time)
+        # FIX: Ignore the frontend's UTC string. Use the perfectly synced EC2 KST clock, 
+        # exactly matching the logic used in start_session!
+        session.end_time = as_local_naive_datetime(datetime.now().astimezone())
+        
         # FIX: Trust the highly accurate client-side stopwatch, fallback to backend calculation only if missing
         if getattr(session_data, "duration_sec", None) is not None:
             session.duration_sec = session_data.duration_sec
