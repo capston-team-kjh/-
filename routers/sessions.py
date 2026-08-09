@@ -211,7 +211,8 @@ async def save_session_timeline(session_id: str, request: Request, db: Session =
         bad_posture_ratio=scored_summary.get("bad_posture_total_sec", 0) / max(duration_sec, 1),
         processing_time_sec=0,
         camera_type="edge_web",
-        version="ai-edge-1.0"
+        version="ai-edge-1.0",
+        analyzed_at=datetime.now(KST).replace(tzinfo=None)
     )
     db.add(summary_record)
 
