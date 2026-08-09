@@ -212,20 +212,20 @@ export function Settings() {
 
   // MAIN VIEW
   return (
-    <div className="p-8 space-y-8 max-w-4xl mx-auto">
+    <div className="p-4 sm:p-8 space-y-5 sm:space-y-8 max-w-4xl mx-auto">
       <div>
-        <h1 className="text-3xl font-bold text-foreground mb-1">설정</h1>
-        <p className="text-muted-foreground">
+        <h1 className="text-2xl sm:text-3xl font-bold text-foreground mb-1">설정</h1>
+        <p className="text-sm sm:text-base text-muted-foreground">
           계정 및 환경설정 관리
         </p>
       </div>
 
-      <section className="bg-white rounded-2xl border border-border p-6">
-        <div className="flex items-center gap-3 mb-6">
-          <div className="p-2 bg-accent rounded-lg text-primary">
+      <section className="bg-white rounded-xl sm:rounded-2xl border border-border p-4 sm:p-6">
+        <div className="flex items-center gap-2 sm:gap-3 mb-4 sm:mb-6">
+          <div className="p-1.5 sm:p-2 bg-accent rounded-lg text-primary scale-90 sm:scale-100">
             <User className="w-5 h-5" />
           </div>
-          <h2 className="text-xl font-semibold">프로필</h2>
+          <h2 className="text-lg sm:text-xl font-semibold">프로필</h2>
         </div>
 
         <div className="space-y-4">

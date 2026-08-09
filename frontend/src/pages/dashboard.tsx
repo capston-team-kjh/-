@@ -8,6 +8,9 @@ export function Dashboard() {
   const [reportData, setReportData] = useState<any>(null);
   const [recentSessions, setRecentSessions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Mobile check
+  const isMobile = typeof window !== "undefined" && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
   
   // Get user info from localStorage
   const userId = localStorage.getItem("user_id");
@@ -124,24 +127,31 @@ export function Dashboard() {
   if (loading) return <div className="p-8 text-center">학습 데이터를 불러오는 중...</div>;
 
   return (
-    <div className="p-8 space-y-8 max-w-7xl mx-auto">
+    // Scaled down padding and spacing for mobile, preserved for desktop
+    <div className="p-4 sm:p-8 space-y-5 sm:space-y-8 max-w-7xl mx-auto">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-foreground mb-1">대시보드</h1>
-          <p className="text-muted-foreground">
+          {/* Shrunk the title and subtitle */}
+          <h1 className="text-2xl sm:text-3xl font-bold text-foreground mb-1">대시보드</h1>
+          <p className="text-sm sm:text-base text-muted-foreground">
             {userName}님, 다시 오신 것을 환영합니다! 오늘의 학습 현황을 확인하세요.
           </p>
         </div>
-        <Link
-          to="/app/session"
-          className="flex items-center gap-2 px-6 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
-        >
-          <Play className="w-5 h-5" />
-          <span>세션 시작</span>
-        </Link>
+        
+        {/* FIX: Hide Start Session button on mobile */}
+        {!isMobile && (
+          <Link
+            to="/app/session"
+            className="hidden sm:flex items-center gap-2 px-6 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors shrink-0"
+          >
+            <Play className="w-5 h-5" />
+            <span>세션 시작</span>
+          </Link>
+        )}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      {/* Grid items automatically scale to 1 column on mobile (grid-cols-1) */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-6">
         <StatCard
           icon={<Clock className="w-6 h-6" />}
           label="이번 주 학습"
@@ -280,21 +290,19 @@ function StatCard({
   positive?: boolean;
 }) {
   return (
-    <div className="bg-white rounded-2xl border border-border p-6 hover:border-primary/30 transition-colors">
-      <div className="flex items-start justify-between mb-4">
-        <div className="p-2 bg-accent rounded-lg text-primary">{icon}</div>
+    // Reduced padding drastically for mobile (p-3)
+    <div className="bg-white rounded-xl sm:rounded-2xl border border-border p-3 sm:p-6 hover:border-primary/30 transition-colors">
+      <div className="flex items-start justify-between mb-2 sm:mb-4">
+        <div className="p-1.5 sm:p-2 bg-accent rounded-lg text-primary scale-75 sm:scale-100">{icon}</div>
         {change && (
-          <span
-            className={`text-sm ${
-              positive ? "text-green-600" : "text-muted-foreground"
-            }`}
-          >
+          <span className={`text-[10px] sm:text-sm ${positive ? "text-green-600" : "text-muted-foreground"}`}>
             {change}
           </span>
         )}
       </div>
-      <div className="text-sm text-muted-foreground mb-1">{label}</div>
-      <div className="text-2xl font-bold text-foreground">{value}</div>
+      <div className="text-[11px] sm:text-sm text-muted-foreground mb-0.5 sm:mb-1 truncate">{label}</div>
+      {/* Dropped mobile text size to text-lg */}
+      <div className="text-lg sm:text-2xl font-bold text-foreground truncate">{value}</div>
     </div>
   );
 }

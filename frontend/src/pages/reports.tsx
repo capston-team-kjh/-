@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react"; 
 import { Link } from "react-router";
-import { ChevronRight, Clock, Target, Calendar, Brain, ArrowUpRight, ArrowDownRight, AlertCircle, Trophy } from "lucide-react"; // Added Trophy
+import { ChevronRight, Clock, Target, Calendar, Brain, ArrowUpRight, ArrowDownRight, AlertCircle, Trophy } from "lucide-react"; 
 
 interface ReportItem {
   id: number;
@@ -21,7 +21,7 @@ interface ReportItem {
 
 export function Reports() {
   const [sessionsList, setSessionsList] = useState<ReportItem[]>([]);
-  const [rankingPercentile, setRankingPercentile] = useState<number | null>(null); // NEW: Ranking State
+  const [rankingPercentile, setRankingPercentile] = useState<number | null>(null); 
   const [loading, setLoading] = useState(true);
 
   const [currentPage, setCurrentPage] = useState(1);
@@ -30,7 +30,6 @@ export function Reports() {
   const userId = localStorage.getItem("user_id");
   const userName = localStorage.getItem("name") || "사용자";
 
-  // Helper: Get YYYY-MM-DD for a specific number of days ago
   const getPastDateString = (daysAgo: number) => {
     const d = new Date();
     d.setDate(d.getDate() - daysAgo);
@@ -55,18 +54,15 @@ export function Reports() {
           setSessionsList(listData.items || []);
         }
 
-        // NEW: Fetch Daily Ranking Percentile from Backend
         try {
           const rankRes = await fetch(`${import.meta.env.VITE_API_BASE_URL}/analytics/daily-ranking`, { headers });
           if (rankRes.ok) {
             const rankData = await rankRes.json();
             setRankingPercentile(rankData.percentile);
           } else {
-            // Fallback mock data for UI testing until backend is built
             setRankingPercentile(12); 
           }
         } catch (error) {
-          // Fallback mock data for UI testing until backend is built
           setRankingPercentile(12);
         }
 
@@ -92,7 +88,6 @@ export function Reports() {
     }
   };
 
-  // Daily Comparison Engine (Today vs Yesterday)
   const dailyRecap = useMemo(() => {
     const todayStr = getPastDateString(0);
     const yesterdayStr = getPastDateString(1);
@@ -124,7 +119,6 @@ export function Reports() {
     };
   }, [sessionsList]);
 
-  // Weekly Coaching Engine (Dominant Habit Analysis)
   const weeklyRecap = useMemo(() => {
     const oneWeekAgoStr = getPastDateString(7);
     const weeklySessions = sessionsList.filter(s => s.date_raw >= oneWeekAgoStr);
@@ -148,7 +142,6 @@ export function Reports() {
 
     const avgScore = totalSecs > 0 ? Math.round(totalScoreWeight / totalSecs) : 0;
     
-    // Find worst habit
     let worstHabit = "없음";
     let maxSecs = 0;
     Object.entries(totals).forEach(([habit, secs]) => {
@@ -158,7 +151,6 @@ export function Reports() {
       }
     });
 
-    // Smart Case Statements
     let recommendation = "아주 훌륭한 주간 집중도를 보여주었습니다. 현재의 학습 환경과 루틴을 유지하세요!";
     if (worstHabit === "시선 분산") recommendation = "이번 주에는'시선 분산'이 자주 감지되었습니다. 스마트폰을 시야 밖으로 치우거나 주변 시각적 자극이 적은 환경에서 학습을 시작해 보세요.";
     if (worstHabit === "자세 불량") recommendation = "이번 주에는'자세 불량'이 자주 감지되었습니다. 허리와 목의 피로가 누적되면 장기적인 집중력이 떨어질 수 있습니다.";
@@ -178,7 +170,6 @@ export function Reports() {
     };
   }, [sessionsList]);
 
-  // Pagination Logic
   const sortedSessions = useMemo(() => {
     return [...sessionsList].sort((a, b) => b.id - a.id);
   }, [sessionsList]);
@@ -192,15 +183,14 @@ export function Reports() {
   if (loading) return <div className="p-8 text-center text-muted-foreground">데이터를 분석하는 중...</div>;
 
   return (
-    <div className="p-8 space-y-8 max-w-5xl mx-auto">
+    <div className="p-4 sm:p-8 space-y-5 sm:space-y-8 max-w-5xl mx-auto">
       <div>
-        <h1 className="text-3xl font-bold text-foreground mb-2">학습 리포트</h1>
-        <p className="text-muted-foreground text-lg">
+        <h1 className="text-2xl sm:text-3xl font-bold text-foreground mb-1 sm:mb-2">학습 리포트</h1>
+        <p className="text-muted-foreground text-sm sm:text-lg">
           {userName}님, 오늘의 성과와 주간 피드백을 확인해 보세요.
         </p>
       </div>
 
-      {/* --- NEW: Daily Ranking Banner --- */}
       {dailyRecap.hasTodayData && rankingPercentile !== null && (
         <div className="bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 rounded-2xl p-[1px] shadow-sm">
           <div className="bg-white rounded-[15px] p-6 flex flex-col sm:flex-row items-start sm:items-center gap-5">
@@ -227,33 +217,34 @@ export function Reports() {
           <Calendar className="w-5 h-5 text-primary" /> 일간 요약 (어제와 비교)
         </h2>
         
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="bg-white rounded-2xl border border-border p-6 shadow-sm">
-            <div className="flex items-center gap-3 mb-4 text-muted-foreground">
-              <Clock className="w-5 h-5" />
-              <span className="font-semibold">오늘 총 학습 시간</span>
+        {/* FIX: Changed to grid-cols-2 so they sit side-by-side on mobile */}
+        <div className="grid grid-cols-2 gap-3 sm:gap-4">
+          <div className="bg-white rounded-xl sm:rounded-2xl border border-border p-4 sm:p-6 shadow-sm">
+            <div className="flex items-center gap-2 sm:gap-3 mb-2 sm:mb-4 text-muted-foreground">
+              <Clock className="w-4 h-4 sm:w-5 sm:h-5" />
+              <span className="font-semibold text-xs sm:text-base">오늘 학습 시간</span>
             </div>
-            <div className="flex items-end justify-between">
-              <span className="text-4xl font-extrabold text-foreground">{formatAdaptiveTime(dailyRecap.todayTime)}</span>
+            <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2">
+              <span className="text-2xl sm:text-4xl font-extrabold text-foreground">{formatAdaptiveTime(dailyRecap.todayTime)}</span>
               {dailyRecap.hasYesterdayData && (
-                <div className={`flex items-center text-sm font-bold px-2.5 py-1 rounded-md ${dailyRecap.timeDiff >= 0 ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-500"}`}>
-                  {dailyRecap.timeDiff >= 0 ? <ArrowUpRight className="w-4 h-4 mr-1" /> : <ArrowDownRight className="w-4 h-4 mr-1" />}
+                <div className={`flex items-center text-[10px] sm:text-sm font-bold px-2 py-1 sm:px-2.5 rounded-md ${dailyRecap.timeDiff >= 0 ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-500"}`}>
+                  {dailyRecap.timeDiff >= 0 ? <ArrowUpRight className="w-3 h-3 sm:w-4 sm:h-4 mr-0.5" /> : <ArrowDownRight className="w-3 h-3 sm:w-4 sm:h-4 mr-0.5" />}
                   어제 대비 {formatAdaptiveTime(Math.abs(dailyRecap.timeDiff))}
                 </div>
               )}
             </div>
           </div>
 
-          <div className="bg-white rounded-2xl border border-border p-6 shadow-sm">
-            <div className="flex items-center gap-3 mb-4 text-muted-foreground">
-              <Target className="w-5 h-5" />
-              <span className="font-semibold">오늘 평균 집중도</span>
+          <div className="bg-white rounded-xl sm:rounded-2xl border border-border p-4 sm:p-6 shadow-sm">
+            <div className="flex items-center gap-2 sm:gap-3 mb-2 sm:mb-4 text-muted-foreground">
+              <Target className="w-4 h-4 sm:w-5 sm:h-5" />
+              <span className="font-semibold text-xs sm:text-base">오늘 평균 집중도</span>
             </div>
-            <div className="flex items-end justify-between">
-              <span className="text-4xl font-extrabold text-foreground">{dailyRecap.todayScore}%</span>
+            <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2">
+              <span className="text-2xl sm:text-4xl font-extrabold text-foreground">{dailyRecap.todayScore}%</span>
               {dailyRecap.hasYesterdayData && (
-                <div className={`flex items-center text-sm font-bold px-2.5 py-1 rounded-md ${dailyRecap.scoreDiff >= 0 ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-500"}`}>
-                  {dailyRecap.scoreDiff >= 0 ? <ArrowUpRight className="w-4 h-4 mr-1" /> : <ArrowDownRight className="w-4 h-4 mr-1" />}
+                <div className={`flex items-center text-[10px] sm:text-sm font-bold px-2 py-1 sm:px-2.5 rounded-md ${dailyRecap.scoreDiff >= 0 ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-500"}`}>
+                  {dailyRecap.scoreDiff >= 0 ? <ArrowUpRight className="w-3 h-3 sm:w-4 sm:h-4 mr-0.5" /> : <ArrowDownRight className="w-3 h-3 sm:w-4 sm:h-4 mr-0.5" />}
                   어제 대비 {Math.abs(dailyRecap.scoreDiff)}%
                 </div>
               )}
@@ -319,7 +310,7 @@ export function Reports() {
           {sessionsList.length === 0 ? (
             <div className="p-8 text-center text-muted-foreground text-sm">완료된 세션 기록이 없습니다. 첫 세션을 시작해 보세요!</div>
           ) : (
-            <table className="w-full">
+            <table className="w-full min-w-[500px]">
               <thead className="border-b border-border">
                 <tr className="text-left">
                   <th className="pb-3 text-sm font-medium text-muted-foreground">날짜</th>
