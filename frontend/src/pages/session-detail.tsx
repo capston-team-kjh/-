@@ -282,7 +282,10 @@ export function SessionDetail() {
           <h2 className="text-2xl font-bold text-foreground mb-1">세션 #{displayIndex} 리포트</h2>
           <div className="flex items-center gap-4 text-sm text-muted-foreground mt-2">
             <div className="flex items-center gap-1"><Calendar className="w-4 h-4" /><span>{formattedDate}</span></div>
-            <div className="flex items-center gap-1"><Clock className="w-4 h-4" /><span>종료 시각: {new Date(summary.analyzed_at).toLocaleTimeString("ko-KR", {hour: '2-digit', minute:'2-digit'})}</span></div>
+            <div className="flex items-center gap-1">
+              <Clock className="w-4 h-4" />
+              <span>종료 시각: {new Date(matchedSession?.end_time || summary.analyzed_at).toLocaleTimeString("ko-KR", {hour: '2-digit', minute:'2-digit'})}</span>
+            </div>
           </div>
         </div>
         <div className="text-right">
