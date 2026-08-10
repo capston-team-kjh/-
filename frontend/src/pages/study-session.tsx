@@ -74,18 +74,94 @@ const getHandFeatures = (points: {x: number, y: number}[]) => {
 
 const ENABLE_UNKNOWN_STATE = true;
 
+type V2ProbabilityDiagnostics = {
+  count: number;
+  sum: number;
+  min: number | null;
+  max: number | null;
+};
+
+type V2PoseLandmarkDiagnostics = {
+  samples: number;
+  visibilityCount: number;
+  visibilitySum: number;
+  visibilityBelow05: number;
+  presenceCount: number;
+  presenceSum: number;
+  presenceBelow05: number;
+};
+
+const createProbabilityDiagnostics = (): V2ProbabilityDiagnostics => ({
+  count: 0,
+  sum: 0,
+  min: null,
+  max: null,
+});
+
+const createPoseLandmarkDiagnostics = (): V2PoseLandmarkDiagnostics => ({
+  samples: 0,
+  visibilityCount: 0,
+  visibilitySum: 0,
+  visibilityBelow05: 0,
+  presenceCount: 0,
+  presenceSum: 0,
+  presenceBelow05: 0,
+});
+
 const createV2Diagnostics = () => ({
   lastLoggedAtMs: 0,
   processCount: 0,
   frontFaceMissing: 0,
   frontPoseMissing: 0,
+  frontFaceResultEmpty: 0,
+  frontPoseResultEmpty: 0,
+  frontFaceDetectorErrors: 0,
+  frontPoseDetectorErrors: 0,
   faceSeenFalse: 0,
   poseSeenFalse: 0,
   calibrationNotReady: 0,
   vectorReady: 0,
   vectorBlocked: 0,
-  inferenceRuns: 0,
+  inferenceFrames: 0,
+  inferenceSuccess: 0,
+  sessionRunCalls: 0,
+  float32Failures: 0,
+  float64FallbackRuns: 0,
+  inferenceFinalFailures: 0,
+  predictionCounts: {} as Record<string, number>,
+  probabilityStats: {} as Record<string, V2ProbabilityDiagnostics>,
+  unmappedPredictionOutputs: 0,
+  modelFocusPredictions: 0,
+  finalFocusCount: 0,
+  poseLandmarks: {
+    "0": createPoseLandmarkDiagnostics(),
+    "11": createPoseLandmarkDiagnostics(),
+    "12": createPoseLandmarkDiagnostics(),
+  } as Record<string, V2PoseLandmarkDiagnostics>,
 });
+
+const recordV2Probability = (diagnostics: V2ProbabilityDiagnostics, probability: number) => {
+  if (!Number.isFinite(probability)) return;
+  diagnostics.count++;
+  diagnostics.sum += probability;
+  diagnostics.min = diagnostics.min === null ? probability : Math.min(diagnostics.min, probability);
+  diagnostics.max = diagnostics.max === null ? probability : Math.max(diagnostics.max, probability);
+};
+
+const recordV2PoseLandmark = (diagnostics: V2PoseLandmarkDiagnostics, landmark: any) => {
+  if (!landmark) return;
+  diagnostics.samples++;
+  if (Number.isFinite(landmark.visibility)) {
+    diagnostics.visibilityCount++;
+    diagnostics.visibilitySum += landmark.visibility;
+    if (landmark.visibility < 0.5) diagnostics.visibilityBelow05++;
+  }
+  if (Number.isFinite(landmark.presence)) {
+    diagnostics.presenceCount++;
+    diagnostics.presenceSum += landmark.presence;
+    if (landmark.presence < 0.5) diagnostics.presenceBelow05++;
+  }
+};
 
 export function StudySession() {
   const [isRunning, setIsRunning] = useState(false);
@@ -159,6 +235,7 @@ export function StudySession() {
   
   const [modelsLoaded, setModelsLoaded] = useState(false);
   const onnxSessionRef = useRef<ort.InferenceSession | null>(null);
+  const modelClassNamesRef = useRef<readonly string[] | null>(null);
 
   const liveChartData = useMemo(() => {
     if (!isRunning || timelineRef.current.length === 0) return [];
@@ -212,6 +289,20 @@ export function StudySession() {
         deskPoseRef.current = await PoseLandmarker.createFromOptions(vision, poseOptions);
 
         ort.env.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/";
+
+        try {
+          const metadataResponse = await fetch("/focus_classifier_3class_b.metadata.json", { cache: "no-store" });
+          const metadata = await metadataResponse.json();
+          if (!metadataResponse.ok || !Array.isArray(metadata.class_names) ||
+              !metadata.class_names.every((value: unknown) => typeof value === "string")) {
+            throw new Error("B model metadata does not contain class_names");
+          }
+          modelClassNamesRef.current = metadata.class_names;
+        } catch (metadataError) {
+          // Diagnostics must not block the existing ONNX initialization or inference path.
+          console.warn("V2 diagnostic metadata unavailable:", metadataError);
+          modelClassNamesRef.current = null;
+        }
         
         onnxSessionRef.current = await ort.InferenceSession.create("/focus_classifier_3class_b.onnx", {
           executionProviders: ["wasm"], 
@@ -262,8 +353,22 @@ export function StudySession() {
         deskCanvas.width = deskVideo.videoWidth; deskCanvas.height = deskVideo.videoHeight;
       }
 
-      const frontFaceRes = frontFaceRef.current.detectForVideo(faceVideo, nowMs);
-      const frontPoseRes = frontPoseRef.current.detectForVideo(faceVideo, nowMs);
+      let frontFaceRes;
+      try {
+        frontFaceRes = frontFaceRef.current.detectForVideo(faceVideo, nowMs);
+      } catch (error) {
+        // Preserve the existing frame abort while exposing the detector boundary that failed.
+        v2DiagnosticsRef.current.frontFaceDetectorErrors++;
+        throw error;
+      }
+      let frontPoseRes;
+      try {
+        frontPoseRes = frontPoseRef.current.detectForVideo(faceVideo, nowMs);
+      } catch (error) {
+        // Preserve the existing frame abort while exposing the detector boundary that failed.
+        v2DiagnosticsRef.current.frontPoseDetectorErrors++;
+        throw error;
+      }
       const deskFaceRes = deskFaceRef.current.detectForVideo(deskVideo, nowMs);
       const deskPoseRes = deskPoseRef.current.detectForVideo(deskVideo, nowMs);
 
@@ -308,6 +413,21 @@ export function StudySession() {
             v2Diagnostics.processCount++;
             if (frontFaceLm === null) v2Diagnostics.frontFaceMissing++;
             if (frontPoseLm === null) v2Diagnostics.frontPoseMissing++;
+            if (!frontFaceRes.faceLandmarks || frontFaceRes.faceLandmarks.length === 0) {
+              v2Diagnostics.frontFaceResultEmpty++;
+            }
+            if (!frontPoseRes.landmarks || frontPoseRes.landmarks.length === 0) {
+              v2Diagnostics.frontPoseResultEmpty++;
+            }
+            try {
+              if (frontPoseLm) {
+                [0, 11, 12].forEach((index) => {
+                  recordV2PoseLandmark(v2Diagnostics.poseLandmarks[String(index)], frontPoseLm[index]);
+                });
+              }
+            } catch (diagnosticError) {
+              console.warn("V2 pose diagnostic skipped:", diagnosticError);
+            }
 
             // 1. GENERATE PERFECT 34-FEATURE VECTOR
             const rawMetrics = extractFrontMeasurements(frontFaceLm as any, frontPoseLm as any);
@@ -366,16 +486,19 @@ export function StudySession() {
 
             if (featureResult.vector) {
               try {
+                  v2Diagnostics.inferenceFrames++;
                   const inputName = onnxSessionRef.current.inputNames[0];
                    let results;
                    try {
                        const tensor32 = new ort.Tensor("float32", featureResult.vector, [1, 34]);
-                       v2Diagnostics.inferenceRuns++;
+                       v2Diagnostics.sessionRunCalls++;
                        results = await onnxSessionRef.current.run({ [inputName]: tensor32 });
                    } catch (typeError) {
+                       v2Diagnostics.float32Failures++;
                        const features64 = new Float64Array(featureResult.vector);
                        const tensor64 = new ort.Tensor("float64", features64, [1, 34]);
-                       v2Diagnostics.inferenceRuns++;
+                       v2Diagnostics.float64FallbackRuns++;
+                       v2Diagnostics.sessionRunCalls++;
                        results = await onnxSessionRef.current.run({ [inputName]: tensor64 });
                   }
                   
@@ -402,33 +525,51 @@ export function StudySession() {
                       } else {
                           aiConfidence = 0.99;
                       }
+
+                      try {
+                          const classNames = modelClassNamesRef.current;
+                          const probabilityData = results[onnxSessionRef.current.outputNames[1]]?.data;
+                          let mappedPrediction: string | null = null;
+                          if (classNames && probabilityData && probabilityData.length === classNames.length) {
+                              let argmaxIndex = -1;
+                              let argmaxProbability = Number.NEGATIVE_INFINITY;
+                              classNames.forEach((_, index) => {
+                                  const probability = Number(probabilityData[index]);
+                                  if (Number.isFinite(probability) && probability > argmaxProbability) {
+                                      argmaxIndex = index;
+                                      argmaxProbability = probability;
+                                  }
+                              });
+                              mappedPrediction = argmaxIndex >= 0 ? classNames[argmaxIndex] : null;
+                          }
+                          if (mappedPrediction) {
+                              v2Diagnostics.inferenceSuccess++;
+                              v2Diagnostics.predictionCounts[mappedPrediction] =
+                                  (v2Diagnostics.predictionCounts[mappedPrediction] ?? 0) + 1;
+                              if (mappedPrediction === "focus") v2Diagnostics.modelFocusPredictions++;
+                          } else {
+                              v2Diagnostics.unmappedPredictionOutputs++;
+                          }
+
+                          if (classNames && probabilityData) {
+                              classNames.forEach((className, index) => {
+                                  const probability = Number(probabilityData[index]);
+                                  const classStats = v2Diagnostics.probabilityStats[className] ??
+                                      (v2Diagnostics.probabilityStats[className] = createProbabilityDiagnostics());
+                                  recordV2Probability(classStats, probability);
+                              });
+                          }
+                      } catch (diagnosticError) {
+                          // Diagnostic aggregation must never alter the existing inference result.
+                          console.warn("V2 ONNX diagnostic skipped:", diagnosticError);
+                      }
+                  } else {
+                      v2Diagnostics.inferenceFinalFailures++;
                   }
                } catch (err) {
+                   v2Diagnostics.inferenceFinalFailures++;
                    console.warn("ONNX Execution Error:", err);
                }
-            }
-
-            if (nowMs - v2Diagnostics.lastLoggedAtMs >= 10_000) {
-                v2Diagnostics.lastLoggedAtMs = nowMs;
-                const rate = (count: number) => Number(
-                    ((count / Math.max(v2Diagnostics.processCount, 1)) * 100).toFixed(2),
-                );
-                console.info("[V2_DIAG]", {
-                    processCount: v2Diagnostics.processCount,
-                    frontFaceMissing: v2Diagnostics.frontFaceMissing,
-                    frontFaceMissingRate: rate(v2Diagnostics.frontFaceMissing),
-                    frontPoseMissing: v2Diagnostics.frontPoseMissing,
-                    frontPoseMissingRate: rate(v2Diagnostics.frontPoseMissing),
-                    faceSeenFalse: v2Diagnostics.faceSeenFalse,
-                    poseSeenFalse: v2Diagnostics.poseSeenFalse,
-                    calibrationNotReady: v2Diagnostics.calibrationNotReady,
-                    vectorReady: v2Diagnostics.vectorReady,
-                    vectorReadyRate: rate(v2Diagnostics.vectorReady),
-                    vectorBlocked: v2Diagnostics.vectorBlocked,
-                    vectorBlockedRate: rate(v2Diagnostics.vectorBlocked),
-                    inferenceRuns: v2Diagnostics.inferenceRuns,
-                    inferenceRunRate: rate(v2Diagnostics.inferenceRuns),
-                });
             }
 
             // 4. HYBRID DECISION ENGINE
@@ -485,6 +626,90 @@ export function StudySession() {
             }
 
             const predictedState = finalState;
+            if (finalState === "focus") v2Diagnostics.finalFocusCount++;
+
+            if (nowMs - v2Diagnostics.lastLoggedAtMs >= 10_000) {
+                try {
+                    v2Diagnostics.lastLoggedAtMs = nowMs;
+                    const processRate = (count: number) => Number(
+                        ((count / Math.max(v2Diagnostics.processCount, 1)) * 100).toFixed(2),
+                    );
+                    const inferenceSuccessRate = processRate(v2Diagnostics.inferenceSuccess);
+                    const inferenceExecutionSuccessRate = Number(
+                        ((v2Diagnostics.inferenceSuccess / Math.max(v2Diagnostics.inferenceFrames, 1)) * 100).toFixed(2),
+                    );
+                    const probabilitySummary = Object.fromEntries(
+                        Object.entries(v2Diagnostics.probabilityStats).map(([className, stats]) => [className, {
+                            count: stats.count,
+                            mean: stats.count > 0 ? Number((stats.sum / stats.count).toFixed(6)) : null,
+                            min: stats.min === null ? null : Number(stats.min.toFixed(6)),
+                            max: stats.max === null ? null : Number(stats.max.toFixed(6)),
+                        }]),
+                    );
+                    const poseQualitySummary = Object.fromEntries(
+                        Object.entries(v2Diagnostics.poseLandmarks).map(([index, stats]) => [index, {
+                            samples: stats.samples,
+                            visibilityMean: stats.visibilityCount > 0
+                                ? Number((stats.visibilitySum / stats.visibilityCount).toFixed(6))
+                                : null,
+                            visibilityBelow05: stats.visibilityBelow05,
+                            presenceMean: stats.presenceCount > 0
+                                ? Number((stats.presenceSum / stats.presenceCount).toFixed(6))
+                                : null,
+                            presenceBelow05: stats.presenceBelow05,
+                        }]),
+                    );
+                    const focusStats = v2Diagnostics.probabilityStats.focus;
+                    console.info("[V2_DIAG]", {
+                        processCount: v2Diagnostics.processCount,
+                        frontFaceMissing: v2Diagnostics.frontFaceMissing,
+                        frontFaceMissingRate: processRate(v2Diagnostics.frontFaceMissing),
+                        frontPoseMissing: v2Diagnostics.frontPoseMissing,
+                        frontPoseMissingRate: processRate(v2Diagnostics.frontPoseMissing),
+                        frontFaceResultEmpty: v2Diagnostics.frontFaceResultEmpty,
+                        frontPoseResultEmpty: v2Diagnostics.frontPoseResultEmpty,
+                        frontFaceDetectorErrors: v2Diagnostics.frontFaceDetectorErrors,
+                        frontPoseDetectorErrors: v2Diagnostics.frontPoseDetectorErrors,
+                        detectorErrors: v2Diagnostics.frontFaceDetectorErrors + v2Diagnostics.frontPoseDetectorErrors,
+                        faceSeenFalse: v2Diagnostics.faceSeenFalse,
+                        poseSeenFalse: v2Diagnostics.poseSeenFalse,
+                        calibrationNotReady: v2Diagnostics.calibrationNotReady,
+                        vectorReady: v2Diagnostics.vectorReady,
+                        vectorReadyRate: processRate(v2Diagnostics.vectorReady),
+                        vectorBlocked: v2Diagnostics.vectorBlocked,
+                        vectorBlockedRate: processRate(v2Diagnostics.vectorBlocked),
+                        inferenceFrames: v2Diagnostics.inferenceFrames,
+                        inferenceFrameRate: processRate(v2Diagnostics.inferenceFrames),
+                        inferenceSuccess: v2Diagnostics.inferenceSuccess,
+                        inferenceSuccessRate,
+                        inferenceExecutionSuccessRate,
+                        sessionRunCalls: v2Diagnostics.sessionRunCalls,
+                        float32Failures: v2Diagnostics.float32Failures,
+                        float64FallbackRuns: v2Diagnostics.float64FallbackRuns,
+                        inferenceFinalFailures: v2Diagnostics.inferenceFinalFailures,
+                        focusPredictions: v2Diagnostics.predictionCounts.focus ?? 0,
+                        gazeSidePredictions: v2Diagnostics.predictionCounts.gaze_side ?? 0,
+                        gazeDownPredictions: v2Diagnostics.predictionCounts.gaze_down ?? 0,
+                        predictionCounts: v2Diagnostics.predictionCounts,
+                        probabilityStats: probabilitySummary,
+                        focusConfidenceMean: focusStats && focusStats.count > 0
+                            ? Number((focusStats.sum / focusStats.count).toFixed(6)) : null,
+                        focusConfidenceMin: focusStats?.min === null || focusStats?.min === undefined
+                            ? null : Number(focusStats.min.toFixed(6)),
+                        focusConfidenceMax: focusStats?.max === null || focusStats?.max === undefined
+                            ? null : Number(focusStats.max.toFixed(6)),
+                        modelFocusRate: Number(
+                            ((v2Diagnostics.modelFocusPredictions / Math.max(v2Diagnostics.inferenceSuccess, 1)) * 100).toFixed(2),
+                        ),
+                        modelFocusPredictions: v2Diagnostics.modelFocusPredictions,
+                        finalFocusCount: v2Diagnostics.finalFocusCount,
+                        unmappedPredictionOutputs: v2Diagnostics.unmappedPredictionOutputs,
+                        poseLandmarkQuality: poseQualitySummary,
+                    });
+                } catch (diagnosticError) {
+                    console.warn("V2 diagnostic log skipped:", diagnosticError);
+                }
+            }
             const currentT = startTimeRef.current ? Math.floor((nowMs - startTimeRef.current) / 1000) : 0;
             const isSleepingOnDesk = !rawMetrics.faceSeen && rawMetrics.poseSeen && finalState === "drowsy";
 
