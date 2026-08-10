@@ -1,0 +1,78 @@
+{
+  "model_version": "retrained-v2-3class-b-20260809T180352Z",
+  "model_role": "hybrid_ml_component",
+  "ml_classes": ["drowsy", "focus", "gaze_side"],
+  "final_system_classes": ["focus", "drowsy", "gaze_down", "gaze_side"],
+  "production_promoted": false,
+  "candidate_status": "EXPERIMENTAL_NOT_PROMOTED",
+  "schema_version": "focus-state-v2",
+  "feature_names": [
+    "left_ear",
+    "right_ear",
+    "avg_ear",
+    "normalized_left_ear",
+    "normalized_right_ear",
+    "normalized_avg_ear",
+    "ear_rolling_mean",
+    "ear_rolling_min",
+    "ear_rolling_std",
+    "ear_slope",
+    "continuous_eye_closed_sec",
+    "iris_x_ratio",
+    "iris_y_ratio",
+    "gaze_x_delta_from_baseline",
+    "gaze_y_delta_from_baseline",
+    "gaze_x_rolling_mean",
+    "gaze_y_rolling_mean",
+    "gaze_x_rolling_std",
+    "gaze_y_rolling_std",
+    "face_head_down_ratio",
+    "face_head_tilt_ratio",
+    "face_head_down_delta",
+    "face_head_tilt_delta",
+    "pose_head_drop_ratio",
+    "pose_head_tilt_ratio",
+    "pose_head_drop_delta",
+    "pose_head_tilt_delta",
+    "shoulder_slope",
+    "shoulder_slope_delta",
+    "face_seen",
+    "pose_seen",
+    "face_valid_ratio",
+    "pose_valid_ratio",
+    "calibration_valid"
+  ],
+  "class_names": [
+    "drowsy",
+    "focus",
+    "gaze_side"
+  ],
+  "normalization": {
+    "type": "personal_median_iqr",
+    "calibration_min_samples": 5,
+    "calibration_window_samples": 30,
+    "temporal_window_ms": 10000,
+    "quality_window_samples": 10,
+    "causal": true
+  },
+  "confidence_threshold": 0.0,
+  "camera_role": "front",
+  "model_path": "/focus_classifier_3class_b.onnx",
+  "model_sha256": "540ecfed7bc757011563fb0f1f028a350d7d80065d665dd1f0c9302fe3f6d140",
+  "input_name": "features",
+  "input_shape": [
+    null,
+    34
+  ],
+  "accuracy": 0.7142857142857143,
+  "macro_f1": 0.6548611111111112,
+  "drowsy_recall": 0.8620689655172413,
+  "onnx_parity": "PASS",
+  "prediction_disagreement": 0,
+  "source_artifact": "C:\\Projects\\졸작우승기원\\-\\ai\\browser_ml\\artifacts\\retrained-v2-3class-b\\20260809T180352Z",
+  "hybrid_gaze_down_rule": true
+  ,"gaze_down_rule": "avgY >= 0.62 (existing study-session iris rule)"
+  ,"gaze_down_rule_frozen_recall": 0.0
+  ,"hybrid_accuracy": 0.5384615384615384
+  ,"hybrid_macro_f1": 0.4404241493383743
+}

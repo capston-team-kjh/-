@@ -123,13 +123,14 @@ const createV2Diagnostics = () => ({
   vectorReady: 0,
   vectorBlocked: 0,
   inferenceFrames: 0,
-  inferenceSuccess: 0,
   sessionRunCalls: 0,
+  sessionRunSuccess: 0,
   float32Failures: 0,
   float64FallbackRuns: 0,
   inferenceFinalFailures: 0,
   predictionCounts: {} as Record<string, number>,
   probabilityStats: {} as Record<string, V2ProbabilityDiagnostics>,
+  mappingSuccess: 0,
   unmappedPredictionOutputs: 0,
   modelFocusPredictions: 0,
   finalFocusCount: 0,
@@ -501,6 +502,7 @@ export function StudySession() {
                        v2Diagnostics.sessionRunCalls++;
                        results = await onnxSessionRef.current.run({ [inputName]: tensor64 });
                   }
+                  v2Diagnostics.sessionRunSuccess++;
                   
                   const labelData = results[onnxSessionRef.current.outputNames[0]]?.data;
                   if (labelData && labelData.length > 0) {
@@ -543,7 +545,7 @@ export function StudySession() {
                               mappedPrediction = argmaxIndex >= 0 ? classNames[argmaxIndex] : null;
                           }
                           if (mappedPrediction) {
-                              v2Diagnostics.inferenceSuccess++;
+                              v2Diagnostics.mappingSuccess++;
                               v2Diagnostics.predictionCounts[mappedPrediction] =
                                   (v2Diagnostics.predictionCounts[mappedPrediction] ?? 0) + 1;
                               if (mappedPrediction === "focus") v2Diagnostics.modelFocusPredictions++;
@@ -634,10 +636,10 @@ export function StudySession() {
                     const processRate = (count: number) => Number(
                         ((count / Math.max(v2Diagnostics.processCount, 1)) * 100).toFixed(2),
                     );
-                    const inferenceSuccessRate = processRate(v2Diagnostics.inferenceSuccess);
-                    const inferenceExecutionSuccessRate = Number(
-                        ((v2Diagnostics.inferenceSuccess / Math.max(v2Diagnostics.inferenceFrames, 1)) * 100).toFixed(2),
+                    const sessionRunSuccessRate = Number(
+                        ((v2Diagnostics.sessionRunSuccess / Math.max(v2Diagnostics.inferenceFrames, 1)) * 100).toFixed(2),
                     );
+                    const mappingSuccessRate = processRate(v2Diagnostics.mappingSuccess);
                     const probabilitySummary = Object.fromEntries(
                         Object.entries(v2Diagnostics.probabilityStats).map(([className, stats]) => [className, {
                             count: stats.count,
@@ -680,10 +682,11 @@ export function StudySession() {
                         vectorBlockedRate: processRate(v2Diagnostics.vectorBlocked),
                         inferenceFrames: v2Diagnostics.inferenceFrames,
                         inferenceFrameRate: processRate(v2Diagnostics.inferenceFrames),
-                        inferenceSuccess: v2Diagnostics.inferenceSuccess,
-                        inferenceSuccessRate,
-                        inferenceExecutionSuccessRate,
                         sessionRunCalls: v2Diagnostics.sessionRunCalls,
+                        sessionRunSuccess: v2Diagnostics.sessionRunSuccess,
+                        sessionRunSuccessRate,
+                        mappingSuccess: v2Diagnostics.mappingSuccess,
+                        mappingSuccessRate,
                         float32Failures: v2Diagnostics.float32Failures,
                         float64FallbackRuns: v2Diagnostics.float64FallbackRuns,
                         inferenceFinalFailures: v2Diagnostics.inferenceFinalFailures,
@@ -699,7 +702,7 @@ export function StudySession() {
                         focusConfidenceMax: focusStats?.max === null || focusStats?.max === undefined
                             ? null : Number(focusStats.max.toFixed(6)),
                         modelFocusRate: Number(
-                            ((v2Diagnostics.modelFocusPredictions / Math.max(v2Diagnostics.inferenceSuccess, 1)) * 100).toFixed(2),
+                            ((v2Diagnostics.modelFocusPredictions / Math.max(v2Diagnostics.mappingSuccess, 1)) * 100).toFixed(2),
                         ),
                         modelFocusPredictions: v2Diagnostics.modelFocusPredictions,
                         finalFocusCount: v2Diagnostics.finalFocusCount,
