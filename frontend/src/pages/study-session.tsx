@@ -74,6 +74,19 @@ const getHandFeatures = (points: {x: number, y: number}[]) => {
 
 const ENABLE_UNKNOWN_STATE = true;
 
+const createV2Diagnostics = () => ({
+  lastLoggedAtMs: 0,
+  processCount: 0,
+  frontFaceMissing: 0,
+  frontPoseMissing: 0,
+  faceSeenFalse: 0,
+  poseSeenFalse: 0,
+  calibrationNotReady: 0,
+  vectorReady: 0,
+  vectorBlocked: 0,
+  inferenceRuns: 0,
+});
+
 export function StudySession() {
   const [isRunning, setIsRunning] = useState(false);
   const [seconds, setSeconds] = useState(0);
@@ -129,6 +142,7 @@ export function StudySession() {
   const handTrackingBufferRef = useRef<any[]>([]);
   const missingFramesRef = useRef(0);
   const stateHistoryRef = useRef<string[]>([]);
+  const v2DiagnosticsRef = useRef(createV2Diagnostics());
   
   const faceVideoRef = useRef<HTMLVideoElement>(null);
   const deskVideoRef = useRef<HTMLVideoElement>(null);
@@ -288,17 +302,21 @@ export function StudySession() {
         lastInferenceTime.current = nowMs;
 
         if (onnxSessionRef.current) {
-            const bestFaceLm = (frontFaceRes.faceLandmarks && frontFaceRes.faceLandmarks.length > 0) 
-                ? frontFaceRes.faceLandmarks[0] 
-                : ((deskFaceRes.faceLandmarks && deskFaceRes.faceLandmarks.length > 0) ? deskFaceRes.faceLandmarks[0] : null);
-
-            const bestPoseLm = (frontPoseRes.landmarks && frontPoseRes.landmarks.length > 0)
-                ? frontPoseRes.landmarks[0]
-                : ((deskPoseRes.landmarks && deskPoseRes.landmarks.length > 0) ? deskPoseRes.landmarks[0] : null);
+            const frontFaceLm = frontFaceRes.faceLandmarks?.[0] ?? null;
+            const frontPoseLm = frontPoseRes.landmarks?.[0] ?? null;
+            const v2Diagnostics = v2DiagnosticsRef.current;
+            v2Diagnostics.processCount++;
+            if (frontFaceLm === null) v2Diagnostics.frontFaceMissing++;
+            if (frontPoseLm === null) v2Diagnostics.frontPoseMissing++;
 
             // 1. GENERATE PERFECT 34-FEATURE VECTOR
-            const rawMetrics = extractFrontMeasurements(bestFaceLm as any, bestPoseLm as any);
+            const rawMetrics = extractFrontMeasurements(frontFaceLm as any, frontPoseLm as any);
             const featureResult = pipelineRef.current.process(nowMs, rawMetrics);
+            if (!rawMetrics.faceSeen) v2Diagnostics.faceSeenFalse++;
+            if (!rawMetrics.poseSeen) v2Diagnostics.poseSeenFalse++;
+            if (!featureResult.calibrationValid) v2Diagnostics.calibrationNotReady++;
+            if (featureResult.vector) v2Diagnostics.vectorReady++;
+            else v2Diagnostics.vectorBlocked++;
 
             // 2. ISOLATED HAND TRACKING FOR OVERHEAD ACTIVITIES
             handTrackingBufferRef.current.push({
@@ -349,14 +367,16 @@ export function StudySession() {
             if (featureResult.vector) {
               try {
                   const inputName = onnxSessionRef.current.inputNames[0];
-                  let results;
-                  try {
-                      const tensor32 = new ort.Tensor("float32", featureResult.vector, [1, 34]);
-                      results = await onnxSessionRef.current.run({ [inputName]: tensor32 });
-                  } catch (typeError) {
-                      const features64 = new Float64Array(featureResult.vector);
-                      const tensor64 = new ort.Tensor("float64", features64, [1, 34]);
-                      results = await onnxSessionRef.current.run({ [inputName]: tensor64 });
+                   let results;
+                   try {
+                       const tensor32 = new ort.Tensor("float32", featureResult.vector, [1, 34]);
+                       v2Diagnostics.inferenceRuns++;
+                       results = await onnxSessionRef.current.run({ [inputName]: tensor32 });
+                   } catch (typeError) {
+                       const features64 = new Float64Array(featureResult.vector);
+                       const tensor64 = new ort.Tensor("float64", features64, [1, 34]);
+                       v2Diagnostics.inferenceRuns++;
+                       results = await onnxSessionRef.current.run({ [inputName]: tensor64 });
                   }
                   
                   const labelData = results[onnxSessionRef.current.outputNames[0]]?.data;
@@ -383,9 +403,32 @@ export function StudySession() {
                           aiConfidence = 0.99;
                       }
                   }
-              } catch (err) {
-                  console.warn("ONNX Execution Error:", err);
-              }
+               } catch (err) {
+                   console.warn("ONNX Execution Error:", err);
+               }
+            }
+
+            if (nowMs - v2Diagnostics.lastLoggedAtMs >= 10_000) {
+                v2Diagnostics.lastLoggedAtMs = nowMs;
+                const rate = (count: number) => Number(
+                    ((count / Math.max(v2Diagnostics.processCount, 1)) * 100).toFixed(2),
+                );
+                console.info("[V2_DIAG]", {
+                    processCount: v2Diagnostics.processCount,
+                    frontFaceMissing: v2Diagnostics.frontFaceMissing,
+                    frontFaceMissingRate: rate(v2Diagnostics.frontFaceMissing),
+                    frontPoseMissing: v2Diagnostics.frontPoseMissing,
+                    frontPoseMissingRate: rate(v2Diagnostics.frontPoseMissing),
+                    faceSeenFalse: v2Diagnostics.faceSeenFalse,
+                    poseSeenFalse: v2Diagnostics.poseSeenFalse,
+                    calibrationNotReady: v2Diagnostics.calibrationNotReady,
+                    vectorReady: v2Diagnostics.vectorReady,
+                    vectorReadyRate: rate(v2Diagnostics.vectorReady),
+                    vectorBlocked: v2Diagnostics.vectorBlocked,
+                    vectorBlockedRate: rate(v2Diagnostics.vectorBlocked),
+                    inferenceRuns: v2Diagnostics.inferenceRuns,
+                    inferenceRunRate: rate(v2Diagnostics.inferenceRuns),
+                });
             }
 
             // 4. HYBRID DECISION ENGINE
@@ -518,6 +561,7 @@ export function StudySession() {
       timelineRef.current = [];
       handTrackingBufferRef.current = [];
       missingFramesRef.current = 0;
+      v2DiagnosticsRef.current = createV2Diagnostics();
 
       // INITIALIZE THE 34-FEATURE PIPELINE
       pipelineRef.current = new FrontV2FeaturePipeline({
