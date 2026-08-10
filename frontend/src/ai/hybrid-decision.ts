@@ -30,6 +30,8 @@ export interface HybridDecisionInput {
   continuousEyeClosedSec: number;
   /** Existing front-camera iris rule: average iris Y ratio is at least 0.62. */
   gazeDownRuleMatched?: boolean;
+  /** A usable gaze_side model output was rejected by the separate MediaPipe evidence guard. */
+  gazeSidePredictionRejected?: boolean;
   badPosture: boolean;
   overheadActivity: OverheadActivity | null;
   thresholds?: Partial<HybridDecisionThresholds>;
@@ -43,6 +45,7 @@ export type DecisionSource =
   | "posture_rule"
   | "overhead_activity"
   | "confidence_gate"
+  | "gaze_side_evidence_rejected"
   | "model_unavailable"
   | "model";
 
@@ -122,6 +125,10 @@ export const resolveHybridDecision = (input: HybridDecisionInput): HybridDecisio
 
   if (input.gazeDownRuleMatched) {
     return ruleDecision("gaze_down", "gaze_down_rule", prediction);
+  }
+
+  if (input.gazeSidePredictionRejected) {
+    return ruleDecision("focus", "gaze_side_evidence_rejected", null);
   }
 
   if (prediction === null) {

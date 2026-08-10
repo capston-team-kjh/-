@@ -74,6 +74,51 @@ describe("hybrid browser decision", () => {
       .toMatchObject({ state: "gaze_side", decisionSource: "model" });
   });
 
+  it("keeps a model gaze_side prediction when its evidence was accepted", () => {
+    expect(resolveHybridDecision(validInput({ prediction: { state: "gaze_side", confidence: 0.9 } })))
+      .toMatchObject({ state: "gaze_side", decisionSource: "model", modelState: "gaze_side" });
+  });
+
+  it("uses focus only for a gaze_side prediction rejected by evidence", () => {
+    const decision = resolveHybridDecision(validInput({
+      prediction: null,
+      gazeSidePredictionRejected: true,
+    }));
+
+    expect(decision).toMatchObject({
+      state: "focus",
+      decisionSource: "gaze_side_evidence_rejected",
+      modelState: null,
+      confidence: null,
+    });
+  });
+
+  it("keeps gaze_down above a rejected gaze_side prediction", () => {
+    const decision = resolveHybridDecision(validInput({
+      prediction: null,
+      gazeSidePredictionRejected: true,
+      gazeDownRuleMatched: true,
+    }));
+
+    expect(decision).toMatchObject({ state: "gaze_down", decisionSource: "gaze_down_rule" });
+  });
+
+  it("keeps bad posture above a rejected gaze_side prediction", () => {
+    const decision = resolveHybridDecision(validInput({
+      prediction: null,
+      gazeSidePredictionRejected: true,
+      badPosture: true,
+    }));
+
+    expect(decision).toMatchObject({ state: "bad_posture", decisionSource: "posture_rule" });
+  });
+
+  it("keeps truly unavailable model inference as unknown", () => {
+    const decision = resolveHybridDecision(validInput({ prediction: null }));
+
+    expect(decision).toMatchObject({ state: "unknown", decisionSource: "model_unavailable" });
+  });
+
   it("keeps bad posture as an initial hard rule", () => {
     const decision = resolveHybridDecision(validInput({ badPosture: true }));
     expect(decision).toMatchObject({ state: "bad_posture", decisionSource: "posture_rule" });

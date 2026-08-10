@@ -11,6 +11,7 @@ import {
 import { extractFrontMeasurements } from "../ai/continuous-features";
 import { resolveHybridDecision } from "../ai/hybrid-decision";
 import { FrontV2FeaturePipeline } from "../ai/front-v2-pipeline";
+import { hasGazeSideEvidence } from "../ai/gaze-side-evidence";
 
 // FIX: Bumped gaze_down to 100 so reading a book is recorded as focused studying!
 const STATE_WEIGHTS: Record<string, number> = {
@@ -132,8 +133,18 @@ const createV2Diagnostics = () => ({
   probabilityStats: {} as Record<string, V2ProbabilityDiagnostics>,
   mappingSuccess: 0,
   unmappedPredictionOutputs: 0,
+  rawModelGazeSidePredictions: 0,
+  acceptedModelGazeSidePredictions: 0,
+  rejectedModelGazeSidePredictions: 0,
+  gazeSideEvidenceMatched: 0,
   modelFocusPredictions: 0,
   finalFocusCount: 0,
+  finalUnknownCount: 0,
+  finalGazeSideCount: 0,
+  finalDrowsyCount: 0,
+  finalGazeDownCount: 0,
+  finalBadPostureCount: 0,
+  gazeSideRejectedToFocusCount: 0,
   poseLandmarks: {
     "0": createPoseLandmarkDiagnostics(),
     "11": createPoseLandmarkDiagnostics(),
@@ -579,7 +590,23 @@ export function StudySession() {
             else if (!rawMetrics.faceSeen && rawMetrics.poseSeen) missingFramesRef.current++;
             else missingFramesRef.current = 0;
 
-            const predictionObj = (aiPrediction !== "unknown" && aiPrediction !== "absent") ? { 
+            const gazeSideEvidence = hasGazeSideEvidence({
+                irisXRatio: rawMetrics.irisXRatio,
+                gazeXDeltaFromBaseline: featureResult.values.gaze_x_delta_from_baseline ?? null,
+                gazeXRollingMean: featureResult.values.gaze_x_rolling_mean ?? null,
+            });
+            const rawModelGazeSide = aiPrediction === "gaze_side";
+            if (rawModelGazeSide) {
+                v2Diagnostics.rawModelGazeSidePredictions++;
+                if (gazeSideEvidence) {
+                    v2Diagnostics.gazeSideEvidenceMatched++;
+                    v2Diagnostics.acceptedModelGazeSidePredictions++;
+                } else {
+                    v2Diagnostics.rejectedModelGazeSidePredictions++;
+                }
+            }
+            const predictionObj = (aiPrediction !== "unknown" && aiPrediction !== "absent" &&
+                (!rawModelGazeSide || gazeSideEvidence)) ? {
                 state: aiPrediction as any, 
                 confidence: aiConfidence 
             } : null;
@@ -597,6 +624,7 @@ export function StudySession() {
                     calibrationValid: featureResult.calibrationValid
                 },
                 prediction: predictionObj,
+                gazeSidePredictionRejected: rawModelGazeSide && !gazeSideEvidence,
                 continuousEyeClosedSec: featureResult.values.continuous_eye_closed_sec ?? 0, 
                 gazeDownRuleMatched: gaze_down || (rawMetrics.faceHeadDownRatio ?? 0) > 0.72, 
                 badPosture: bad_posture,
@@ -628,7 +656,22 @@ export function StudySession() {
             }
 
             const predictedState = finalState;
-            if (finalState === "focus") v2Diagnostics.finalFocusCount++;
+            if (finalState === "focus") {
+                v2Diagnostics.finalFocusCount++;
+                if (decisionSource === "gaze_side_evidence_rejected") {
+                    v2Diagnostics.gazeSideRejectedToFocusCount++;
+                }
+            } else if (finalState === "unknown") {
+                v2Diagnostics.finalUnknownCount++;
+            } else if (finalState === "gaze_side") {
+                v2Diagnostics.finalGazeSideCount++;
+            } else if (finalState === "drowsy") {
+                v2Diagnostics.finalDrowsyCount++;
+            } else if (finalState === "gaze_down") {
+                v2Diagnostics.finalGazeDownCount++;
+            } else if (finalState === "bad_posture") {
+                v2Diagnostics.finalBadPostureCount++;
+            }
 
             if (nowMs - v2Diagnostics.lastLoggedAtMs >= 10_000) {
                 try {
@@ -705,7 +748,17 @@ export function StudySession() {
                             ((v2Diagnostics.modelFocusPredictions / Math.max(v2Diagnostics.mappingSuccess, 1)) * 100).toFixed(2),
                         ),
                         modelFocusPredictions: v2Diagnostics.modelFocusPredictions,
+                        rawModelGazeSidePredictions: v2Diagnostics.rawModelGazeSidePredictions,
+                        acceptedModelGazeSidePredictions: v2Diagnostics.acceptedModelGazeSidePredictions,
+                        rejectedModelGazeSidePredictions: v2Diagnostics.rejectedModelGazeSidePredictions,
+                        gazeSideEvidenceMatched: v2Diagnostics.gazeSideEvidenceMatched,
                         finalFocusCount: v2Diagnostics.finalFocusCount,
+                        finalUnknownCount: v2Diagnostics.finalUnknownCount,
+                        finalGazeSideCount: v2Diagnostics.finalGazeSideCount,
+                        finalDrowsyCount: v2Diagnostics.finalDrowsyCount,
+                        finalGazeDownCount: v2Diagnostics.finalGazeDownCount,
+                        finalBadPostureCount: v2Diagnostics.finalBadPostureCount,
+                        gazeSideRejectedToFocusCount: v2Diagnostics.gazeSideRejectedToFocusCount,
                         unmappedPredictionOutputs: v2Diagnostics.unmappedPredictionOutputs,
                         poseLandmarkQuality: poseQualitySummary,
                     });
