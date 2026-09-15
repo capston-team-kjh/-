@@ -7,11 +7,24 @@ commit `5c599bff1f59efcc25c36259dcfc464d9bcbd66b`.
 
 - Deploy the model named `focus_classifier.onnx`.
 - Do not replace it with the 3-class B model or the practical-hybrid candidate.
-- No database migration, schema change, secret change, or server deployment is
-  included in this branch.
+- The handoff commit on top of the stable production base adds no database
+  migration, schema change, secret change, or server deployment.
 - The deployment owner should deploy and smoke-test this branch as one unit.
   Copying only the ONNX file to `main` is not sufficient because the browser
   loader and MediaPipe assets are part of the same runtime path.
+
+## Pull request scope warning
+
+Remote `main` predates the stable browser production integration. Therefore the
+pull request from this release branch to `main` shows the existing application
+integration history in addition to this handoff document. The release handoff
+commit itself changes only `README.md` and this document.
+
+Deployment owners must review the historical application and database-mapping
+differences before merging into `main`. Do not generate or run a database
+migration from those code differences. If the deployed environment already
+runs the browser production integration, deploy this release branch as the
+known-good unit instead of copying only the ONNX binary.
 
 ## Exact production artifacts
 
@@ -71,10 +84,13 @@ must not replace the production model in this release.
 ## Database boundary
 
 The browser keeps model confidence and decision diagnostics in memory while the
-session runs. The timeline endpoint creates `AnalysisTimeline` rows using only
-`session_id`, `t`, and final `state`. This release adds no table or column and
-does not persist ONNX files, landmarks, feature vectors, per-second model
-probabilities, or decision sources in the database.
+session runs. The stable timeline endpoint creates `AnalysisTimeline` rows
+using only `session_id`, `t`, and final `state`. The handoff commit adds no table
+or column and does not persist ONNX files, landmarks, feature vectors,
+per-second model probabilities, or decision sources in the database. Because
+remote `main` is older, its database mappings must be compared with the target
+server before the historical integration is merged; this release does not
+authorize a migration.
 
 ## Reproducible verification
 
