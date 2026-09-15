@@ -2,6 +2,8 @@
 
 AI 분석 결과와 수동 라벨을 비교하는 성능 평가 방법은 [docs/ai_evaluation.md](docs/ai_evaluation.md)를 참고한다.
 
+현재 배포 대상으로 고정한 브라우저 production 모델의 파일, 해시, 런타임 계약, 검증 및 인수인계 절차는 [docs/production-focus-model-handoff.md](docs/production-focus-model-handoff.md)를 참고한다. 이 release에서는 새 후보 모델과 3-class B를 사용하지 않는다.
+
 **백엔드 API 및 인증 시스템 모듈**
 
 프로젝트의 핵심 인증 시스템, 집중 세션 관리, 그리고 실시간 AI 집중도 로그 저장을 위한 백엔드 기반을 포함
