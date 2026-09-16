@@ -1,5 +1,19 @@
 # Production Focus Model Release Handoff
 
+## 현재 반영된 판정 변경 — 먼저 읽어주세요
+
+기존 ONNX 파일은 동일하지만 **브라우저 최종 판정 코드는 수정되었습니다**.
+
+- `gaze_down` 최종 상태는 전면 MediaPipe의 개인 보정 홍채 Y + 머리 숙임 + 2초 지속으로만 생성합니다. ONNX의 gaze_down 예측은 최종 상태로 채택하지 않습니다.
+- 세션마다 눈 뜬 정면 샘플 5개로 기준을 계산합니다. 보정 중/얼굴 또는 홍채 신호 불충분 시 unknown을 사용합니다.
+- 졸음은 보정 후 10초 눈 감김 또는 모델 졸음 확률 0.65 이상 + 신체 증거 + 5초 지속이 필요합니다. 손 활동 중 고개 숙임만으로는 졸음 확정을 하지 않습니다.
+- 얼굴·홍채·머리·어깨는 전면 카메라만 사용합니다. 책상 카메라는 사람 존재·손 활동의 보조 증거입니다.
+- `model_state`, `model_confidence`, `mediapipe_state`, `final_state`, `decision_source`는 메모리 내 진단입니다. 서버에는 `t`, 최종 `state`만 전송합니다.
+- 모델 해시와 입출력을 검사하며 모델 로드/추론 실패 시 MediaPipe 판정을 계속합니다.
+- 핵심 파일: `frontend/src/ai/production-decision.mjs`, 연결 화면: `frontend/src/pages/study-session.tsx`.
+
+**제한:** ONNX 자체는 여전히 16-feature/5-class입니다. 내부 gaze_down 클래스와 입력 feature를 삭제하거나 34-feature 모델로 재학습한 것은 아닙니다. 새 모델은 승격 실패로 연결하지 않았습니다. 임계값은 앞서 validation에서 동결한 설정을 재사용한 초기값이며, 새 production+규칙 조합의 정확도 검증은 완료되지 않았습니다. 아래 과거 평가 수치를 이번 수정본의 성능으로 인용하면 안 됩니다.
+
 ## Release decision
 
 This branch intentionally keeps the last verified browser production model from
@@ -17,8 +31,8 @@ commit `5c599bff1f59efcc25c36259dcfc464d9bcbd66b`.
 
 Remote `main` predates the stable browser production integration. Therefore the
 pull request from this release branch to `main` shows the existing application
-integration history in addition to this handoff document. The release handoff
-commit itself changes only `README.md` and this document.
+integration history in addition to the browser decision correction and handoff
+documents. Review the latest correction separately from that historical scope.
 
 Deployment owners must review the historical application and database-mapping
 differences before merging into `main`. Do not generate or run a database
@@ -54,15 +68,14 @@ candidate contract.
 - Model classes: `drowsy`, `focus`, `gaze_down`, `gaze_side`, `unknown`.
 - Browser integration: `frontend/src/pages/study-session.tsx` loads the local
   MediaPipe task files and `/focus_classifier.onnx`, builds the 16 inputs, and
-  applies the existing rule fallback.
+  applies `production-decision.mjs` for calibrated, source-separated decisions.
 - MediaPipe WASM and ONNX Runtime WASM are currently loaded from jsDelivr, so
   the deployed browser needs outbound access to that CDN unless the team later
   vendors and pins those WASM assets.
 
 Important: this legacy production model includes `gaze_down` as an ONNX class.
-It does not implement the later 34-feature, 3-class, MediaPipe-only
-`gaze_down` design. This difference is accepted for this release because the
-new candidate did not pass its promotion gates.
+Its output is excluded from final gaze_down decisions, which are now generated
+only by MediaPipe. The later 34-feature, 3-class model remains unpromoted.
 
 ## Why the newer candidates are not selected
 
@@ -100,6 +113,7 @@ Run from the repository root with Python 3.12 and Node.js installed:
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt -r ai\requirements.txt
 .\.venv\Scripts\python.exe -B -m unittest discover -s ai\tests
+node --test frontend/src/ai/production-decision.test.mjs frontend/src/ai/production-model.test.mjs
 
 Set-Location frontend
 npm ci
@@ -122,10 +136,10 @@ Expected repository checks:
 
 1. Build and serve the frontend from this branch.
 2. Open the study-session page and grant access to both cameras.
-3. Confirm the browser console reports that four MediaPipe models and the ONNX
-   model loaded.
-4. Start a session and confirm that the displayed state updates once per
-   second.
+3. Confirm MediaPipe loads and no model-unavailable warning is shown.
+4. Start a session, look straight ahead with eyes open for calibration, then
+   confirm the displayed state updates. Test sustained downward gaze, eye
+   closure, front-face occlusion and ONNX load failure as separate scenarios.
 5. Stop the session and verify that `analysis_timeline` contains only the
    existing final `state` values for the session.
 6. Confirm that no database migration was executed and no environment secret

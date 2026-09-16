@@ -3,6 +3,7 @@ import { Play, Square, Activity } from "lucide-react";
 import { setupDualCameras } from "@/utils/dualCamManager"; 
 import { FaceLandmarker, PoseLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
 import * as ort from "onnxruntime-web";
+import { ProductionDecision, toTimelinePoint, validateFeatures, validateProbabilities, MODEL_CLASSES, MODEL_SHA256 } from "@/ai/production-decision.mjs";
 
 export function StudySession() {
   const [isRunning, setIsRunning] = useState(false);
@@ -11,6 +12,9 @@ export function StudySession() {
   
   const [currentState, setCurrentState] = useState<string>("idle");
   const [debugData, setDebugData] = useState<any>({});
+  const decisionRef = useRef(new ProductionDecision());
+  const [calibrating, setCalibrating] = useState(true);
+  const [modelWarning, setModelWarning] = useState("");
   
   // NEW: Array to hold the timeline data for the database
   const timelineRef = useRef<{t: number, state: string}[]>([]);
@@ -30,6 +34,8 @@ export function StudySession() {
   // Replace inferenceIntervalId with an animation frame ID and a timestamp tracker
   const animationFrameId = useRef<number | null>(null);
   const lastInferenceTime = useRef<number>(0);
+  const inferenceBusy = useRef(false);
+  const lastFrontFrameTime = useRef(-1);
 
   const frontFaceRef = useRef<FaceLandmarker | null>(null);
   const frontPoseRef = useRef<PoseLandmarker | null>(null);
@@ -72,13 +78,27 @@ export function StudySession() {
         frontPoseRef.current = await PoseLandmarker.createFromOptions(vision, poseOptions);
         deskPoseRef.current = await PoseLandmarker.createFromOptions(vision, poseOptions);
 
-        ort.env.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/";
-        onnxSessionRef.current = await ort.InferenceSession.create("/focus_classifier.onnx", {
-          executionProviders: ["wasm"], 
-        });
+        try {
+          ort.env.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.27.0/dist/";
+          const response = await fetch("/focus_classifier.onnx");
+          if (!response.ok) throw new Error("Model fetch failed");
+          const bytes = await response.arrayBuffer();
+          const digest = await crypto.subtle.digest("SHA-256", bytes);
+          const hash = Array.from(new Uint8Array(digest), x => x.toString(16).padStart(2, "0")).join("");
+          if (hash !== MODEL_SHA256) throw new Error("Production model hash mismatch");
+          const session = await ort.InferenceSession.create(bytes, { executionProviders: ["wasm"] });
+          if (session.inputNames.join() !== "float_input" || session.outputNames.join() !== "label,probabilities") {
+            await session.release();
+            throw new Error("Production model IO mismatch");
+          }
+          onnxSessionRef.current = session;
+        } catch (error) {
+          console.error("ONNX unavailable; MediaPipe decisions remain active", error);
+          setModelWarning("AI 모델을 불러오지 못했습니다. 카메라 규칙으로만 판정합니다.");
+        }
 
         setModelsLoaded(true);
-        console.log("All 4 MediaPipe Models and ONNX Loaded!");
+        console.log("MediaPipe ready; ONNX available:", Boolean(onnxSessionRef.current));
       } catch (error) {
         console.error("Failed to load models:", error);
       }
@@ -108,6 +128,7 @@ export function StudySession() {
 
   const runInference = async () => {
     animationFrameId.current = requestAnimationFrame(runInference);
+    if (inferenceBusy.current) return;
 
     if (!faceVideoRef.current || !deskVideoRef.current) return;
     if (!faceCanvasRef.current || !deskCanvasRef.current) return;
@@ -122,6 +143,11 @@ export function StudySession() {
 
     try {
       const nowMs = performance.now();
+      if (nowMs - lastInferenceTime.current < 1000) return;
+      const frontTrack = (faceVideo.srcObject as MediaStream | null)?.getVideoTracks()[0];
+      const freshFront = frontTrack?.readyState === "live" && !frontTrack.muted
+        && faceVideo.currentTime > lastFrontFrameTime.current;
+      lastFrontFrameTime.current = faceVideo.currentTime;
       const faceCanvas = faceCanvasRef.current;
       const deskCanvas = deskCanvasRef.current;
 
@@ -131,8 +157,8 @@ export function StudySession() {
       }
 
       // 1. Run all 4 independent trackers
-      const frontFaceRes = frontFaceRef.current.detectForVideo(faceVideo, nowMs);
-      const frontPoseRes = frontPoseRef.current.detectForVideo(faceVideo, nowMs);
+      const frontFaceRes = freshFront ? frontFaceRef.current.detectForVideo(faceVideo, nowMs) : { faceLandmarks: [] };
+      const frontPoseRes = freshFront ? frontPoseRef.current.detectForVideo(faceVideo, nowMs) : { landmarks: [] };
       const deskFaceRes = deskFaceRef.current.detectForVideo(deskVideo, nowMs);
       const deskPoseRes = deskPoseRef.current.detectForVideo(deskVideo, nowMs);
 
@@ -172,29 +198,34 @@ export function StudySession() {
 
       // Throttled Database & ONNX Logic (1 FPS)
       if (nowMs - lastInferenceTime.current >= 1000) {
+        if (nowMs - lastInferenceTime.current > 1500) temporalBufferRef.current = [];
+        inferenceBusy.current = true;
+        try {
         lastInferenceTime.current = nowMs;
-        let predictedState = "focus";
+        let predictedState = "unknown";
+        let diagnostics: any = {};
 
-        if (onnxSessionRef.current) {
+        {
             const features = new Float32Array(16);
             features[0] = 1.0; features[1] = 1.0; 
             
             let face_seen = 0, gaze_side = 0, gaze_down = 0, bad_posture = 0;
             let eye_closed = 0, blink = 0, long_eye_closure = 0, head_down = 0, head_tilt = 0, drowsy = 0;
             let page_turn = 0, pen_fidget = 0, restless_hand = 0;
+            let measuredEar = NaN, measuredIrisY = NaN, measuredHead = NaN;
 
             // =====================================
             // FALLBACK ROUTING ENGINE
             // =====================================
-            // Prefer Front Cam for Face, fallback to Desk Cam (e.g. sleeping on desk)
+            // Front camera exclusively supplies face, iris, and head evidence.
             const bestFaceLm = (frontFaceRes.faceLandmarks && frontFaceRes.faceLandmarks.length > 0) 
                 ? frontFaceRes.faceLandmarks[0] 
-                : ((deskFaceRes.faceLandmarks && deskFaceRes.faceLandmarks.length > 0) ? deskFaceRes.faceLandmarks[0] : null);
+                : null;
 
-            // Prefer Front Cam for Shoulders (Posture), fallback to Desk
+            // Front camera exclusively supplies posture evidence.
             const bestShoulderLm = (frontPoseRes.landmarks && frontPoseRes.landmarks.length > 0)
                 ? frontPoseRes.landmarks[0]
-                : ((deskPoseRes.landmarks && deskPoseRes.landmarks.length > 0) ? deskPoseRes.landmarks[0] : null);
+                : null;
 
             // Prefer Desk Cam for Wrists (Fidgeting), fallback to Front
             const bestWristLm = (deskPoseRes.landmarks && deskPoseRes.landmarks.length > 0)
@@ -209,6 +240,7 @@ export function StudySession() {
                 
                 const rightEar = (getDist(159, 145) + getDist(158, 153)) / (2.0 * getDist(33, 133) + 1e-6);
                 const leftEar = (getDist(386, 374) + getDist(385, 380)) / (2.0 * getDist(362, 263) + 1e-6);
+                measuredEar = (rightEar + leftEar) / 2;
                 
                 // Matches AnalyzeConfig: drowsy_ear_threshold = 0.16
                 if (((rightEar + leftEar) / 2.0) <= 0.16) { 
@@ -229,6 +261,7 @@ export function StudySession() {
 
                     const avgX = (getRatioX(468, 33, 133) + getRatioX(473, 362, 263)) / 2.0;
                     const avgY = (getRatioY(468, 159, 145) + getRatioY(473, 386, 374)) / 2.0;
+                    measuredIrisY = avgY;
 
                     // Matches AnalyzeConfig: gaze_side_left_threshold = 0.35, gaze_side_right_threshold = 0.65
                     if (avgX <= 0.35 || avgX >= 0.65) gaze_side = 1.0;
@@ -239,6 +272,7 @@ export function StudySession() {
                 const eyeMidY = (bestFaceLm[33].y + bestFaceLm[263].y) / 2.0;
                 const faceHeight = bestFaceLm[152].y - eyeMidY;
                 const eyeWidth = Math.abs(bestFaceLm[263].x - bestFaceLm[33].x);
+                measuredHead = faceHeight > 1e-6 ? (bestFaceLm[1].y - eyeMidY) / faceHeight : NaN;
                 
                 // Matches AnalyzeConfig: face_head_down_threshold = 0.72
                 if (faceHeight > 1e-6 && ((bestFaceLm[1].y - eyeMidY) / faceHeight >= 0.72)) head_down = 1.0;
@@ -292,7 +326,7 @@ export function StudySession() {
                 if (validFrames >= 7) {
                     const first = temporalBufferRef.current[0].rightWrist || temporalBufferRef.current[1].rightWrist;
                     const last = temporalBufferRef.current[9].rightWrist;
-                    const netDisp = Math.hypot(last.x - first.x, last.y - first.y);
+                    const netDisp = first && last ? Math.hypot(last.x - first.x, last.y - first.y) : 0;
                     const xSpan = Math.max(...xs) - Math.min(...xs);
                     const ySpan = Math.max(...ys) - Math.min(...ys);
                     const bboxDiag = Math.hypot(xSpan, ySpan);
@@ -333,85 +367,35 @@ export function StudySession() {
             features[15] = 0.0; // unknown
 
             try {
-                // Create the [1, 16] Tensor
-                const tensor = new ort.Tensor("float32", features, [1, 16]);
-                
-                const inputName = onnxSessionRef.current.inputNames[0];
-                const feeds = { [inputName]: tensor };
-                
-                // Run the edge AI!
-                const results = await onnxSessionRef.current.run(feeds);
-                
-                // 1. Extract ONNX Outputs
-                const labelData = results[onnxSessionRef.current.outputNames[0]].data;
-                const probData = results[onnxSessionRef.current.outputNames[1]].data;
-                
-                let aiPrediction = "unknown";
-                let aiConfidence = 0.0;
-                
-                if (labelData && labelData.length > 0) {
-                    aiPrediction = String(labelData[0]);
-                    // Explicitly cast to Float32Array so TypeScript knows these are numbers
-                    const probabilities = probData as Float32Array;
-                    aiConfidence = Math.max(...probabilities); 
+                let probabilities: Float32Array | null = null;
+                if (onnxSessionRef.current && [measuredEar, measuredIrisY, measuredHead].every(Number.isFinite)) {
+                  try {
+                    validateFeatures(features);
+                    const results = await onnxSessionRef.current.run({float_input: new ort.Tensor("float32", features, [1,16])});
+                    const output = results.probabilities;
+                    if (output.type !== "float32" || output.dims.join() !== "1,5" || results.label.type !== "string" || results.label.dims.join() !== "1")
+                      throw new Error("Invalid ONNX output contract");
+                    const values = output.data as Float32Array;
+                    validateProbabilities(values);
+                    if (String(results.label.data[0]) !== MODEL_CLASSES[Array.from(values).indexOf(Math.max(...values))])
+                      throw new Error("Class order mismatch");
+                    probabilities = values;
+                  } catch (error) {
+                    console.error("ONNX contract/inference failed", error);
+                    setModelWarning("AI 추론을 사용할 수 없어 카메라 규칙으로 판정합니다.");
+                  }
                 }
-
-                // 2. Apply Rule-Based Overrides (matching analyze.py logic)
-                let finalState = aiPrediction;
-                let decisionSource = "model";
-
-                // Check if we see a body even if the face is hidden
-                const pose_seen = (bestShoulderLm || bestWristLm) ? 1.0 : 0.0;
-
-                if (face_seen === 0.0 && pose_seen === 0.0) {
-                    finalState = "absent";
-                    decisionSource = "rule_absent";
-                } else if (face_seen === 0.0 && pose_seen === 1.0) {
-                    finalState = "unknown"; 
-                    decisionSource = "rule_face_hidden";
-                } else if (bad_posture === 1.0 && aiPrediction !== "gaze_side" && aiPrediction !== "gaze_down") {
-                    // FIX: Only enforce the posture penalty if the AI doesn't detect you looking away
-                    finalState = "bad_posture";
-                    decisionSource = "rule_bad_posture";
-                } else if (aiConfidence < 0.65) { 
-                    finalState = "unknown";
-                    decisionSource = "rule";
-                }
-
-                predictedState = finalState;
-
-                // 3. Format the JSON payload exactly like analyze.py
-                const currentT = timelineRef.current.length + 1;
-                const timelineEntry = {
-                    t: currentT,
-                    state: finalState,
-                    model_state: aiPrediction,
-                    model_confidence: Number(aiConfidence.toFixed(4)),
-                    rule_state: finalState,
-                    decision_source: decisionSource,
-                    states: [finalState],
-                    flags: {
-                        face_seen: Boolean(face_seen),
-                        gaze_side: Boolean(gaze_side),
-                        gaze_down: Boolean(gaze_down),
-                        bad_posture: Boolean(bad_posture),
-                        eye_closed: Boolean(eye_closed),
-                        blink: Boolean(blink),
-                        long_eye_closure: Boolean(long_eye_closure),
-                        head_down: Boolean(head_down),
-                        head_tilt: Boolean(head_tilt),
-                        raw_drowsy: Boolean(drowsy),
-                        drowsy: Boolean(drowsy),
-                        page_turn: Boolean(page_turn), 
-                        pen_fidget: Boolean(pen_fidget), 
-                        restless_hand: Boolean(restless_hand), 
-                        unknown: finalState === "unknown",
-                        absent: finalState === "absent"
-                    }
-                };
-
-                // Push the perfectly formatted JSON to the timeline array
-                timelineRef.current.push(timelineEntry);
+                const decision = decisionRef.current.step(nowMs, {
+                  faceSeen: Boolean(face_seen),
+                  personSeen: Boolean(face_seen || frontPoseRes.landmarks?.length || deskPoseRes.landmarks?.length || deskFaceRes.faceLandmarks?.length),
+                  ear: measuredEar, irisY: measuredIrisY, head: measuredHead,
+                  badPosture: Boolean(bad_posture), pageTurn: Boolean(page_turn),
+                  penFidget: Boolean(pen_fidget), restlessHand: Boolean(restless_hand)
+                }, probabilities);
+                predictedState = decision.final_state;
+                diagnostics = decision;
+                setCalibrating(!decision.calibration_valid);
+                timelineRef.current.push(toTimelinePoint(timelineRef.current.length + 1, decision));
 
             } catch (err) {
                 console.error("ONNX Inference Detailed Error:", err);
@@ -420,6 +404,7 @@ export function StudySession() {
             
             setCurrentState(predictedState);
             setDebugData({
+              ...diagnostics,
               timestamp: Date.now(),
               ai_tracking: {
                 front_faces: frontFaceRes.faceLandmarks ? frontFaceRes.faceLandmarks.length : 0,
@@ -430,6 +415,7 @@ export function StudySession() {
               onnx_prediction: predictedState,
               timeline_length: timelineRef.current.length
             });
+        } finally { inferenceBusy.current = false; }
       }
     } catch (error) {
       console.warn("AI Inference skipped a frame due to an error:", error);
@@ -443,6 +429,7 @@ export function StudySession() {
       return;
     }
     if (isRunning) return;
+    if (!modelsLoaded) { alert("카메라 분석 도구를 불러오는 중입니다."); return; }
 
     try {
       const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/sessions/`, {
@@ -457,6 +444,10 @@ export function StudySession() {
       
       // Reset timeline array for a new session
       timelineRef.current = [];
+      temporalBufferRef.current = [];
+      decisionRef.current.reset();
+      lastFrontFrameTime.current = -1;
+      setCalibrating(true);
 
       const { faceStream, deskStream } = await setupDualCameras();
       if (faceVideoRef.current) faceVideoRef.current.srcObject = faceStream;
@@ -476,6 +467,7 @@ export function StudySession() {
     if (!sessionId) return;
 
     try {
+      if (inferenceBusy.current) { alert("판정 처리 중입니다. 잠시 후 종료를 다시 눌러 주세요."); return; }
       if (inferenceIntervalId.current) clearInterval(inferenceIntervalId.current);
       
       if (faceVideoRef.current?.srcObject) {
@@ -487,19 +479,21 @@ export function StudySession() {
       if (animationFrameId.current) cancelAnimationFrame(animationFrameId.current);
 
       // 1. End the session in `focus_sessions`
-      await fetch(`${import.meta.env.VITE_API_BASE_URL}/sessions/${sessionId}`, {
+      const endResponse = await fetch(`${import.meta.env.VITE_API_BASE_URL}/sessions/${sessionId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: "completed", end_time: new Date().toISOString() }),
       });
+      if (!endResponse.ok) throw new Error("세션 종료 저장 실패");
 
       // 2. NEW: Bulk upload our accumulated timeline data to `analysis_timeline`
       if (timelineRef.current.length > 0) {
-        await fetch(`${import.meta.env.VITE_API_BASE_URL}/sessions/${sessionId}/timeline`, {
+        const timelineResponse = await fetch(`${import.meta.env.VITE_API_BASE_URL}/sessions/${sessionId}/timeline`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ timeline: timelineRef.current }),
         });
+        if (!timelineResponse.ok) throw new Error("타임라인 저장 실패");
       }
 
       setIsRunning(false);
@@ -516,6 +510,8 @@ export function StudySession() {
     <div className="min-h-screen bg-gradient-to-br from-accent/20 to-white p-8">
       <div className="max-w-4xl mx-auto">
         <h1 className="text-3xl font-bold text-foreground mb-8">학습 세션</h1>
+        {modelWarning && <p role="status">{modelWarning}</p>}
+        {isRunning && calibrating && <p role="status">개인 기준을 맞추고 있습니다. 눈을 뜨고 정면 카메라를 약 5초 동안 바라봐 주세요.</p>}
 
         {/* Re-styled Camera Preview Elements */}
         <div className={`flex gap-4 mb-6 ${!isRunning ? 'hidden' : ''}`}>
