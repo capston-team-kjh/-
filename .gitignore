@@ -30,3 +30,13 @@ ai/manual_review_queue/
 
 # test videos
 /upload
+
+# Local runtime and diagnostic artifacts
+*.log
+*.pid
+run_local_analysis.txt
+local_outputs/
+logs/
+
+# Reproducible AI training intermediates
+ai/state_classifier_training/analysis_results/

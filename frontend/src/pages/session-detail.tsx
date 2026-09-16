@@ -1,8 +1,7 @@
-import { useParams, Link } from "react-router";
-import { ArrowLeft, Calendar, Clock, Eye, User, Activity } from "lucide-react";
+import { useState, useEffect, useMemo } from "react";
+import { useParams, Link, useNavigate } from "react-router";
+import { ArrowLeft, Calendar, Clock, Eye, User, Brain, Trash2 } from "lucide-react";
 import {
-  LineChart,
-  Line,
   RadarChart,
   Radar,
   PolarGrid,
@@ -17,153 +16,310 @@ import {
   AreaChart,
 } from "recharts";
 
-const sessionData = {
-  id: "43",
-  sessionName: "Session 43",
-  date: "March 23, 2026",
-  startTime: "2:30 PM",
-  endTime: "4:45 PM",
-  totalDuration: 135,
-  actualFocusTime: 98,
-  awayFromSeat: 12,
-  poorEyeGaze: 15,
-  poorPosture: 18,
-  fidgeting: 22,
-  focusScore: 73,
-};
-
-// Timeline data - focus score over time (sampled every 5 minutes)
-const timelineData = [
-  { time: "0:00", score: 85 },
-  { time: "0:05", score: 88 },
-  { time: "0:10", score: 82 },
-  { time: "0:15", score: 78 },
-  { time: "0:20", score: 65 },
-  { time: "0:25", score: 45 },
-  { time: "0:30", score: 70 },
-  { time: "0:35", score: 82 },
-  { time: "0:40", score: 88 },
-  { time: "0:45", score: 90 },
-  { time: "0:50", score: 85 },
-  { time: "0:55", score: 78 },
-  { time: "1:00", score: 72 },
-  { time: "1:05", score: 75 },
-  { time: "1:10", score: 80 },
-  { time: "1:15", score: 85 },
-  { time: "1:20", score: 88 },
-  { time: "1:25", score: 82 },
-  { time: "1:30", score: 78 },
-  { time: "1:35", score: 75 },
-  { time: "1:40", score: 70 },
-  { time: "1:45", score: 68 },
-  { time: "1:50", score: 72 },
-  { time: "1:55", score: 75 },
-  { time: "2:00", score: 78 },
-  { time: "2:05", score: 80 },
-  { time: "2:10", score: 78 },
-  { time: "2:15", score: 76 },
-];
-
-// Radial chart data - distraction breakdown
-const radarData = [
-  { metric: "Away from Seat", value: 12, fullMark: 30 },
-  { metric: "Poor Eye Gaze", value: 15, fullMark: 30 },
-  { metric: "Poor Posture", value: 18, fullMark: 30 },
-  { metric: "Fidgeting", value: 22, fullMark: 30 },
-  { metric: "Other", value: 5, fullMark: 30 },
-];
+interface SessionReportData {
+  summary: {
+    focus_score: number;
+    session_id: string;
+    focus_ratio: number;
+    absent_count: number;
+    absent_total_sec: number;
+    away_count: number;
+    away_total_sec: number;
+    bad_posture_ratio: number;
+    analyzed_at: string;
+  };
+  timeline: Array<{ t: number; state: string }>;
+  insights: string[];
+  events: Array<{
+    event_type: string;
+    start_sec: number;
+    end_sec: number;
+    score: number;
+  }>;
+  personal_feedback?: {
+    main_problem: string;
+    reason: string;
+    feedback: string;
+    next_action: string;
+    worst_segments: Array<{
+      start_sec: number;
+      end_sec: number;
+      problem: string;
+      feedback: string;
+    }>;
+  };
+  feedback_source?: string;
+}
 
 export function SessionDetail() {
-  const { sessionId } = useParams();
+  const { sessionId } = useParams<{ sessionId: string }>();
+  const [report, setReport] = useState<SessionReportData | null>(null);
+  const [allSessions, setAllSessions] = useState<any[]>([]); //Track full list history
+  const [loading, setLoading] = useState(true);
 
-  const focusPercentage = Math.round(
-    (sessionData.actualFocusTime / sessionData.totalDuration) * 100
-  );
+  const userId = localStorage.getItem("user_id"); 
+  const navigate = useNavigate();
+
+  // Handle Session Deletion
+  const handleDeleteSession = async () => {
+    const confirmDelete = window.confirm(
+      "이 세션을 삭제하시겠습니까?\n관련된 모든 타임라인과 AI 분석 데이터가 영구적으로 삭제됩니다."
+    );
+
+    if (!confirmDelete) return;
+
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/analytics/sessions/${sessionId}`, {
+        method: "DELETE",
+      });
+
+      if (response.ok) {
+        alert("세션이 삭제되었습니다.");
+        navigate("/app/reports"); // Send them back to the reports page
+      } else {
+        alert("세션 삭제에 실패했습니다.");
+      }
+    } catch (error) {
+      console.error("Failed to delete session:", error);
+    }
+  };
+
+  useEffect(() => {
+    if (!sessionId || !userId) return;
+
+    const fetchSessionDetail = async () => {
+      try {
+        setLoading(true);
+        const headers = { "X-User-Id": userId };
+
+        const [res, listRes] = await Promise.all([
+          // FIX 1 & 2: Changed /session/ to /sessions/ AND added the { headers } object
+          fetch(`${import.meta.env.VITE_API_BASE_URL}/analytics/sessions/${sessionId}`, { headers }),
+          fetch(`${import.meta.env.VITE_API_BASE_URL}/analytics/list`, { headers })
+        ]);
+
+        if (res.ok && listRes.ok) {
+          setReport(await res.json());
+          const listData = await listRes.json();
+          setAllSessions(listData.items || []);
+        }
+      } catch (error) {
+        console.error("Failed to load individual session report metrics:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchSessionDetail();
+  }, [sessionId, userId]);
+
+  // Calculate the dynamic matching display_index based on your sorted history rows
+  const displayIndex = useMemo(() => {
+    if (!sessionId || allSessions.length === 0) return 1;
+    // Find where this session exists in your history list
+    const matched = allSessions.find((s) => String(s.id) === String(sessionId));
+    return matched ? matched.display_index : 1;
+  }, [allSessions, sessionId]);
+
+  // Helper formatting logic
+  const formatAdaptiveTime = (totalSecs: number): string => {
+    if (totalSecs >= 3600) {
+      // 1 hour or more: Show Hours and Minutes
+      const hours = Math.floor(totalSecs / 3600);
+      const mins = Math.floor((totalSecs % 3600) / 60);
+      return `${hours}h ${mins}m`;
+    } else {
+      // Under 1 hour: Show Minutes and Seconds
+      const mins = Math.floor(totalSecs / 60);
+      const secs = Math.floor(totalSecs % 60);
+      return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+    }
+  };
+
+  //State weights from focus_score.py
+  const STATE_WEIGHTS: Record<string, number> = {
+    "focus": 100,
+    "bad_posture": 60,
+    "gaze_away": 40,
+    "gaze_side": 40, // UI alias for gaze_away
+    "gaze_down": 40, // UI alias for gaze_away
+    "unknown": 50,
+    "present_unknown": 50,
+    "drowsy": 20,
+    "sleep_suspect": 20,
+    "absent": 0,
+  };
+
+  const sessionMetrics = useMemo(() => {
+    if (!report) return { totalSeconds: 0, focusScore: 0, actualFocusSeconds: 0, secondBySecond: [] };
+    
+    // Determine exact session length in seconds
+    const tSecs = report.timeline?.length > 0 
+      ? Math.floor(Math.max(...report.timeline.map(item => item.t))) + 1 
+      : Math.max(...(report.events?.map(e => e.end_sec) || [0]), 1);
+      
+    // Baseline array: Assume 100% focus for every second
+    const secondBySecond = new Array(tSecs).fill(100);
+    
+    report.timeline?.forEach(item => {
+      const timeIndex = Math.floor(item.t);
+      if (timeIndex < tSecs) {
+        // Look up the score for this specific state, default to 100 if missing
+        secondBySecond[timeIndex] = STATE_WEIGHTS[item.state] ?? 100;
+      }
+    });
+    
+    // Calculate actual focus seconds (only counting time where state === "focus")
+    const actualFocusSeconds = report.timeline?.filter(t => t.state === "focus").length || 0;
+
+    // If the backend hasn't exposed it yet, fallback to a ratio, but rely on the DB.
+    const focusScore = report.summary.focus_score || Math.round(report.summary.focus_ratio * 100) || 0;
+    
+    return { totalSeconds: tSecs, focusScore, actualFocusSeconds, secondBySecond };
+  }, [report]);
+
+  const parsedTimelineData = useMemo(() => {
+    const { totalSeconds, secondBySecond } = sessionMetrics;
+    if (totalSeconds === 0) return [];
+
+    const dataPointsCount = 30;
+    const bucketSize = Math.max(1, Math.floor(totalSeconds / dataPointsCount));
+
+    const bucketedData = [];
+    for (let i = 0; i < totalSeconds; i += bucketSize) {
+      const chunk = secondBySecond.slice(i, i + bucketSize);
+      const avgScore = chunk.reduce((sum, val) => sum + val, 0) / chunk.length;
+
+      const mins = Math.floor(i / 60);
+      const secs = i % 60;
+      bucketedData.push({
+        time: `${mins}:${String(secs).padStart(2, "0")}`,
+        score: Math.round(avgScore),
+      });
+    }
+
+    return bucketedData;
+  }, [sessionMetrics]);
+
+  const getTimelineMetrics = (targetStates: string[]) => {
+    const timeline = report?.timeline || [];
+    
+    // Total duration is just the number of seconds the state appears
+    const totalSec = timeline.filter(t => targetStates.includes(t.state)).length;
+
+    // Calculate 'count' by finding contiguous blocks of the state
+    let count = 0;
+    let inBlock = false;
+    const sortedTimeline = [...timeline].sort((a, b) => a.t - b.t);
+
+    for (const item of sortedTimeline) {
+      if (targetStates.includes(item.state)) {
+        if (!inBlock) {
+          count++;
+          inBlock = true;
+        }
+      } else {
+        inBlock = false;
+      }
+    }
+
+    const baseTotal = sessionMetrics.totalSeconds || 1;
+    const percent = Math.min(Math.round((totalSec / baseTotal) * 100), 100);
+    
+    // Scale 1-5 for the Radar Chart
+    let score = 1; 
+    if (percent >= 5) score = 2;
+    if (percent >= 15) score = 3;
+    if (percent >= 25) score = 4;
+    if (percent >= 40) score = 5;
+
+    return { count, totalSec, timeMin: Math.round(totalSec / 60), percent, score };
+  };
+
+  // Derive everything dynamically!
+  const absentMetrics = getTimelineMetrics(["absent"]);
+  const gazeMetrics = getTimelineMetrics(["gaze_side", "gaze_down", "gaze_away"]);
+  const postureMetrics = getTimelineMetrics(["bad_posture"]);
+  
+  // Use "unknown" as a proxy for fidgeting, as rapid hand/body movement blurs landmarks
+  const fidgetingMetrics = getTimelineMetrics(["unknown"]); 
+
+  const radarData = [
+    { metric: "자리 이탈", value: absentMetrics.score, baseMark: 1, timeLabel: formatAdaptiveTime(absentMetrics.totalSec), fullMark: 5 },
+    { metric: "시선 분산", value: gazeMetrics.score, baseMark: 1, timeLabel: formatAdaptiveTime(gazeMetrics.totalSec), fullMark: 5 },
+    { metric: "자세 불량", value: postureMetrics.score, baseMark: 1, timeLabel: formatAdaptiveTime(postureMetrics.totalSec), fullMark: 5 },
+    { metric: "과도한 움직임", value: fidgetingMetrics.score, baseMark: 1, timeLabel: formatAdaptiveTime(fidgetingMetrics.totalSec), fullMark: 5 },
+  ];
+
+  if (loading) return <div className="p-8 text-center text-muted-foreground">세부 분석 리포트를 생성하는 중...</div>;
+  if (!report) return <div className="p-8 text-center text-destructive">리포트 데이터를 찾을 수 없습니다.</div>;
+
+  const { summary } = report;
+
+  const formattedDate = new Date(summary.analyzed_at).toLocaleDateString("ko-KR", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
 
   return (
     <div className="p-8 space-y-6 max-w-7xl mx-auto bg-background min-h-screen">
       {/* Back Button & Header */}
       <div className="flex items-center gap-4 mb-2">
-        <Link
-          to="/app/reports"
-          className="p-2 hover:bg-accent rounded-lg transition-colors"
-        >
+        <Link to="/app/reports" className="p-2 hover:bg-accent rounded-lg transition-colors border border-transparent hover:border-border bg-white shadow-sm">
           <ArrowLeft className="w-5 h-5 text-muted-foreground" />
         </Link>
         <div>
           <h1 className="text-3xl font-bold text-foreground">세션 분석</h1>
-          <p className="text-muted-foreground">
-            학습 세션에 대한 AI 기반 인사이트
-          </p>
+          <p className="text-muted-foreground">학습 세션에 대한 AI 기반 인사이트</p>
         </div>
       </div>
 
       {/* Session Info Card */}
-      <div className="bg-white rounded-2xl border border-border p-6">
-        <div className="flex items-start justify-between mb-4">
-          <div>
-            <h2 className="text-2xl font-semibold text-foreground mb-2">
-              {sessionData.sessionName}
-            </h2>
-            <div className="flex items-center gap-4 text-sm text-muted-foreground">
-              <div className="flex items-center gap-1">
-                <Calendar className="w-4 h-4" />
-                <span>{sessionData.date}</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <Clock className="w-4 h-4" />
-                <span>
-                  {sessionData.startTime} - {sessionData.endTime}
-                </span>
-              </div>
-            </div>
+      <div className="bg-white rounded-2xl border border-border p-6 shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div>
+          <h2 className="text-2xl font-bold text-foreground mb-1">세션 #{displayIndex} 리포트</h2>
+          <div className="flex items-center gap-4 text-sm text-muted-foreground mt-2">
+            <div className="flex items-center gap-1"><Calendar className="w-4 h-4" /><span>{formattedDate}</span></div>
+            <div className="flex items-center gap-1"><Clock className="w-4 h-4" /><span>종료 시각: {new Date(summary.analyzed_at).toLocaleTimeString("ko-KR", {hour: '2-digit', minute:'2-digit'})}</span></div>
           </div>
-          <div className="text-right">
-            <div className="text-sm text-muted-foreground mb-1">전체 집중도</div>
-            <div className="text-4xl font-bold text-primary">
-              {sessionData.focusScore}%
-            </div>
-          </div>
+        </div>
+        <div className="text-right">
+          <div className="text-sm text-muted-foreground mb-1">전체 집중도</div>
+          <div className="text-4xl font-extrabold text-primary">{sessionMetrics.focusScore}%</div>
         </div>
       </div>
 
       {/* Key Metrics Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <MetricCard
-          icon={<Clock className="w-5 h-5" />}
-          label="총 학습 시간"
-          value={formatMinutes(sessionData.totalDuration)}
-          color="bg-blue-500"
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <MetricCard 
+          icon={<Clock className="w-5 h-5" />} 
+          label="총 학습 시간" 
+          value={formatAdaptiveTime(sessionMetrics.totalSeconds)}
+          color="bg-blue-500" 
         />
-        <MetricCard
-          icon={<Eye className="w-5 h-5" />}
-          label="실제 집중 시간"
-          value={formatMinutes(sessionData.actualFocusTime)}
-          subtitle={`세션의 ${focusPercentage}%`}
-          color="bg-green-500"
+        <MetricCard 
+          icon={<Eye className="w-5 h-5" />} 
+          label="실제 집중 시간" 
+          value={formatAdaptiveTime(sessionMetrics.actualFocusSeconds)} 
+          subtitle={`세션의 ${sessionMetrics.focusScore}%`} 
+          color="bg-green-500" 
         />
-        <MetricCard
-          icon={<User className="w-5 h-5" />}
-          label="자리 이탈"
-          value={formatMinutes(sessionData.awayFromSeat)}
-          color="bg-orange-500"
-        />
-        <MetricCard
-          icon={<Activity className="w-5 h-5" />}
-          label="집중도 점수"
-          value={`${sessionData.focusScore}%`}
-          color="bg-primary"
+        <MetricCard 
+          icon={<User className="w-5 h-5" />} 
+          label="총 산만 시간" 
+          value={formatAdaptiveTime(sessionMetrics.totalSeconds - sessionMetrics.actualFocusSeconds)}
+          color="bg-orange-500" 
         />
       </div>
 
       {/* Timeline Chart */}
-      <div className="bg-white rounded-2xl border border-border p-6">
+      <div className="bg-white rounded-2xl border border-border p-6 shadow-sm">
         <h3 className="text-xl font-semibold mb-4">집중도 점수 타임라인</h3>
-        <p className="text-sm text-muted-foreground mb-6">
-          세션 전체에 걸친 집중도의 실시간 추적
-        </p>
+        <p className="text-sm text-muted-foreground mb-6">세션 전체에 걸친 집중도의 실시간 추적</p>
+        
         <ResponsiveContainer width="100%" height={300}>
-          <AreaChart data={timelineData}>
+          <AreaChart data={parsedTimelineData}>
             <defs>
               <linearGradient id="focusGradient" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%" stopColor="#1a667a" stopOpacity={0.3} />
@@ -171,240 +327,221 @@ export function SessionDetail() {
               </linearGradient>
             </defs>
             <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-            <XAxis
-              dataKey="time"
-              stroke="#888"
-              fontSize={12}
-              label={{ value: "Time (hh:mm)", position: "insideBottom", offset: -5 }}
-            />
-            <YAxis
-              stroke="#888"
-              fontSize={12}
-              domain={[0, 100]}
-              label={{ value: "Focus Score (%)", angle: -90, position: "insideLeft" }}
-            />
-            <Tooltip
-              contentStyle={{
-                backgroundColor: "#fff",
-                border: "1px solid #e5e5e5",
-                borderRadius: "8px",
-              }}
-              formatter={(value: number) => [`${value}%`, "Focus Score"]}
-            />
-            <Area
-              type="monotone"
-              dataKey="score"
-              stroke="#1a667a"
-              strokeWidth={3}
-              fillOpacity={1}
-              fill="url(#focusGradient)"
-            />
+            <XAxis dataKey="time" stroke="#888" fontSize={12} tickLine={false} dy={10} />
+            <YAxis stroke="#888" fontSize={12} domain={[0, 100]} ticks={[0, 25, 50, 75, 100]} tickLine={false} dx={-5} />
+            <Tooltip contentStyle={{ backgroundColor: "#fff", border: "1px solid #e5e5e5", borderRadius: "8px" }} formatter={(value: number) => [`${value}%`, "Focus Score"]} />
+            <Area type="monotone" dataKey="score" stroke="#1a667a" strokeWidth={3} fillOpacity={1} fill="url(#focusGradient)" />
           </AreaChart>
-        </ResponsiveContainer>
-        <div className="mt-4 p-4 bg-accent/30 rounded-lg border border-primary/20">
-          <p className="text-sm text-muted-foreground">
-            <strong className="text-foreground">인사이트:</strong> 세션 시작 후 약 45분에 집중도가 최고조에 달했습니다. 높은 성과를 유지하려면 50분마다 휴식을 취하는 것을 고려하세요.
-          </p>
-        </div>
+        </ResponsiveContainer>        
       </div>
 
+      {/* Grid Breakdowns */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white rounded-2xl border border-border p-6">
+        <div className="bg-white rounded-2xl border border-border p-6 shadow-sm">
           <h3 className="text-xl font-semibold mb-4">산만함 분석</h3>
+          <p className="text-sm text-muted-foreground mb-4">
+            가장 안쪽의 점선 영역은 정상 범위를 의미합니다. 그래프가 바깥으로 뻗어나갈수록 해당 요소로 인한 방해 시간이 길었음을 나타냅니다.
+          </p>
           <ResponsiveContainer width="100%" height={350}>
             <RadarChart data={radarData}>
               <PolarGrid stroke="#e5e5e5" />
               <PolarAngleAxis dataKey="metric" tick={{ fill: "#888", fontSize: 12 }} />
-              <PolarRadiusAxis angle={90} domain={[0, 30]} tick={{ fill: "#888" }} />
-              <Radar
-                name="Minutes"
-                dataKey="value"
-                stroke="#1a667a"
-                fill="#1a667a"
-                fillOpacity={0.5}
-                strokeWidth={2}
+              <PolarRadiusAxis angle={90} domain={[0, 5]} tickCount={6} tick={false} axisLine={false} />
+
+              <Radar 
+                name="정상(안전) 범위" 
+                dataKey="baseMark" 
+                stroke="#10b981" 
+                fill="none" 
+                strokeWidth={2} 
+                strokeDasharray="5 5" 
               />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: "#fff",
-                  border: "1px solid #e5e5e5",
-                  borderRadius: "8px",
+              {/* Data layer */}
+              <Radar name="산만함 감지" dataKey="value" stroke="#1a667a" fill="#1a667a" fillOpacity={0.5} strokeWidth={2} />
+              
+  
+              
+              <Tooltip 
+                content={({ active, payload }) => {
+                  if (active && payload && payload.length) {
+                    const data = payload.find(p => p.dataKey === "value");
+                    if (data) {
+                      return (
+                        <div className="bg-white border border-[#e5e5e5] p-3 rounded-lg shadow-sm">
+                          <p className="font-bold text-sm text-foreground mb-1">{data.payload.metric}</p>
+                          <p className="text-sm text-primary font-medium">누적 발생 시간: {data.payload.timeLabel}</p>
+                        </div>
+                      );
+                    }
+                  }
+                  return null;
                 }}
-                formatter={(value: number) => [`${value} min`, "Time"]}
               />
             </RadarChart>
           </ResponsiveContainer>
         </div>
 
-        {/* Detailed Breakdown List */}
-        <div className="bg-white rounded-2xl border border-border p-6">
+        <div className="bg-white rounded-2xl border border-border p-6 shadow-sm">
           <h3 className="text-xl font-semibold mb-4">상세 지표</h3>
           <div className="space-y-4">
-            <DistractionItem
-              label="자리 이탈"
-              value={sessionData.awayFromSeat}
-              total={sessionData.totalDuration}
-              color="bg-orange-500"
-              description="프레임에서 사람이 감지되지 않은 시간"
+            <DistractionItem 
+              label="자리 이탈" 
+              // Pass the formatted adaptive time string directly
+              valueText={formatAdaptiveTime(absentMetrics.totalSec)} 
+              percentage={absentMetrics.percent} 
+              color="bg-orange-500" 
+              description={`프레임 내 미감지 빈도: 총 ${absentMetrics.count}회`} 
             />
-            <DistractionItem
-              label="시선 분산"
-              value={sessionData.poorEyeGaze}
-              total={sessionData.totalDuration}
-              color="bg-yellow-500"
-              description="학습 자료에서 시선이 벗어난 시간"
+            <DistractionItem 
+              label="시선 분산" 
+              valueText={formatAdaptiveTime(gazeMetrics.totalSec)} 
+              percentage={gazeMetrics.percent} 
+              color="bg-yellow-500" 
+              description={`외부 주시 및 시선 이탈 빈도: 총 ${gazeMetrics.count}회`} 
             />
-            <DistractionItem
-              label="나쁜 자세"
-              value={sessionData.poorPosture}
-              total={sessionData.totalDuration}
-              color="bg-red-500"
-              description="구부정한 자세, 누운 자세 또는 잘못된 위치"
+            <DistractionItem 
+              label="자세 불량" 
+              valueText={formatAdaptiveTime(postureMetrics.totalSec)} 
+              percentage={postureMetrics.percent} 
+              color="bg-red-500" 
+              description={`거북목 및 구부정한 자세 감지: 총 ${postureMetrics.count}회`} 
             />
-            <DistractionItem
-              label="과도한 움직임"
-              value={sessionData.fidgeting}
-              total={sessionData.totalDuration}
-              color="bg-purple-500"
-              description="빈번한 손 움직임 및 불안정함"
+            <DistractionItem 
+              label="과도한 움직임" 
+              valueText={formatAdaptiveTime(fidgetingMetrics.totalSec)} 
+              percentage={fidgetingMetrics.percent} 
+              color="bg-purple-500" 
+              description={`불안정한 움직임 감지: 총 ${fidgetingMetrics.count}회`} 
             />
           </div>
         </div>
       </div>
 
-      <div className="bg-gradient-to-br from-primary/5 to-accent/30 rounded-2xl border border-primary/20 p-6">
-        <h3 className="text-xl font-semibold mb-4">맞춤형 추천</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <RecommendationCard
-            title="정기적인 휴식"
-            content="50분 후 피로 징후가 나타났습니다. 뽀모도로 기법을 시도해보세요: 25분 학습, 5분 휴식."
-          />
-          <RecommendationCard
-            title="자세 개선"
-            content="의자 높이를 조정하거나 자세 알림 앱을 사용하여 더 나은 자세를 유지하세요."
-          />
-          <RecommendationCard
-            title="움직임 최소화"
-            content="복잡한 주제를 다룰 때 움직임이 증가했습니다. 스트레스 볼이나 피젯 도구를 사용해보세요."
-          />
-          <RecommendationCard
-            title="적극적인 참여"
-            content="노트를 적극적으로 작성할 때 집중도가 가장 높았습니다. 이 학습 방식을 계속하세요."
-          />
-        </div>
-      </div>
-
-      <div className="bg-white rounded-xl border border-border p-4">
-        <div className="flex items-start gap-3">
-          <div className="p-2 bg-accent rounded-lg">
-            <svg
-              className="w-5 h-5 text-primary"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
-              />
-            </svg>
+      {/* 백엔드 AI JSON 데이터를 활용한 스마트 피드백 영역 */}
+      {report?.personal_feedback && (
+        <div className="bg-gradient-to-br from-primary/5 to-accent/30 rounded-2xl border border-primary/20 p-6 shadow-sm mb-6">
+          <div className="flex items-center justify-between mb-5">
+            <h3 className="text-xl font-bold text-foreground flex items-center gap-2">
+              <Brain className="w-6 h-6 text-primary" /> AI 맞춤형 세션 코칭
+            </h3>
+            {report.feedback_source === "ai_api" && (
+              <span className="px-2 py-1 bg-primary/10 text-primary text-xs rounded-md font-medium">
+                AI 분석 완료
+              </span>
+            )}
           </div>
-          <div className="flex-1">
-            <h4 className="font-semibold text-sm mb-1">개인정보 보호</h4>
-            <p className="text-sm text-muted-foreground">
-              세션 비디오는 AI가 분석한 후 즉시 삭제되었습니다. 이러한 인사이트를 생성하기 위해 익명화된 메타데이터만 저장됩니다.
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-5">
+            <RecommendationCard 
+              title={`주요 문제: ${report.personal_feedback.main_problem}`} 
+              content={report.personal_feedback.reason} 
+            />
+            <RecommendationCard 
+              title="향후 학습 제안" 
+              content={report.personal_feedback.next_action} 
+            />
+          </div>
+
+          <div className="bg-white/80 rounded-xl p-5 border border-primary/10 shadow-sm">
+            <h4 className="font-semibold text-sm mb-2 text-primary">상세 피드백</h4>
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              {report.personal_feedback.feedback}
             </p>
           </div>
+          
+          {/* 최악의 구간(worst_segments)이 존재할 경우 렌더링 */}
+          {report.personal_feedback.worst_segments && report.personal_feedback.worst_segments.length > 0 && (
+            <div className="mt-5 space-y-3">
+              <h4 className="font-semibold text-sm text-foreground">⚠️ 집중력 저하 주요 구간</h4>
+              {report.personal_feedback.worst_segments.map((segment, idx) => (
+                <div key={idx} className="flex items-start gap-3 bg-white p-3 rounded-lg border border-border">
+                  <div className="text-xs font-mono font-bold text-orange-500 bg-orange-50 px-2 py-1 rounded">
+                    {formatAdaptiveTime(segment.start_sec)} - {formatAdaptiveTime(segment.end_sec)}
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium">{segment.problem}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">{segment.feedback}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Privacy Box */}
+      <div className="bg-white rounded-xl border border-border p-4 shadow-sm flex items-start gap-3">
+        <div className="p-2 bg-accent rounded-lg text-primary">
+          <Brain className="w-5 h-5" />
+        </div>
+        <div className="flex-1">
+          <h4 className="font-semibold text-sm mb-1">개인정보 보호 안내</h4>
+          <p className="text-sm text-muted-foreground">본 시스템은 듀얼 카메라 영상 프레임을 가공하여 통계 가치 데이터만 데이터베이스에 안전하게 보관하며 분석용 영상 조각은 소멸 처리합니다.</p>
         </div>
       </div>
-    </div>
-  );
-}
-
-function formatMinutes(minutes: number): string {
-  const hours = Math.floor(minutes / 60);
-  const mins = minutes % 60;
-  if (hours > 0) {
-    return `${hours}h ${mins}m`;
-  }
-  return `${mins}m`;
-}
-
-function MetricCard({
-  icon,
-  label,
-  value,
-  subtitle,
-  color,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  subtitle?: string;
-  color: string;
-}) {
-  return (
-    <div className="bg-white rounded-xl border border-border p-5 hover:border-primary/30 transition-colors">
-      <div className={`inline-flex p-2 rounded-lg ${color} text-white mb-3`}>
-        {icon}
+      {/* Delete Session */}
+      <div className="flex justify-end pt-4">
+        <button 
+          onClick={handleDeleteSession}
+          className="flex items-center gap-2 px-4 py-2 text-sm text-destructive bg-destructive/5 hover:bg-destructive/10 border border-transparent hover:border-destructive/20 rounded-lg transition-colors"
+        >
+          <Trash2 className="w-4 h-4" />
+          세션 삭제
+        </button>
       </div>
-      <div className="text-sm text-muted-foreground mb-1">{label}</div>
-      <div className="text-2xl font-bold text-foreground">{value}</div>
-      {subtitle && <div className="text-xs text-muted-foreground mt-1">{subtitle}</div>}
     </div>
   );
 }
 
-function DistractionItem({
-  label,
-  value,
-  total,
-  color,
-  description,
-}: {
-  label: string;
-  value: number;
-  total: number;
-  color: string;
-  description: string;
-}) {
-  const percentage = Math.round((value / total) * 100);
+function MetricCard({ icon, label, value, subtitle, color, change }: { icon: React.ReactNode; label: string; value: string; subtitle?: string; color: string; change?: { text: string, positive: boolean } | null }) {
+  return (
+    <div className="bg-white rounded-xl border border-border p-5 hover:border-primary/30 transition-colors shadow-sm relative">
+      <div className="flex justify-between items-start mb-3">
+        <div className={`inline-flex p-2 rounded-lg ${color} text-white shadow-sm`}>{icon}</div>
+        {/* Render the comparison pill if data exists */}
+        {change && (
+          <span className={`text-[11px] font-bold px-2.5 py-1 rounded-md border ${change.positive ? "bg-emerald-50 text-emerald-600 border-emerald-100" : "bg-rose-50 text-rose-500 border-rose-100"}`}>
+            {change.text}
+          </span>
+        )}
+      </div>
+      <div className="text-sm text-muted-foreground mb-1 font-medium">{label}</div>
+      <div className="text-2xl font-bold text-foreground font-mono">{value}</div>
+      {subtitle && <div className="text-xs text-muted-foreground mt-1 font-medium">{subtitle}</div>}
+    </div>
+  );
+}
 
+function DistractionItem({ 
+  label, valueText, percentage, color, description 
+}: { 
+  label: string; valueText: string; percentage: number; color: string; description: string;
+}) {
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
         <div>
-          <div className="font-medium text-foreground">{label}</div>
+          <div className="font-medium text-foreground text-sm">{label}</div>
           <div className="text-xs text-muted-foreground">{description}</div>
         </div>
         <div className="text-right">
-          <div className="font-semibold text-foreground">{formatMinutes(value)}</div>
-          <div className="text-xs text-muted-foreground">{percentage}%</div>
+          {/* Displaying the formatted string directly */}
+          <div className="font-bold text-foreground text-sm font-mono">{valueText}</div>
+          <div className="text-xs text-muted-foreground font-medium">{percentage}%</div>
         </div>
       </div>
       <div className="w-full bg-muted rounded-full h-2">
-        <div
-          className={`${color} rounded-full h-2 transition-all`}
-          style={{ width: `${percentage}%` }}
-        />
+        <div className={`${color} rounded-full h-2 transition-all duration-500`} style={{ width: `${percentage}%` }} />
       </div>
     </div>
   );
 }
 
-function RecommendationCard({
-  title,
-  content,
-}: {
-  title: string;
-  content: string;
-}) {
+function RecommendationCard({ title, content }: { title: string; content: string }) {
   return (
-    <div className="bg-white/60 rounded-xl p-4 border border-primary/10 hover:border-primary/30 transition-colors">
-      <h4 className="font-semibold text-sm mb-1 text-foreground">{title}</h4>
-      <p className="text-sm text-muted-foreground">{content}</p>
+    <div className="bg-white/80 rounded-xl p-4 border border-primary/10 hover:border-primary/30 transition-colors shadow-sm">
+      <h4 className="font-semibold text-sm mb-1 text-primary">{title}</h4>
+      <p className="text-sm text-muted-foreground leading-relaxed">{content}</p>
     </div>
   );
 }

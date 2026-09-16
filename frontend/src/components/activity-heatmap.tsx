@@ -1,53 +1,85 @@
 import { useMemo, useState } from "react";
 import { ChevronDown } from "lucide-react";
 
-export function ActivityHeatmap() {
+interface HeatmapProps {
+  rawSessions: Array<{date: string; date_raw: string; duration_min: number; duration_sec?: number; focus_score: number }>;
+}
+
+export function ActivityHeatmap({ rawSessions = [] }: HeatmapProps) {
   const currentYear = new Date().getFullYear();
   const [selectedYear, setSelectedYear] = useState(currentYear);
   const [dropdownOpen, setDropdownOpen] = useState(false);
 
-  // Available years (current year and past 2 years)
   const availableYears = [currentYear, currentYear - 1, currentYear - 2];
 
-  // Generate mock activity data for the entire selected year (Jan 1 to Dec 31)
+  // time formatter 
+  const formatAdaptiveTime = (totalSecs: number): string => {
+    if (totalSecs >= 3600) {
+      const hours = Math.floor(totalSecs / 3600);
+      const mins = Math.floor((totalSecs % 3600) / 60);
+      return `${hours}h ${mins}m`;
+    } else {
+      const mins = Math.floor(totalSecs / 60);
+      const secs = Math.floor(totalSecs % 60);
+      return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+    }
+  };
+
   const activityData = useMemo(() => {
-    const data: { date: Date; count: number }[] = [];
-    const startDate = new Date(selectedYear, 0, 1); // January 1
-    const endDate = new Date(selectedYear, 11, 31); // December 31
+    const data: { date: Date; count: number; focus: number }[] = [];
+    const startDate = new Date(selectedYear, 0, 1);
+    const endDate = new Date(selectedYear, 11, 31);
     
+    const sessionMap: { [key: string]: { seconds: number; focusWeight: number } } = {};
+    
+    rawSessions.forEach((s) => {
+      try {
+        const dateKey = s.date_raw; 
+        if (dateKey) {
+          const secs = s.duration_sec || (s.duration_min * 60);
+          if (!sessionMap[dateKey]) sessionMap[dateKey] = { seconds: 0, focusWeight: 0 };
+          
+          sessionMap[dateKey].seconds += secs;
+          sessionMap[dateKey].focusWeight += ((s.focus_score || 0) * secs);
+        }
+      } catch (e) {}
+    });
+
     const currentDate = new Date(startDate);
     while (currentDate <= endDate) {
-      // Generate realistic study hours (0-6 hours, weighted towards 2-4)
-      const random = Math.random();
-      let count = 0;
-      if (random > 0.3) { // 70% chance of studying
-        count = Math.floor(Math.random() * 5) + 1; // 1-5 hours
-      }
+      const year = currentDate.getFullYear();
+      const month = String(currentDate.getMonth() + 1).padStart(2, "0");
+      const day = String(currentDate.getDate()).padStart(2, "0");
+      const dateKey = `${year}-${month}-${day}`;
+      
+      const mapData = sessionMap[dateKey];
+      const actualSecs = mapData ? mapData.seconds : 0;
+      const avgFocus = mapData && mapData.seconds > 0 ? Math.round(mapData.focusWeight / mapData.seconds) : 0;
       
       data.push({
         date: new Date(currentDate),
-        count,
+        count: actualSecs, 
+        focus: avgFocus
       });
       
       currentDate.setDate(currentDate.getDate() + 1);
     }
-    
     return data;
-  }, [selectedYear]);
+  }, [selectedYear, rawSessions]);
 
   // Organize data by day of week for each week column
   const gridData = useMemo(() => {
-    // Find the starting Sunday (or Monday if you prefer)
+    // Find the starting Sunday
     const firstDate = activityData[0]?.date;
     if (!firstDate) return { weeks: [], monthLabels: [] };
     
     const startDay = firstDate.getDay(); // 0 = Sunday, 1 = Monday, etc.
     
     // Create 7 rows (one for each day of week) x N columns (weeks)
-    const weeks: ({ date: Date; count: number } | null)[][] = [];
+    const weeks: ({ date: Date; count: number; focus: number } | null)[][] = [];
     
     // Fill empty days at the beginning to align with day of week
-    let currentWeek: ({ date: Date; count: number } | null)[] = new Array(7).fill(null);
+    let currentWeek: ({ date: Date; count: number; focus: number } | null)[] = new Array(7).fill(null);
     
     activityData.forEach((day) => {
       const dayOfWeek = day.date.getDay();
@@ -94,8 +126,8 @@ export function ActivityHeatmap() {
 
   const getColor = (count: number) => {
     if (count === 0) return "bg-muted/30";
-    if (count <= 2) return "bg-[#b4dfe9]";
-    if (count <= 4) return "bg-[#5ab3c7]";
+    if (count <= 7200) return "bg-[#b4dfe9]"; 
+    if (count <= 14400) return "bg-[#5ab3c7]";
     return "bg-primary";
   };
 
@@ -186,8 +218,8 @@ export function ActivityHeatmap() {
                           day ? "hover:ring-2 hover:ring-primary/50 transition-all cursor-pointer" : ""
                         }`}
                         title={
-                          day
-                            ? `${day.date.toLocaleDateString()}: ${day.count} hours`
+                          day && day.count > 0
+                            ? `${day.date.toLocaleDateString()}: ${formatAdaptiveTime(day.count)} | 집중도: ${day.focus}%`
                             : ""
                         }
                       />

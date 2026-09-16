@@ -1,4 +1,6 @@
 import os
+from urllib.parse import quote_plus
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 from dotenv import load_dotenv
@@ -9,10 +11,29 @@ load_dotenv()
 # 형식: mysql+pymysql://유저이름:비밀번호@호스트주소:포트/DB이름
 LOCAL_DATABASE_URL = "mysql+pymysql://root:1234@127.0.0.1:3306/joljak_db"
 
-SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", LOCAL_DATABASE_URL)
+def _database_url() -> str:
+    explicit_url = os.getenv("DATABASE_URL", "").strip()
+    if explicit_url:
+        return explicit_url
+
+    host = os.getenv("DB_HOST", "").strip()
+    user = os.getenv("DB_USER", "").strip()
+    password = os.getenv("DB_PASSWORD", "")
+    database = os.getenv("DB_NAME", "").strip()
+    port = os.getenv("DB_PORT", "3306").strip() or "3306"
+    if host and user and database:
+        return (
+            f"mysql+pymysql://{quote_plus(user)}:{quote_plus(password)}"
+            f"@{host}:{port}/{database}"
+        )
+
+    return LOCAL_DATABASE_URL
+
+
+SQLALCHEMY_DATABASE_URL = _database_url()
 
 # 데이터베이스 엔진 생성 (echo=True로 설정하면 터미널에 SQL 쿼리문이 출력되어 디버깅에 좋습니다)
-engine = create_engine(LOCAL_DATABASE_URL, echo=True)
+engine = create_engine(SQLALCHEMY_DATABASE_URL, echo=True, pool_pre_ping=True)
 
 # 세션 팩토리 생성 (DB에 접근할 때마다 이 팩토리에서 세션을 하나씩 꺼내 씁니다)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

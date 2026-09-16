@@ -10,6 +10,7 @@ import statistics
 import tempfile
 import shutil
 from collections import Counter, defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -155,8 +156,9 @@ class AnalyzeConfig:
     use_trained_classifier: bool = True
     classifier_model_path: str = "ai/models/state_classifier.pkl"
     classifier_confidence_threshold: float = 0.65
+    parallel_merged_analysis: bool = True
 
-    version: str = "ai-0.2.5"
+    version: str = "ai-0.2.7"
 
 
 def _unique_keep_order(items: List[str]) -> List[str]:
@@ -696,6 +698,31 @@ def _measure_decoded_video_timing(
     }
 
 
+def _resolve_decoded_video_timing(
+    decoded_timing: Optional[Dict[str, Any]],
+    video_path: str,
+    reported_fps: float,
+    reported_frame_count: float,
+) -> tuple[Dict[str, Any], bool]:
+    """Reuse a full preflight scan when it contains valid timing data."""
+    if isinstance(decoded_timing, dict):
+        decoded_frame_count = int(decoded_timing.get("decoded_frame_count") or 0)
+        effective_fps = float(decoded_timing.get("effective_fps") or 0.0)
+        if decoded_frame_count > 0 and effective_fps > 0:
+            return {
+                "decoded_frame_count": decoded_frame_count,
+                "effective_fps": effective_fps,
+                "first_timestamp_ms": decoded_timing.get("first_timestamp_ms"),
+                "last_timestamp_ms": decoded_timing.get("last_timestamp_ms"),
+            }, True
+
+    return _measure_decoded_video_timing(
+        video_path,
+        reported_fps,
+        reported_frame_count,
+    ), False
+
+
 def _face_seen_seconds(result: Dict[str, Any]) -> int:
     return sum(
         1
@@ -745,10 +772,45 @@ def _detect_camera_role_assignment(
     }
 
 
+def _analyze_split_videos(
+    session_id: str,
+    front_path: str,
+    overhead_path: str,
+    config: AnalyzeConfig,
+) -> tuple[Dict[str, Any], Dict[str, Any]]:
+    """Analyze independent camera halves concurrently when configured."""
+    if not config.parallel_merged_analysis:
+        return (
+            analyze_absent(session_id, front_path, "front", config),
+            analyze_absent(session_id, overhead_path, "overhead", config),
+        )
+
+    with ThreadPoolExecutor(
+        max_workers=2,
+        thread_name_prefix="focusai-camera",
+    ) as executor:
+        front_future = executor.submit(
+            analyze_absent,
+            session_id,
+            front_path,
+            "front",
+            config,
+        )
+        overhead_future = executor.submit(
+            analyze_absent,
+            session_id,
+            overhead_path,
+            "overhead",
+            config,
+        )
+        return front_future.result(), overhead_future.result()
+
+
 def analyze_merged_video(
     session_id: str,
     video_path: str,
     config: AnalyzeConfig,
+    decoded_timing: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     started = time.time()
     temp_dir = tempfile.mkdtemp(prefix="merged_split_")
@@ -778,7 +840,8 @@ def analyze_merged_video(
         reported_fps = 30.0
     reported_frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
 
-    decoded_timing = _measure_decoded_video_timing(
+    decoded_timing, timing_reused = _resolve_decoded_video_timing(
+        decoded_timing,
         video_path,
         float(reported_fps),
         float(reported_frame_count or 0.0),
@@ -852,8 +915,12 @@ def analyze_merged_video(
         left_writer.release()
         right_writer.release()
 
-    front_result = analyze_absent(session_id, left_path, "front", config)
-    overhead_result = analyze_absent(session_id, right_path, "overhead", config)
+    front_result, overhead_result = _analyze_split_videos(
+        session_id,
+        left_path,
+        right_path,
+        config,
+    )
 
     if front_result.get("status") != "success" or overhead_result.get("status") != "success":
         result = {
@@ -876,8 +943,12 @@ def analyze_merged_video(
 
     camera_role_detection = _detect_camera_role_assignment(front_result, overhead_result)
     if camera_role_detection["swapped"]:
-        front_result = analyze_absent(session_id, right_path, "front", config)
-        overhead_result = analyze_absent(session_id, left_path, "overhead", config)
+        front_result, overhead_result = _analyze_split_videos(
+            session_id,
+            right_path,
+            left_path,
+            config,
+        )
 
         if front_result.get("status") != "success" or overhead_result.get("status") != "success":
             result = {
@@ -1110,6 +1181,8 @@ def analyze_merged_video(
             "source_reported_fps": round(float(reported_fps), 4),
             "source_effective_fps": round(float(fps), 4),
             "source_decoded_frames": int(decoded_timing["decoded_frame_count"]),
+            "source_timing_reused": timing_reused,
+            "parallel_merged_analysis": bool(config.parallel_merged_analysis),
             "camera_role_detection": camera_role_detection,
             "drowsy_config": front_result.get("meta", {}).get("drowsy_config", {}),
         },
@@ -2509,11 +2582,16 @@ def analyze_absent(
 
         frame_idx = 0
         while True:
-            ret, frame = cap.read()
+            should_process = frame_idx % step == 0
+            if should_process:
+                ret, frame = cap.read()
+            else:
+                ret = cap.grab()
+                frame = None
             if not ret:
                 break
 
-            if frame_idx % step == 0:
+            if should_process and frame is not None:
                 processed_frames += 1
 
                 sec = int(frame_idx / fps) if fps > 0 else 0

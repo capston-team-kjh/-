@@ -1,6 +1,5 @@
-from fastapi import FastAPI, UploadFile, Request, Form, File
+from fastapi import FastAPI, UploadFile, Request, Form, File, HTTPException
 from fastapi.staticfiles import StaticFiles
-import shutil
 import json
 import boto3
 import os
@@ -13,10 +12,10 @@ from fastapi.middleware.cors import CORSMiddleware
 import models
 from database import engine
 
-# 🌟 1. 우리가 만든 라우터 불러오기
-from routers import users, sessions, logs, analysis, reports # 🌟 sessions,logs, reports 추가
+# 우리가 만든 라우터 불러오기
+from routers import users, sessions, reports # sessions,logs, reports 추가
 
-# 🌟 핵심: 서버가 켜질 때 모델을 확인하고 데이터베이스에 테이블을 생성합니다.
+# 핵심: 서버가 켜질 때 모델을 확인하고 데이터베이스에 테이블을 생성합니다.
 # (이미 테이블이 존재하면 건너뛰고, 없으면 새로 만듭니다.)
 models.Base.metadata.create_all(bind=engine)
 
@@ -27,7 +26,7 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# 🌟 2. 경비원(CORS)에게 문을 열어달라고 지시하는 코드를 추가합니다.
+# 경비원(CORS)에게 문을 열어달라고 지시하는 코드를 추가합니다.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -36,11 +35,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 🌟 2. FastAPI 앱에 라우터 등록하기
+# FastAPI 앱에 라우터 등록하기
 app.include_router(users.router)
-app.include_router(sessions.router) # 🌟 세션 라우터 등록 추가
-app.include_router(logs.router) # logs 라우터 추가
-app.include_router(analysis.router) # 집중도 분석 라우터 추가
+app.include_router(sessions.router) # 세션 라우터 등록 추가
 app.include_router(reports.router)
 
 # 🌟 AWS SQS & S3 Configurations
@@ -52,7 +49,12 @@ sqs_client = boto3.client('sqs', region_name='ap-northeast-2')
 s3_client = boto3.client('s3', region_name='ap-northeast-2')
 
 @app.post("/api/v1/sessions/{session_id}/upload")
-async def save_session_video(session_id: int, file: UploadFile = File(...), is_final_chunk: str = Form("false")):
+async def save_session_video(
+    session_id: int,
+    file: UploadFile = File(...),
+    is_final_chunk: str = Form("false"),
+    recorded_duration_ms: str = Form(""),
+):
     # 1. Parse chunk index out of the custom filename string (user_{uid}_session_{sid}_part{index}.webm)
     try:
         filename_no_ext = file.filename.split(".")[0]
@@ -92,6 +94,11 @@ async def save_session_video(session_id: int, file: UploadFile = File(...), is_f
             "chunk_index": chunk_index,
             "is_final_chunk": final_flag      # Python boolean matches strict JSON bool requirements
         }
+        if recorded_duration_ms.strip():
+            duration_ms = float(recorded_duration_ms)
+            if duration_ms <= 0:
+                raise ValueError("recorded_duration_ms must be greater than 0")
+            message_payload["recorded_duration_ms"] = duration_ms
         
         # Transmission: Ship the structured message ticket directly to SQS
         sqs_client.send_message(
@@ -106,7 +113,7 @@ async def save_session_video(session_id: int, file: UploadFile = File(...), is_f
 
     except Exception as e:
         print(f"Cloud Pipeline Failure: {str(e)}")
-        return {"status": "failed", "detail": str(e)}
+        raise HTTPException(status_code=502, detail=str(e)) from e
 
 # 기본 루트 엔드포인트 (서버 접속 테스트용)
 @app.get("/")

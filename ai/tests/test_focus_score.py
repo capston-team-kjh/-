@@ -64,6 +64,30 @@ class FocusScoreTest(unittest.TestCase):
         self.assertEqual(result["weighted_base_score"], 75.0)
         self.assertEqual(result["focus_score"], 75)
 
+    def test_score_is_clamped_to_0_100_and_ratios_are_recomputed(self) -> None:
+        summary = {
+            "focus_time_sec": 6,
+            "bad_posture_total_sec": 1,
+            "away_total_sec": 1,
+            "gaze_down_total_sec": 1,
+            "drowsy_total_sec": 1,
+            "absent_total_sec": 0,
+            "bad_posture_count": 1,
+            "away_count": 1,
+            "gaze_down_count": 1,
+            "drowsy_count": 1000,
+            "absent_count": 1000,
+        }
+
+        result = calculate_focus_score(summary, total_time_sec=10)
+
+        self.assertGreaterEqual(result["focus_score"], 0)
+        self.assertLessEqual(result["focus_score"], 100)
+        self.assertEqual(result["focus_ratio"], 0.6)
+        self.assertEqual(result["focus_time_sec"], 6)
+        self.assertEqual(result["gaze_away_total_sec"], 2)
+        self.assertEqual(result["away_total_sec"], 2)
+
 
 class FeedbackGeneratorTest(unittest.TestCase):
     def test_feedback_uses_focus_score_and_largest_problem_time(self) -> None:

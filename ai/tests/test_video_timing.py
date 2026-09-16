@@ -7,7 +7,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from focus_ai.analyze import _fps_from_decoded_timing  # noqa: E402
+from focus_ai.analyze import (  # noqa: E402
+    _fps_from_decoded_timing,
+    _resolve_decoded_video_timing,
+)
 
 
 class VideoTimingTest(unittest.TestCase):
@@ -44,6 +47,23 @@ class VideoTimingTest(unittest.TestCase):
         )
 
         self.assertAlmostEqual(fps, 10.0, places=2)
+
+    def test_preflight_timing_skips_another_full_decode(self) -> None:
+        timing, reused = _resolve_decoded_video_timing(
+            {
+                "decoded_frame_count": 6096,
+                "effective_fps": 9.9983,
+                "first_timestamp_ms": 0.0,
+                "last_timestamp_ms": 609605.0,
+            },
+            "missing.webm",
+            reported_fps=60.0,
+            reported_frame_count=36576.0,
+        )
+
+        self.assertTrue(reused)
+        self.assertEqual(timing["decoded_frame_count"], 6096)
+        self.assertAlmostEqual(timing["effective_fps"], 9.9983, places=4)
 
 
 if __name__ == "__main__":

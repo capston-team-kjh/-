@@ -1,0 +1,53 @@
+{
+  "session_id": "session_001",
+  "status": "success",
+  "meta": {
+    "duration_sec": 30,
+    "processing_time_sec": 6,
+    "analysis_started_at": "2026-07-08T00:00:00Z",
+    "analysis_ended_at": "2026-07-08T00:00:06Z",
+    "version": "ai-sample"
+  },
+  "summary": { "focus_score": 78 },
+  "timeline": [
+    { "t": 0, "state": "focus" },
+    { "t": 1, "state": "focus" },
+    { "t": 2, "state": "focus" },
+    { "t": 3, "state": "focus" },
+    { "t": 4, "state": "focus" },
+    { "t": 5, "state": "focus" },
+    { "t": 6, "state": "focus" },
+    { "t": 7, "state": "focus" },
+    { "t": 8, "state": "gaze_side" },
+    { "t": 9, "state": "focus" },
+    { "t": 10, "state": "absent" },
+    { "t": 11, "state": "absent" },
+    { "t": 12, "state": "absent" },
+    { "t": 13, "state": "absent" },
+    { "t": 14, "state": "unknown" },
+    { "t": 15, "state": "drowsy" },
+    { "t": 16, "state": "drowsy" },
+    { "t": 17, "state": "drowsy" },
+    { "t": 18, "state": "drowsy" },
+    { "t": 19, "state": "gaze_down" },
+    { "t": 20, "state": "gaze_side" },
+    { "t": 21, "state": "gaze_side" },
+    { "t": 22, "state": "gaze_side" },
+    { "t": 23, "state": "focus" },
+    { "t": 24, "state": "gaze_down" },
+    { "t": 25, "state": "gaze_down" },
+    { "t": 26, "state": "gaze_down" },
+    { "t": 27, "state": "bad_posture" },
+    { "t": 28, "state": "focus" },
+    { "t": 29, "state": "unknown" }
+  ],
+  "events": [
+    { "type": "gaze_side", "start_sec": 8, "end_sec": 9, "source": "final" },
+    { "type": "absent", "start_sec": 10, "end_sec": 14, "source": "final" },
+    { "type": "drowsy", "start_sec": 15, "end_sec": 19, "source": "final" },
+    { "type": "gaze_down", "start_sec": 19, "end_sec": 20, "source": "final" },
+    { "type": "gaze_side", "start_sec": 20, "end_sec": 23, "source": "final" },
+    { "type": "gaze_down", "start_sec": 24, "end_sec": 27, "source": "final" },
+    { "type": "bad_posture", "start_sec": 27, "end_sec": 28, "source": "final" }
+  ]
+}
