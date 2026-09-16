@@ -1,5 +1,7 @@
 # Production Focus Model Release Handoff
 
+팀원에게 모델과 학습 연산을 전달할 때는 [모델·수학·프런트 통합 안내](model-frontend-integration.md)를 먼저 읽어주세요. ONNX 다운로드, Python 학습 소스, 입력 순서/계산식, 프런트 코드 및 알려진 전처리 차이를 한곳에 정리했습니다.
+
 ## 현재 반영된 판정 변경 — 먼저 읽어주세요
 
 기존 ONNX 파일은 동일하지만 **브라우저 최종 판정 코드는 수정되었습니다**.
