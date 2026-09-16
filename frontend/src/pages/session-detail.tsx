@@ -148,18 +148,6 @@ export function SessionDetail() {
   };
 
   const FOCUS_COMPATIBLE_STATES = new Set(["focus", "gaze_down", "page_turn", "restless_hand"]);
-  const PRODUCTION_STATE_ORDER = [
-    "focus",
-    "gaze_down",
-    "page_turn",
-    "gaze_side",
-    "bad_posture",
-    "pen_fidget",
-    "restless_hand",
-    "drowsy",
-    "absent",
-    "unknown",
-  ];
   const STATE_LABELS: Record<string, string> = {
     focus: "집중",
     gaze_down: "책/필기 시선",
@@ -213,32 +201,6 @@ export function SessionDetail() {
       secondBySecond,
     };
   }, [report, matchedSession]);
-
-  const stateBreakdown = useMemo(() => {
-    const timeline = report?.timeline || [];
-    const counts = new Map<string, number>();
-    timeline.forEach(({ state }) => counts.set(state, (counts.get(state) || 0) + 1));
-
-    const orderedStates = [
-      ...PRODUCTION_STATE_ORDER,
-      ...Array.from(counts.keys()).filter((state) => !PRODUCTION_STATE_ORDER.includes(state)),
-    ];
-
-    return orderedStates
-      .map((state) => {
-        const seconds = counts.get(state) || 0;
-        return {
-          state,
-          label: STATE_LABELS[state] || state,
-          seconds,
-          percent: sessionMetrics.observedSeconds > 0
-            ? Math.round((seconds / sessionMetrics.observedSeconds) * 100)
-            : 0,
-          weight: STATE_WEIGHTS[state] ?? STATE_WEIGHTS.unknown,
-        };
-      })
-      .filter((item) => item.seconds > 0 || PRODUCTION_STATE_ORDER.includes(item.state));
-  }, [report, sessionMetrics.observedSeconds]);
 
   const attentionDipSegments = useMemo(() => {
     const timeline = [...(report?.timeline || [])].sort((a, b) => a.t - b.t);
@@ -410,9 +372,7 @@ export function SessionDetail() {
   const postureMetrics = getTimelineMetrics(["bad_posture"]);
   const penFidgetMetrics = getTimelineMetrics(["pen_fidget"]);
   const drowsyMetrics = getTimelineMetrics(["drowsy", "sleep_suspect"]);
-  const unknownMetrics = getTimelineMetrics(["unknown", "present_unknown"]);
   const pageTurnMetrics = getTimelineMetrics(["page_turn"]);
-  const readingMetrics = getTimelineMetrics(["gaze_down"]);
 
   const radarData = [
     { metric: "자리 이탈", value: absentMetrics.score, baseMark: 1, timeLabel: formatAdaptiveTime(absentMetrics.totalSec), fullMark: 5 },
@@ -622,32 +582,6 @@ export function SessionDetail() {
               description={`작고 반복적인 펜/손 움직임 감지: 총 ${penFidgetMetrics.count}회`} 
             />
           </div>
-        </div>
-      </div>
-
-      {/* Exact production-state breakdown for post-session validation */}
-      <div className="bg-white rounded-2xl border border-border p-6 shadow-sm">
-        <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2 mb-5">
-          <div>
-            <h3 className="text-xl font-semibold">감지 상태 원본 집계</h3>
-            <p className="text-sm text-muted-foreground mt-1">
-              저장된 {`{t, state}`} 타임라인을 그대로 집계합니다. 모델/카메라 동작 확인용으로 각 상태의 실제 기록 시간을 확인할 수 있습니다.
-            </p>
-          </div>
-          <div className="text-xs text-muted-foreground">페이지 넘김 {formatAdaptiveTime(pageTurnMetrics.totalSec)} · 책/필기 시선 {formatAdaptiveTime(readingMetrics.totalSec)} · 불확실 {formatAdaptiveTime(unknownMetrics.totalSec)}</div>
-        </div>
-
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-          {stateBreakdown.map((item) => (
-            <div key={item.state} className="rounded-xl border border-border p-3 bg-accent/10">
-              <div className="text-xs text-muted-foreground truncate" title={item.state}>{item.label}</div>
-              <div className="text-lg font-bold font-mono mt-1">{formatAdaptiveTime(item.seconds)}</div>
-              <div className="text-[11px] text-muted-foreground mt-1">
-                {item.percent}% · 가중치 {item.weight}
-              </div>
-              <div className="text-[10px] font-mono text-muted-foreground/80 mt-1 truncate" title={item.state}>{item.state}</div>
-            </div>
-          ))}
         </div>
       </div>
 
