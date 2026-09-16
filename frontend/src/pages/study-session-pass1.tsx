@@ -7,10 +7,14 @@ import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from "recharts";
 
-// IMPORT ALL NATIVE ML ENGINES
-import { extractFrontMeasurements } from "../ai/continuous-features";
-import { resolveHybridDecision } from "../ai/hybrid-decision";
-import { FrontV2FeaturePipeline } from "../ai/front-v2-pipeline";
+import {
+  ProductionDecision,
+  toTimelinePoint,
+  validateFeatures,
+  validateProbabilities,
+  MODEL_CLASSES,
+  MODEL_SHA256,
+} from "@/ai/production-decision.mjs";
 
 // FIX: Bumped gaze_down to 100 so reading a book is recorded as focused studying!
 const STATE_WEIGHTS: Record<string, number> = {
@@ -18,61 +22,6 @@ const STATE_WEIGHTS: Record<string, number> = {
   "gaze_down": 100, "unknown": 50, "present_unknown": 50,
   "drowsy": 20, "sleep_suspect": 20, "absent": 0,
 };
-
-const FILTER_CONFIG: Record<string, number> = {
-  gaze_side: 2,
-  gaze_down: 2,
-  bad_posture: 2,
-  absent: 4,
-};
-
-const ANALYZE_CONFIG = {
-  page_turn_min_path_len: 0.18,
-  page_turn_min_net_disp: 0.14,
-  page_turn_max_dir_changes: 2,
-  page_turn_min_x_span: 0.12,
-  page_turn_max_y_span: 0.10,
-
-  pen_fidget_min_path_len: 0.18,
-  pen_fidget_max_bbox_diag: 0.12,
-  pen_fidget_min_dir_changes: 3,
-
-  restless_hand_min_path_len: 0.28,
-  restless_hand_min_bbox_diag: 0.18,
-  restless_hand_min_dir_changes: 2,
-};
-
-const getHandFeatures = (points: {x: number, y: number}[]) => {
-  if (points.length < 2) return null;
-  let pathLen = 0;
-  for (let i = 1; i < points.length; i++) {
-    pathLen += Math.hypot(points[i].x - points[i-1].x, points[i].y - points[i-1].y);
-  }
-  const netDisp = Math.hypot(points[points.length-1].x - points[0].x, points[points.length-1].y - points[0].y);
-  const xs = points.map(p => p.x);
-  const ys = points.map(p => p.y);
-  const xSpan = Math.max(...xs) - Math.min(...xs);
-  const ySpan = Math.max(...ys) - Math.min(...ys);
-  const bboxDiag = Math.hypot(xSpan, ySpan);
-
-  let dirChanges = 0;
-  if (points.length >= 3) {
-    const vectors = [];
-    for (let i = 1; i < points.length; i++) {
-      const dx = points[i].x - points[i-1].x;
-      const dy = points[i].y - points[i-1].y;
-      const mag = Math.hypot(dx, dy);
-      if (mag > 1e-6) vectors.push({x: dx/mag, y: dy/mag});
-    }
-    for (let i = 1; i < vectors.length; i++) {
-      const dot = vectors[i-1].x * vectors[i].x + vectors[i-1].y * vectors[i].y;
-      if (dot < 0.2) dirChanges++;
-    }
-  }
-  return { pathLen, netDisp, xSpan, ySpan, bboxDiag, dirChanges };
-};
-
-const ENABLE_UNKNOWN_STATE = true;
 
 export function StudySession() {
   const [isRunning, setIsRunning] = useState(false);
@@ -124,11 +73,13 @@ export function StudySession() {
   const inferenceIntervalId = useRef<number | null>(null);
   const startTimeRef = useRef<number | null>(null);
   
-  // NATIVE AI ENGINE REFS
-  const pipelineRef = useRef<FrontV2FeaturePipeline | null>(null);
-  const handTrackingBufferRef = useRef<any[]>([]);
-  const missingFramesRef = useRef(0);
-  const stateHistoryRef = useRef<string[]>([]);
+  // Production 16-feature inference state
+  const decisionRef = useRef(new ProductionDecision());
+  const temporalBufferRef = useRef<any[]>([]);
+  const inferenceBusy = useRef(false);
+  const lastFrontFrameTime = useRef(-1);
+  const [calibrating, setCalibrating] = useState(true);
+  const [modelWarning, setModelWarning] = useState("");
   
   const faceVideoRef = useRef<HTMLVideoElement>(null);
   const deskVideoRef = useRef<HTMLVideoElement>(null);
@@ -185,7 +136,7 @@ export function StudySession() {
 
         const poseOptions = {
           baseOptions: {
-            modelAssetPath: "/pose_landmarker_heavy.task", 
+            modelAssetPath: "/pose_landmarker.task", 
             delegate: "GPU" as const,
           },
           runningMode: "VIDEO" as const,
@@ -197,14 +148,31 @@ export function StudySession() {
         frontPoseRef.current = await PoseLandmarker.createFromOptions(vision, poseOptions);
         deskPoseRef.current = await PoseLandmarker.createFromOptions(vision, poseOptions);
 
-        ort.env.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/";
-        
-        onnxSessionRef.current = await ort.InferenceSession.create("/focus_classifier_3class_b.onnx", {
-          executionProviders: ["wasm"], 
-        });
+        try {
+          ort.env.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.27.0/dist/";
+          const response = await fetch("/focus_classifier.onnx");
+          if (!response.ok) throw new Error("Model fetch failed");
+
+          const bytes = await response.arrayBuffer();
+          const digest = await crypto.subtle.digest("SHA-256", bytes);
+          const hash = Array.from(new Uint8Array(digest), (value) =>
+            value.toString(16).padStart(2, "0")
+          ).join("");
+          if (hash !== MODEL_SHA256) throw new Error("Production model hash mismatch");
+
+          const session = await ort.InferenceSession.create(bytes, { executionProviders: ["wasm"] });
+          if (session.inputNames.join() !== "float_input" || session.outputNames.join() !== "label,probabilities") {
+            await session.release();
+            throw new Error("Production model IO mismatch");
+          }
+          onnxSessionRef.current = session;
+        } catch (error) {
+          console.error("ONNX unavailable; MediaPipe decisions remain active", error);
+          setModelWarning("AI 모델을 불러오지 못했습니다. 카메라 규칙으로만 판정합니다.");
+        }
 
         setModelsLoaded(true);
-        console.log("All 4 MediaPipe Models and ONNX Loaded!");
+        console.log("MediaPipe ready; ONNX available:", Boolean(onnxSessionRef.current));
       } catch (error) {
         console.error("Failed to load models:", error);
       }
@@ -224,32 +192,48 @@ export function StudySession() {
 
   const runInference = async () => {
     animationFrameId.current = requestAnimationFrame(runInference);
+    if (inferenceBusy.current) return;
 
     if (!faceVideoRef.current || !deskVideoRef.current) return;
     if (!faceCanvasRef.current || !deskCanvasRef.current) return;
-    if (!pipelineRef.current) return;
 
     const faceVideo = faceVideoRef.current;
     const deskVideo = deskVideoRef.current;
-
     if (faceVideo.readyState < 2 || deskVideo.readyState < 2) return;
     if (!frontFaceRef.current || !frontPoseRef.current || !deskFaceRef.current || !deskPoseRef.current) return;
 
     try {
       const nowMs = performance.now();
       if (startTimeRef.current) {
-         setSeconds(Math.floor((nowMs - startTimeRef.current) / 1000)); 
+        setSeconds(Math.floor((nowMs - startTimeRef.current) / 1000));
       }
+      if (nowMs - lastInferenceTime.current < 1000) return;
+
+      const frontTrack = (faceVideo.srcObject as MediaStream | null)?.getVideoTracks()[0];
+      const freshFront = Boolean(
+        frontTrack?.readyState === "live" &&
+        !frontTrack.muted &&
+        faceVideo.currentTime > lastFrontFrameTime.current
+      );
+      lastFrontFrameTime.current = faceVideo.currentTime;
 
       const faceCanvas = faceCanvasRef.current;
       const deskCanvas = deskCanvasRef.current;
       if (faceVideo.videoWidth > 0) {
-        faceCanvas.width = faceVideo.videoWidth; faceCanvas.height = faceVideo.videoHeight;
-        deskCanvas.width = deskVideo.videoWidth; deskCanvas.height = deskVideo.videoHeight;
+        faceCanvas.width = faceVideo.videoWidth;
+        faceCanvas.height = faceVideo.videoHeight;
+      }
+      if (deskVideo.videoWidth > 0) {
+        deskCanvas.width = deskVideo.videoWidth;
+        deskCanvas.height = deskVideo.videoHeight;
       }
 
-      const frontFaceRes = frontFaceRef.current.detectForVideo(faceVideo, nowMs);
-      const frontPoseRes = frontPoseRef.current.detectForVideo(faceVideo, nowMs);
+      const frontFaceRes = freshFront
+        ? frontFaceRef.current.detectForVideo(faceVideo, nowMs)
+        : { faceLandmarks: [] };
+      const frontPoseRes = freshFront
+        ? frontPoseRef.current.detectForVideo(faceVideo, nowMs)
+        : { landmarks: [] };
       const deskFaceRes = deskFaceRef.current.detectForVideo(deskVideo, nowMs);
       const deskPoseRes = deskPoseRef.current.detectForVideo(deskVideo, nowMs);
 
@@ -257,11 +241,10 @@ export function StudySession() {
       if (faceCtx) {
         faceCtx.clearRect(0, 0, faceCanvas.width, faceCanvas.height);
         if (frontFaceRes.faceLandmarks && frontFaceRes.faceLandmarks.length > 0) {
-          faceCtx.fillStyle = "#38bdf8";
-          const lm = frontFaceRes.faceLandmarks[0];
-          for (let i = 0; i < lm.length; i += 5) {
+          faceCtx.fillStyle = "#22d3ee";
+          for (const landmark of frontFaceRes.faceLandmarks[0]) {
             faceCtx.beginPath();
-            faceCtx.arc(lm[i].x * faceCanvas.width, lm[i].y * faceCanvas.height, 1.2, 0, Math.PI * 2);
+            faceCtx.arc(landmark.x * faceCanvas.width, landmark.y * faceCanvas.height, 1.5, 0, Math.PI * 2);
             faceCtx.fill();
           }
         }
@@ -271,228 +254,265 @@ export function StudySession() {
       if (deskCtx) {
         deskCtx.clearRect(0, 0, deskCanvas.width, deskCanvas.height);
         if (deskPoseRes.landmarks && deskPoseRes.landmarks.length > 0) {
+          const landmarks = deskPoseRes.landmarks[0];
           deskCtx.strokeStyle = "#facc15";
           deskCtx.lineWidth = 2;
-          const lm = deskPoseRes.landmarks[0];
-          [15, 16].forEach((idx) => {
-            if (lm[idx]) {
-              deskCtx.beginPath();
-              deskCtx.arc(lm[idx].x * deskCanvas.width, lm[idx].y * deskCanvas.height, 5, 0, Math.PI * 2);
-              deskCtx.stroke();
-            }
+          [15, 16].forEach((index) => {
+            if (!landmarks[index]) return;
+            deskCtx.beginPath();
+            deskCtx.arc(landmarks[index].x * deskCanvas.width, landmarks[index].y * deskCanvas.height, 5, 0, Math.PI * 2);
+            deskCtx.stroke();
           });
         }
       }
 
-      if (nowMs - lastInferenceTime.current >= 1000) {
-        lastInferenceTime.current = nowMs;
+      if (nowMs - lastInferenceTime.current > 1500) {
+        temporalBufferRef.current = [];
+      }
+      lastInferenceTime.current = nowMs;
+      inferenceBusy.current = true;
 
-        if (onnxSessionRef.current) {
-            const bestFaceLm = (frontFaceRes.faceLandmarks && frontFaceRes.faceLandmarks.length > 0) 
-                ? frontFaceRes.faceLandmarks[0] 
-                : ((deskFaceRes.faceLandmarks && deskFaceRes.faceLandmarks.length > 0) ? deskFaceRes.faceLandmarks[0] : null);
+      try {
+        const features = new Float32Array(16);
+        features[0] = 1.0; // is_front_camera
+        features[1] = 1.0; // is_overhead_camera
 
-            const bestPoseLm = (frontPoseRes.landmarks && frontPoseRes.landmarks.length > 0)
-                ? frontPoseRes.landmarks[0]
-                : ((deskPoseRes.landmarks && deskPoseRes.landmarks.length > 0) ? deskPoseRes.landmarks[0] : null);
+        let faceSeen = 0;
+        let gazeSide = 0;
+        let gazeDown = 0;
+        let badPosture = 0;
+        let eyeClosed = 0;
+        let blink = 0;
+        let longEyeClosure = 0;
+        let headDown = 0;
+        let headTilt = 0;
+        let pageTurn = 0;
+        let penFidget = 0;
+        let restlessHand = 0;
+        let measuredEar = Number.NaN;
+        let measuredIrisY = Number.NaN;
+        let measuredHead = Number.NaN;
 
-            // 1. GENERATE PERFECT 34-FEATURE VECTOR
-            const rawMetrics = extractFrontMeasurements(bestFaceLm as any, bestPoseLm as any);
-            const featureResult = pipelineRef.current.process(nowMs, rawMetrics);
+        // Front camera is authoritative for face, gaze, head, and posture.
+        const bestFaceLm = frontFaceRes.faceLandmarks?.[0] ?? null;
+        const bestShoulderLm = frontPoseRes.landmarks?.[0] ?? null;
 
-            // 2. ISOLATED HAND TRACKING FOR OVERHEAD ACTIVITIES
-            handTrackingBufferRef.current.push({
-                rightWrist: deskPoseRes.landmarks?.[0]?.[16] ?? frontPoseRes.landmarks?.[0]?.[16] ?? null,
-                leftWrist: deskPoseRes.landmarks?.[0]?.[15] ?? frontPoseRes.landmarks?.[0]?.[15] ?? null,
-            });
-            if (handTrackingBufferRef.current.length > 10) handTrackingBufferRef.current.shift();
+        // Desk camera is preferred for hand activity; front pose is fallback only.
+        const bestWristLm = deskPoseRes.landmarks?.[0] ?? frontPoseRes.landmarks?.[0] ?? null;
 
-            let page_turn = false, pen_fidget = false, restless_hand = false;
-            
-            if (handTrackingBufferRef.current.length === 10) {
-                const rPoints = handTrackingBufferRef.current.map(f => f.rightWrist).filter(w => w && w.visibility > 0.5);
-                const lPoints = handTrackingBufferRef.current.map(f => f.leftWrist).filter(w => w && w.visibility > 0.5);
+        if (bestFaceLm) {
+          faceSeen = 1;
+          const distance = (a: number, b: number) =>
+            Math.hypot(bestFaceLm[a].x - bestFaceLm[b].x, bestFaceLm[a].y - bestFaceLm[b].y);
 
-                const classifyHand = (points: any[]) => {
-                    const feat = getHandFeatures(points);
-                    if (!feat) return null;
-                    if (feat.pathLen >= ANALYZE_CONFIG.page_turn_min_path_len &&
-                        feat.netDisp >= ANALYZE_CONFIG.page_turn_min_net_disp &&
-                        feat.xSpan >= ANALYZE_CONFIG.page_turn_min_x_span &&
-                        feat.ySpan <= ANALYZE_CONFIG.page_turn_max_y_span &&
-                        feat.dirChanges <= ANALYZE_CONFIG.page_turn_max_dir_changes) return "page_turn";
-                    if (feat.pathLen >= ANALYZE_CONFIG.pen_fidget_min_path_len &&
-                        feat.bboxDiag <= ANALYZE_CONFIG.pen_fidget_max_bbox_diag &&
-                        feat.dirChanges >= ANALYZE_CONFIG.pen_fidget_min_dir_changes) return "pen_fidget";
-                    if (feat.pathLen >= ANALYZE_CONFIG.restless_hand_min_path_len &&
-                        feat.bboxDiag >= ANALYZE_CONFIG.restless_hand_min_bbox_diag &&
-                        feat.dirChanges >= ANALYZE_CONFIG.restless_hand_min_dir_changes) return "restless_hand";
-                    return null;
-                };
+          const rightEar = (distance(159, 145) + distance(158, 153)) / (2 * distance(33, 133) + 1e-6);
+          const leftEar = (distance(386, 374) + distance(385, 380)) / (2 * distance(362, 263) + 1e-6);
+          measuredEar = (rightEar + leftEar) / 2;
+          if (measuredEar <= 0.16) {
+            eyeClosed = 1;
+            blink = 1;
+          }
 
-                const rAction = classifyHand(rPoints);
-                const lAction = classifyHand(lPoints);
-
-                if (rAction === "page_turn" || lAction === "page_turn") page_turn = true;
-                if (rAction === "pen_fidget" || lAction === "pen_fidget") pen_fidget = true;
-                if (rAction === "restless_hand" || lAction === "restless_hand") restless_hand = true;
-
-                if (page_turn || pen_fidget || restless_hand) {
-                    handTrackingBufferRef.current = []; 
-                }
-            }
-
-            // 3. EXECUTE MACHINE LEARNING MODEL
-            let aiPrediction = "unknown";
-            let aiConfidence = 0.0;
-
-            if (featureResult.vector) {
-              try {
-                  const inputName = onnxSessionRef.current.inputNames[0];
-                  let results;
-                  try {
-                      const tensor32 = new ort.Tensor("float32", featureResult.vector, [1, 34]);
-                      results = await onnxSessionRef.current.run({ [inputName]: tensor32 });
-                  } catch (typeError) {
-                      const features64 = new Float64Array(featureResult.vector);
-                      const tensor64 = new ort.Tensor("float64", features64, [1, 34]);
-                      results = await onnxSessionRef.current.run({ [inputName]: tensor64 });
-                  }
-                  
-                  const labelData = results[onnxSessionRef.current.outputNames[0]]?.data;
-                  if (labelData && labelData.length > 0) {
-                      const rawLabel = String(labelData[0]);
-                      if (rawLabel.includes("focus")) aiPrediction = "focus";
-                      else if (rawLabel.includes("gaze_side")) aiPrediction = "gaze_side";
-                      else if (rawLabel.includes("drowsy")) aiPrediction = "drowsy";
-                      else aiPrediction = rawLabel;
-
-                      if (onnxSessionRef.current.outputNames.length > 1) {
-                          const probData = results[onnxSessionRef.current.outputNames[1]]?.data;
-                          if (probData) {
-                              try {
-                                  const probArray = Array.from(probData as any) as number[];
-                                  aiConfidence = probArray.length > 0 ? Math.max(...probArray) : 0.99;
-                              } catch (e) {
-                                  aiConfidence = 0.99; 
-                              }
-                          } else {
-                              aiConfidence = 0.99;
-                          }
-                      } else {
-                          aiConfidence = 0.99;
-                      }
-                  }
-              } catch (err) {
-                  console.warn("ONNX Execution Error:", err);
-              }
-            }
-
-            // 4. HYBRID DECISION ENGINE
-            if (!rawMetrics.faceSeen && !rawMetrics.poseSeen) missingFramesRef.current++;
-            else if (!rawMetrics.faceSeen && rawMetrics.poseSeen) missingFramesRef.current++;
-            else missingFramesRef.current = 0;
-
-            const predictionObj = (aiPrediction !== "unknown" && aiPrediction !== "absent") ? { 
-                state: aiPrediction as any, 
-                confidence: aiConfidence 
-            } : null;
-
-            const bad_posture = (rawMetrics.shoulderSlope ?? 0) >= 0.12 || (rawMetrics.poseHeadTiltRatio ?? 0) >= 0.18;
-            const gaze_down = (rawMetrics.irisYRatio ?? 0.5) >= 0.62;
-
-            const decision = resolveHybridDecision({
-                signal: {
-                    personPresent: missingFramesRef.current < 5,
-                    faceSeen: rawMetrics.faceSeen,
-                    poseSeen: rawMetrics.poseSeen,
-                    faceValidRatio: featureResult.values.face_valid_ratio ?? 0, 
-                    poseValidRatio: featureResult.values.pose_valid_ratio ?? 0, 
-                    calibrationValid: featureResult.calibrationValid
-                },
-                prediction: predictionObj,
-                continuousEyeClosedSec: featureResult.values.continuous_eye_closed_sec ?? 0, 
-                gazeDownRuleMatched: gaze_down || (rawMetrics.faceHeadDownRatio ?? 0) > 0.72, 
-                badPosture: bad_posture,
-                overheadActivity: page_turn ? "page_turn" : pen_fidget ? "pen_fidget" : restless_hand ? "restless_hand" : null
-            });
-
-            let finalState = decision.state;
-            let decisionSource: string = decision.decisionSource;
-
-            // Anti-flicker filter
-            stateHistoryRef.current.push(finalState);
-            if (stateHistoryRef.current.length > 5) stateHistoryRef.current.shift(); 
-            
-            if (!ENABLE_UNKNOWN_STATE && finalState === "unknown") {
-                finalState = "focus";
-                decisionSource = "unknown_state_disabled";
-            }
-            if (finalState !== "focus" && finalState !== "absent") { 
-                const requiredSec = FILTER_CONFIG[finalState] || 1;
-                if (requiredSec > 1) {
-                    const recentStates = stateHistoryRef.current.slice(-requiredSec);
-                    const isMaintained = recentStates.length === requiredSec && 
-                                         recentStates.every(state => state === finalState);
-                    if (!isMaintained) {
-                        finalState = "focus";
-                        decisionSource = `filtered_by_${requiredSec}sec_rule`;
-                    }
-                }
-            }
-
-            const predictedState = finalState;
-            const currentT = startTimeRef.current ? Math.floor((nowMs - startTimeRef.current) / 1000) : 0;
-            const isSleepingOnDesk = !rawMetrics.faceSeen && rawMetrics.poseSeen && finalState === "drowsy";
-
-            const timelineEntry = {
-                t: currentT,
-                state: finalState,
-                model_state: aiPrediction,
-                model_confidence: Number(aiConfidence.toFixed(4)),
-                rule_state: decision.ruleState || finalState,
-                decision_source: decisionSource,
-                states: [finalState],
-                flags: {
-                    face_seen: rawMetrics.faceSeen,
-                    gaze_side: finalState === "gaze_side",
-                    gaze_down: gaze_down,
-                    bad_posture: bad_posture,
-                    eye_closed: (featureResult.values.continuous_eye_closed_sec ?? 0) > 0,
-                    blink: (featureResult.values.continuous_eye_closed_sec ?? 0) > 0, 
-                    long_eye_closure: (featureResult.values.continuous_eye_closed_sec ?? 0) > 5,
-                    head_down: (rawMetrics.faceHeadDownRatio ?? 0) > 0.72,
-                    head_tilt: (rawMetrics.faceHeadTiltRatio ?? 0) > 0.12,
-                    raw_drowsy: finalState === "drowsy" || isSleepingOnDesk,
-                    drowsy: finalState === "drowsy",
-                    sleep_suspect: isSleepingOnDesk,
-                    page_turn: page_turn, 
-                    pen_fidget: pen_fidget, 
-                    restless_hand: restless_hand, 
-                    unknown: finalState === "unknown",
-                    absent: finalState === "absent"
-                }
+          if (bestFaceLm.length > 473) {
+            const ratioX = (iris: number, corner1: number, corner2: number) => {
+              const minX = Math.min(bestFaceLm[corner1].x, bestFaceLm[corner2].x);
+              const maxX = Math.max(bestFaceLm[corner1].x, bestFaceLm[corner2].x);
+              return (bestFaceLm[iris].x - minX) / (maxX - minX + 1e-6);
+            };
+            const ratioY = (iris: number, corner1: number, corner2: number) => {
+              const minY = Math.min(bestFaceLm[corner1].y, bestFaceLm[corner2].y);
+              const maxY = Math.max(bestFaceLm[corner1].y, bestFaceLm[corner2].y);
+              return (bestFaceLm[iris].y - minY) / (maxY - minY + 1e-6);
             };
 
-            timelineRef.current.push(timelineEntry);
-            setCurrentState(predictedState);
-            
-            setDebugData({
-              timestamp: Date.now(),
-              ai_tracking: {
-                front_faces: rawMetrics.faceSeen ? 1 : 0,
-                desk_faces: 0,
-                front_poses: rawMetrics.poseSeen ? 1 : 0,
-                desk_poses: 0
-              },
-              onnx_prediction: predictedState,
-              timeline_length: timelineRef.current.length,
-              latest_payload: timelineRef.current[timelineRef.current.length - 1] || null
-            });
+            const averageIrisX = (ratioX(468, 33, 133) + ratioX(473, 362, 263)) / 2;
+            const averageIrisY = (ratioY(468, 159, 145) + ratioY(473, 386, 374)) / 2;
+            measuredIrisY = averageIrisY;
+            if (averageIrisX <= 0.35 || averageIrisX >= 0.65) gazeSide = 1;
+            if (averageIrisY >= 0.62) gazeDown = 1;
+          }
+
+          const eyeMidY = (bestFaceLm[33].y + bestFaceLm[263].y) / 2;
+          const faceHeight = bestFaceLm[152].y - eyeMidY;
+          const eyeWidth = Math.abs(bestFaceLm[263].x - bestFaceLm[33].x);
+          measuredHead = faceHeight > 1e-6 ? (bestFaceLm[1].y - eyeMidY) / faceHeight : Number.NaN;
+          if (faceHeight > 1e-6 && measuredHead >= 0.72) headDown = 1;
+          if (eyeWidth > 1e-6 && Math.abs(bestFaceLm[33].y - bestFaceLm[263].y) / eyeWidth >= 0.12) headTilt = 1;
         }
+
+        if (bestShoulderLm) {
+          const shoulderWidth = Math.abs(bestShoulderLm[12].x - bestShoulderLm[11].x);
+          const shoulderMidX = (bestShoulderLm[11].x + bestShoulderLm[12].x) / 2;
+          if (Math.abs(bestShoulderLm[11].y - bestShoulderLm[12].y) >= 0.12) badPosture = 1;
+          if (
+            shoulderWidth > 1e-6 &&
+            Math.abs(bestShoulderLm[0].x - shoulderMidX) / shoulderWidth >= 0.18
+          ) {
+            badPosture = 1;
+          }
+        }
+
+        temporalBufferRef.current.push({
+          eyeClosed: eyeClosed === 1,
+          rightWrist: bestWristLm?.[16] ? { x: bestWristLm[16].x, y: bestWristLm[16].y } : null,
+        });
+        if (temporalBufferRef.current.length > 10) temporalBufferRef.current.shift();
+
+        if (temporalBufferRef.current.length === 10) {
+          if (temporalBufferRef.current.every((frame: any) => frame.eyeClosed)) longEyeClosure = 1;
+
+          let pathLength = 0;
+          let validPairs = 0;
+          const xs: number[] = [];
+          const ys: number[] = [];
+          const vectors: { x: number; y: number }[] = [];
+          let firstValidWrist: { x: number; y: number } | null = null;
+          let lastValidWrist: { x: number; y: number } | null = null;
+
+          for (let index = 1; index < temporalBufferRef.current.length; index += 1) {
+            const previous = temporalBufferRef.current[index - 1].rightWrist;
+            const current = temporalBufferRef.current[index].rightWrist;
+            if (!previous || !current) continue;
+
+            if (!firstValidWrist) firstValidWrist = previous;
+            lastValidWrist = current;
+            xs.push(previous.x, current.x);
+            ys.push(previous.y, current.y);
+
+            const dx = current.x - previous.x;
+            const dy = current.y - previous.y;
+            const magnitude = Math.hypot(dx, dy);
+            pathLength += magnitude;
+            if (magnitude > 1e-6) vectors.push({ x: dx / magnitude, y: dy / magnitude });
+            validPairs += 1;
+          }
+
+          if (validPairs >= 7 && firstValidWrist && lastValidWrist && xs.length > 0 && ys.length > 0) {
+            const netDisplacement = Math.hypot(
+              lastValidWrist.x - firstValidWrist.x,
+              lastValidWrist.y - firstValidWrist.y
+            );
+            const xSpan = Math.max(...xs) - Math.min(...xs);
+            const ySpan = Math.max(...ys) - Math.min(...ys);
+            const boundingBoxDiagonal = Math.hypot(xSpan, ySpan);
+            let directionChanges = 0;
+
+            for (let index = 1; index < vectors.length; index += 1) {
+              const dot = vectors[index - 1].x * vectors[index].x + vectors[index - 1].y * vectors[index].y;
+              if (dot < 0.2) directionChanges += 1;
+            }
+
+            if (
+              pathLength >= 0.18 &&
+              netDisplacement >= 0.14 &&
+              xSpan >= 0.12 &&
+              ySpan <= 0.10 &&
+              directionChanges <= 2
+            ) {
+              pageTurn = 1;
+            } else if (pathLength >= 0.18 && boundingBoxDiagonal <= 0.12 && directionChanges >= 3) {
+              penFidget = 1;
+            } else if (pathLength >= 0.28 && boundingBoxDiagonal >= 0.18 && directionChanges >= 2) {
+              restlessHand = 1;
+            }
+          }
+        }
+
+        features[2] = faceSeen;
+        features[3] = gazeSide;
+        features[4] = gazeDown;
+        features[5] = badPosture;
+        features[6] = eyeClosed;
+        features[7] = blink;
+        features[8] = longEyeClosure;
+        features[9] = headDown;
+        features[10] = headTilt;
+        features[11] = longEyeClosure && headDown ? 1 : 0;
+        features[12] = pageTurn;
+        features[13] = penFidget;
+        features[14] = restlessHand;
+        features[15] = 0;
+
+        let probabilities: Float32Array | null = null;
+        if (onnxSessionRef.current && [measuredEar, measuredIrisY, measuredHead].every(Number.isFinite)) {
+          try {
+            validateFeatures(features);
+            const results = await onnxSessionRef.current.run({
+              float_input: new ort.Tensor("float32", features, [1, 16]),
+            });
+            const probabilityOutput = results.probabilities;
+            const labelOutput = results.label;
+            if (
+              probabilityOutput.type !== "float32" ||
+              probabilityOutput.dims.join() !== "1,5" ||
+              labelOutput.type !== "string" ||
+              labelOutput.dims.join() !== "1"
+            ) {
+              throw new Error("Invalid ONNX output contract");
+            }
+
+            const values = probabilityOutput.data as Float32Array;
+            validateProbabilities(values);
+            const maximum = Math.max(...values);
+            const predictedIndex = Array.from(values).indexOf(maximum);
+            if (String(labelOutput.data[0]) !== MODEL_CLASSES[predictedIndex]) {
+              throw new Error("Class order mismatch");
+            }
+            probabilities = values;
+            if (modelWarning) setModelWarning("");
+          } catch (error) {
+            console.error("ONNX contract/inference failed", error);
+            setModelWarning("AI 추론을 사용할 수 없어 카메라 규칙으로 판정합니다.");
+          }
+        }
+
+        const decision = decisionRef.current.step(
+          nowMs,
+          {
+            faceSeen: Boolean(faceSeen),
+            personSeen: Boolean(
+              faceSeen ||
+              frontPoseRes.landmarks?.length ||
+              deskPoseRes.landmarks?.length ||
+              deskFaceRes.faceLandmarks?.length
+            ),
+            ear: measuredEar,
+            irisY: measuredIrisY,
+            head: measuredHead,
+            badPosture: Boolean(badPosture),
+            pageTurn: Boolean(pageTurn),
+            penFidget: Boolean(penFidget),
+            restlessHand: Boolean(restlessHand),
+          },
+          probabilities
+        );
+
+        const currentT = startTimeRef.current
+          ? Math.floor((nowMs - startTimeRef.current) / 1000)
+          : timelineRef.current.length + 1;
+        timelineRef.current.push(toTimelinePoint(currentT, decision));
+        setCurrentState(decision.final_state);
+        setCalibrating(!decision.calibration_valid);
+        setDebugData({
+          ...decision,
+          timestamp: Date.now(),
+          features: Array.from(features),
+          probabilities: probabilities ? Array.from(probabilities) : null,
+          ai_tracking: {
+            front_faces: frontFaceRes.faceLandmarks?.length ?? 0,
+            desk_faces: deskFaceRes.faceLandmarks?.length ?? 0,
+            front_poses: frontPoseRes.landmarks?.length ?? 0,
+            desk_poses: deskPoseRes.landmarks?.length ?? 0,
+          },
+          timeline_length: timelineRef.current.length,
+          latest_payload: timelineRef.current[timelineRef.current.length - 1] ?? null,
+        });
+      } finally {
+        inferenceBusy.current = false;
       }
     } catch (error) {
       console.warn("AI Inference skipped a frame due to an error:", error);
+      inferenceBusy.current = false;
     }
   };
 
@@ -503,6 +523,10 @@ export function StudySession() {
       return;
     }
     if (isRunning) return;
+    if (!modelsLoaded) {
+      alert("카메라 분석 도구를 불러오는 중입니다.");
+      return;
+    }
 
     try {
       const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/sessions/`, {
@@ -516,16 +540,11 @@ export function StudySession() {
       setSessionId(data.id);
       
       timelineRef.current = [];
-      handTrackingBufferRef.current = [];
-      missingFramesRef.current = 0;
-
-      // INITIALIZE THE 34-FEATURE PIPELINE
-      pipelineRef.current = new FrontV2FeaturePipeline({
-        calibrationMinSamples: 5,
-        calibrationWindowSamples: 30,
-        temporalWindowMs: 10000,
-        qualityWindowSamples: 10,
-      });
+      temporalBufferRef.current = [];
+      decisionRef.current.reset();
+      lastFrontFrameTime.current = -1;
+      setCalibrating(true);
+      setCurrentState("unknown");
 
       const { faceStream, deskStream } = await setupDualCameras();
       if (faceVideoRef.current) faceVideoRef.current.srcObject = faceStream;
@@ -546,6 +565,10 @@ export function StudySession() {
     if (!sessionId) return;
 
     try {
+      if (inferenceBusy.current) {
+        alert("판정 처리 중입니다. 잠시 후 종료를 다시 눌러 주세요.");
+        return;
+      }
       if (inferenceIntervalId.current) clearInterval(inferenceIntervalId.current);
       
       if (faceVideoRef.current?.srcObject) {
@@ -635,6 +658,17 @@ export function StudySession() {
       
       <div className="max-w-4xl mx-auto">
         <h1 className="text-3xl font-bold text-foreground mb-8">학습 세션</h1>
+
+        {modelWarning && (
+          <div role="status" className="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            {modelWarning}
+          </div>
+        )}
+        {isRunning && calibrating && (
+          <div role="status" className="mb-4 rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-foreground">
+            개인 기준을 맞추고 있습니다. 눈을 뜨고 정면 카메라를 약 5초 동안 바라봐 주세요.
+          </div>
+        )}
 
         <div className={`flex gap-4 mb-6 ${(!isRunning || !showCameras) ? 'hidden' : ''}`}>
           
