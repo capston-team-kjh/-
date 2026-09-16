@@ -132,61 +132,247 @@ export function SessionDetail() {
   };
 
   const STATE_WEIGHTS: Record<string, number> = {
-    "focus": 100,
-    "bad_posture": 60,
-    "gaze_away": 40,
-    "gaze_side": 40, 
-    "gaze_down": 40, 
-    "unknown": 50,
-    "present_unknown": 50,
-    "drowsy": 20,
-    "sleep_suspect": 20,
-    "absent": 0,
+    focus: 100,
+    gaze_down: 100,
+    page_turn: 100,
+    bad_posture: 60,
+    pen_fidget: 80,
+    unknown: 75,
+    present_unknown: 75,
+    gaze_away: 40,
+    gaze_side: 40,
+    restless_hand: 100,
+    drowsy: 20,
+    sleep_suspect: 20,
+    absent: 0,
+  };
+
+  const FOCUS_COMPATIBLE_STATES = new Set(["focus", "gaze_down", "page_turn", "restless_hand"]);
+  const PRODUCTION_STATE_ORDER = [
+    "focus",
+    "gaze_down",
+    "page_turn",
+    "gaze_side",
+    "bad_posture",
+    "pen_fidget",
+    "restless_hand",
+    "drowsy",
+    "absent",
+    "unknown",
+  ];
+  const STATE_LABELS: Record<string, string> = {
+    focus: "집중",
+    gaze_down: "책/필기 시선",
+    page_turn: "페이지 넘김",
+    gaze_side: "측면 시선",
+    bad_posture: "자세 불량",
+    pen_fidget: "펜 만지작거림",
+    restless_hand: "불안정한 손 움직임",
+    drowsy: "졸음",
+    absent: "자리 이탈",
+    unknown: "판정 불확실",
+    present_unknown: "판정 불확실",
+    gaze_away: "시선 이탈",
+    sleep_suspect: "졸음 의심",
   };
 
   const sessionMetrics = useMemo(() => {
-    if (!report) return { totalSeconds: 0, focusScore: 0, actualFocusSeconds: 0, distractionSeconds: 0, secondBySecond: [] };
-    
-    const tSecs = report.duration_sec || matchedSession?.duration_sec || (report.timeline?.length || 1);
-      
-    const secondBySecond = new Array(tSecs).fill(100);
-    
-    report.timeline?.forEach(item => {
-      const timeIndex = Math.floor(item.t);
-      if (timeIndex >= 0 && timeIndex < tSecs) { 
-        secondBySecond[timeIndex] = STATE_WEIGHTS[item.state] ?? 100;
-      }
-    });
-    
-    const distractionSeconds = report.timeline?.filter(t => t.state !== "focus").length || 0;
-    const actualFocusSeconds = Math.max(0, tSecs - distractionSeconds);
-    const focusScore = report.summary.focus_score || Math.round(report.summary.focus_ratio * 100) || 0;
-    
-    return { totalSeconds: tSecs, focusScore, actualFocusSeconds, distractionSeconds, secondBySecond };
+    if (!report) {
+      return {
+        totalSeconds: 0,
+        observedSeconds: 0,
+        focusScore: 0,
+        actualFocusSeconds: 0,
+        distractionSeconds: 0,
+        unknownSeconds: 0,
+        secondBySecond: [] as number[],
+      };
+    }
+
+    const timeline = [...(report.timeline || [])].sort((a, b) => a.t - b.t);
+    const maxTimelineSecond = timeline.length > 0 ? Math.floor(timeline[timeline.length - 1].t) + 1 : 0;
+    const tSecs = Math.max(report.duration_sec || 0, matchedSession?.duration_sec || 0, maxTimelineSecond, timeline.length, 1);
+
+    // Score only the states that were actually recorded. This keeps the report
+    // aligned with the live chart instead of silently inventing states for gaps.
+    const secondBySecond = timeline.map((item) => STATE_WEIGHTS[item.state] ?? STATE_WEIGHTS.unknown);
+    const actualFocusSeconds = timeline.filter(({ state }) => FOCUS_COMPATIBLE_STATES.has(state)).length;
+    const unknownSeconds = timeline.filter(({ state }) => state === "unknown" || state === "present_unknown").length;
+    const distractionSeconds = Math.max(0, timeline.length - actualFocusSeconds - unknownSeconds);
+    const focusScore = secondBySecond.length > 0
+      ? Math.round(secondBySecond.reduce((sum, value) => sum + value, 0) / secondBySecond.length)
+      : 0;
+
+    return {
+      totalSeconds: tSecs,
+      observedSeconds: timeline.length,
+      focusScore,
+      actualFocusSeconds,
+      distractionSeconds,
+      unknownSeconds,
+      secondBySecond,
+    };
   }, [report, matchedSession]);
 
+  const stateBreakdown = useMemo(() => {
+    const timeline = report?.timeline || [];
+    const counts = new Map<string, number>();
+    timeline.forEach(({ state }) => counts.set(state, (counts.get(state) || 0) + 1));
+
+    const orderedStates = [
+      ...PRODUCTION_STATE_ORDER,
+      ...Array.from(counts.keys()).filter((state) => !PRODUCTION_STATE_ORDER.includes(state)),
+    ];
+
+    return orderedStates
+      .map((state) => {
+        const seconds = counts.get(state) || 0;
+        return {
+          state,
+          label: STATE_LABELS[state] || state,
+          seconds,
+          percent: sessionMetrics.observedSeconds > 0
+            ? Math.round((seconds / sessionMetrics.observedSeconds) * 100)
+            : 0,
+          weight: STATE_WEIGHTS[state] ?? STATE_WEIGHTS.unknown,
+        };
+      })
+      .filter((item) => item.seconds > 0 || PRODUCTION_STATE_ORDER.includes(item.state));
+  }, [report, sessionMetrics.observedSeconds]);
+
+  const attentionDipSegments = useMemo(() => {
+    const timeline = [...(report?.timeline || [])].sort((a, b) => a.t - b.t);
+    if (timeline.length === 0) return [];
+
+    // Use the same semantics as the displayed score. Focus-compatible activity
+    // ends a dip; everything else is treated as a possible attention-loss period.
+    const focusCompatible = FOCUS_COMPATIBLE_STATES;
+
+    type DipRow = {
+      start_sec: number;
+      end_sec: number;
+      duration_sec: number;
+      dominant_state: string;
+      dominant_label: string;
+      dominant_seconds: number;
+      score_loss: number;
+      feedback: string;
+    };
+
+    const dips: DipRow[] = [];
+    let current: Array<{ t: number; state: string }> = [];
+
+    const closeDip = () => {
+      if (current.length === 0) return;
+
+      const startSec = Math.floor(current[0].t);
+      const endSec = Math.floor(current[current.length - 1].t) + 1;
+      const durationSec = Math.max(1, endSec - startSec);
+
+      // Ignore tiny one/two-sample flickers in the coach section.
+      if (durationSec < 3) {
+        current = [];
+        return;
+      }
+
+      const counts = new Map<string, number>();
+      let scoreLoss = 0;
+      current.forEach(({ state }) => {
+        counts.set(state, (counts.get(state) || 0) + 1);
+        scoreLoss += 100 - (STATE_WEIGHTS[state] ?? STATE_WEIGHTS.unknown);
+      });
+
+      let dominantState = current[0].state;
+      let dominantSeconds = 0;
+      for (const [state, seconds] of counts.entries()) {
+        if (seconds > dominantSeconds) {
+          dominantState = state;
+          dominantSeconds = seconds;
+        }
+      }
+
+      const dominantLabel = STATE_LABELS[dominantState] || dominantState;
+      const dominantPercent = Math.round((dominantSeconds / current.length) * 100);
+
+      dips.push({
+        start_sec: startSec,
+        end_sec: endSec,
+        duration_sec: durationSec,
+        dominant_state: dominantState,
+        dominant_label: dominantLabel,
+        dominant_seconds: dominantSeconds,
+        score_loss: scoreLoss,
+        feedback: `${formatAdaptiveTime(startSec)}~${formatAdaptiveTime(endSec)} 구간에서 ${dominantLabel} 상태가 ${dominantSeconds}초(${dominantPercent}%)로 가장 많이 감지되었습니다.`,
+      });
+
+      current = [];
+    };
+
+    for (const item of timeline) {
+      if (focusCompatible.has(item.state)) {
+        closeDip();
+      } else {
+        // Break the segment if there is a meaningful timestamp gap.
+        if (
+          current.length > 0 &&
+          Math.floor(item.t) - Math.floor(current[current.length - 1].t) > 2
+        ) {
+          closeDip();
+        }
+        current.push(item);
+      }
+    }
+    closeDip();
+
+    // Rank by total focus-score loss first, then duration. This favors a shorter
+    // severe drowsy/absence period over a very long but mild unknown period.
+    return dips
+      .sort((a, b) => b.score_loss - a.score_loss || b.duration_sec - a.duration_sec)
+      .slice(0, 3);
+  }, [report]);
+
   const parsedTimelineData = useMemo(() => {
-    const { totalSeconds, secondBySecond } = sessionMetrics;
-    if (totalSeconds === 0) return [];
+    const timeline = [...(report?.timeline || [])].sort((a, b) => a.t - b.t);
+    if (timeline.length === 0) return [];
 
     const dataPointsCount = 30;
-    const bucketSize = Math.max(1, Math.floor(totalSeconds / dataPointsCount));
-
+    const bucketSize = Math.max(1, Math.floor(timeline.length / dataPointsCount));
     const bucketedData = [];
-    for (let i = 0; i < totalSeconds; i += bucketSize) {
-      const chunk = secondBySecond.slice(i, i + bucketSize);
-      const avgScore = chunk.reduce((sum, val) => sum + val, 0) / chunk.length;
 
-      const mins = Math.floor(i / 60);
-      const secs = i % 60;
+    for (let i = 0; i < timeline.length; i += bucketSize) {
+      const chunk = timeline.slice(i, i + bucketSize);
+      const avgScore = chunk.reduce(
+        (sum, item) => sum + (STATE_WEIGHTS[item.state] ?? STATE_WEIGHTS.unknown),
+        0
+      ) / chunk.length;
+      const endTime = Math.floor(chunk[chunk.length - 1].t);
+      const mins = Math.floor(endTime / 60);
+      const secs = endTime % 60;
+
+      const stateCounts = new Map<string, number>();
+      chunk.forEach(({ state }) => {
+        stateCounts.set(state, (stateCounts.get(state) || 0) + 1);
+      });
+
+      let dominantState = chunk[chunk.length - 1].state;
+      let dominantCount = -1;
+      for (const [state, count] of stateCounts.entries()) {
+        if (count > dominantCount) {
+          dominantState = state;
+          dominantCount = count;
+        }
+      }
+
       bucketedData.push({
         time: `${mins}:${String(secs).padStart(2, "0")}`,
         score: Math.round(avgScore),
+        state: dominantState,
+        stateLabel: STATE_LABELS[dominantState] || dominantState,
       });
     }
 
     return bucketedData;
-  }, [sessionMetrics]);
+  }, [report]);
 
   const getTimelineMetrics = (targetStates: string[]) => {
     const timeline = report?.timeline || [];
@@ -207,7 +393,7 @@ export function SessionDetail() {
       }
     }
 
-    const baseTotal = sessionMetrics.totalSeconds || 1;
+    const baseTotal = sessionMetrics.observedSeconds || 1;
     const percent = Math.min(Math.round((totalSec / baseTotal) * 100), 100);
     
     let score = 1; 
@@ -220,16 +406,19 @@ export function SessionDetail() {
   };
 
   const absentMetrics = getTimelineMetrics(["absent"]);
-  const gazeMetrics = getTimelineMetrics(["gaze_side", "gaze_down", "gaze_away"]);
+  const gazeMetrics = getTimelineMetrics(["gaze_side", "gaze_away"]);
   const postureMetrics = getTimelineMetrics(["bad_posture"]);
-  const fidgetingMetrics = getTimelineMetrics(["pen_fidget", "restless_hand", "unknown"]);
+  const penFidgetMetrics = getTimelineMetrics(["pen_fidget"]);
   const drowsyMetrics = getTimelineMetrics(["drowsy", "sleep_suspect"]);
+  const unknownMetrics = getTimelineMetrics(["unknown", "present_unknown"]);
+  const pageTurnMetrics = getTimelineMetrics(["page_turn"]);
+  const readingMetrics = getTimelineMetrics(["gaze_down"]);
 
   const radarData = [
     { metric: "자리 이탈", value: absentMetrics.score, baseMark: 1, timeLabel: formatAdaptiveTime(absentMetrics.totalSec), fullMark: 5 },
     { metric: "시선 분산", value: gazeMetrics.score, baseMark: 1, timeLabel: formatAdaptiveTime(gazeMetrics.totalSec), fullMark: 5 },
     { metric: "자세 불량", value: postureMetrics.score, baseMark: 1, timeLabel: formatAdaptiveTime(postureMetrics.totalSec), fullMark: 5 },
-    { metric: "불안정한 움직임", value: fidgetingMetrics.score, baseMark: 1, timeLabel: formatAdaptiveTime(fidgetingMetrics.totalSec), fullMark: 5 },
+    { metric: "펜 만지작거림", value: penFidgetMetrics.score, baseMark: 1, timeLabel: formatAdaptiveTime(penFidgetMetrics.totalSec), fullMark: 5 },
     { metric: "졸음 감지", value: drowsyMetrics.score, baseMark: 1, timeLabel: formatAdaptiveTime(drowsyMetrics.totalSec), fullMark: 5 },
   ];
 
@@ -290,8 +479,9 @@ export function SessionDetail() {
         />
         <MetricCard 
           icon={<User className="w-4 h-4 sm:w-5 sm:h-5" />} 
-          label="산만 시간" 
-          value={formatAdaptiveTime(sessionMetrics.distractionSeconds)} 
+          label="주의 이탈 시간" 
+          value={formatAdaptiveTime(sessionMetrics.distractionSeconds)}
+          subtitle={`불확실 ${formatAdaptiveTime(sessionMetrics.unknownSeconds)}`}
           color="bg-orange-500" 
         />
       </div>
@@ -314,7 +504,25 @@ export function SessionDetail() {
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
               <XAxis dataKey="time" stroke="#888" fontSize={12} tickLine={false} dy={10} />
               <YAxis stroke="#888" fontSize={12} domain={[0, 100]} ticks={[0, 25, 50, 75, 100]} tickLine={false} dx={-5} />
-              <Tooltip contentStyle={{ backgroundColor: "#fff", border: "1px solid #e5e5e5", borderRadius: "8px" }} formatter={(value: number) => [`${value}%`, "Focus Score"]} />
+              <Tooltip
+                content={({ active, payload, label }) => {
+                  if (!active || !payload || payload.length === 0) return null;
+                  const point = payload[0]?.payload;
+                  if (!point) return null;
+
+                  return (
+                    <div className="bg-white border border-[#e5e5e5] p-3 rounded-lg shadow-sm">
+                      <p className="text-xs text-muted-foreground mb-1">{label}</p>
+                      <p className="text-sm font-semibold text-foreground">
+                        집중도: {point.score}%
+                      </p>
+                      <p className="text-sm text-primary font-medium mt-1">
+                        주요 감지 상태: {point.stateLabel}
+                      </p>
+                    </div>
+                  );
+                }}
+              />
               <Area type="monotone" dataKey="score" stroke="#1a667a" strokeWidth={3} fillOpacity={1} fill="url(#focusGradient)" />
             </AreaChart>
           </ResponsiveContainer>        
@@ -324,9 +532,9 @@ export function SessionDetail() {
       {/* Grid Breakdowns */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-white rounded-2xl border border-border p-6 shadow-sm">
-          <h3 className="text-xl font-semibold mb-4">산만함 분석</h3>
+          <h3 className="text-xl font-semibold mb-4">행동 패턴 분석</h3>
           <p className="text-sm text-muted-foreground mb-4">
-            가장 안쪽의 점선 영역은 정상 범위를 의미합니다. 그래프가 바깥으로 뻗어나갈수록 해당 요소로 인한 방해 시간이 길었음을 나타냅니다.
+            가장 안쪽의 점선 영역은 낮은 기록 비율을 의미합니다. 그래프가 바깥으로 뻗어나갈수록 해당 행동이 세션 중 더 오래 기록되었음을 나타냅니다.
           </p>
           
           {/* FIX: Added Tailwind wrapper to control height */}
@@ -345,7 +553,7 @@ export function SessionDetail() {
                   strokeWidth={2} 
                   strokeDasharray="5 5" 
                 />
-                <Radar name="산만함 감지" dataKey="value" stroke="#1a667a" fill="#1a667a" fillOpacity={0.5} strokeWidth={2} />
+                <Radar name="행동 감지" dataKey="value" stroke="#1a667a" fill="#1a667a" fillOpacity={0.5} strokeWidth={2} />
                 
                 <Tooltip 
                   content={({ active, payload }) => {
@@ -383,7 +591,7 @@ export function SessionDetail() {
               valueText={formatAdaptiveTime(gazeMetrics.totalSec)} 
               percentage={gazeMetrics.percent} 
               color="bg-yellow-500" 
-              description={`외부 주시 및 시선 이탈 빈도: 총 ${gazeMetrics.count}회`} 
+              description={`측면/외부 시선 이탈 빈도: 총 ${gazeMetrics.count}회`} 
             />
             <DistractionItem 
               label="자세 불량" 
@@ -400,13 +608,46 @@ export function SessionDetail() {
               description={`눈 감김 및 졸음 의심 상태: 총 ${drowsyMetrics.count}회`} 
             />
             <DistractionItem 
-              label="불안정한 움직임 / 불확실한 상태" 
-              valueText={formatAdaptiveTime(fidgetingMetrics.totalSec)} 
-              percentage={fidgetingMetrics.percent} 
+              label="페이지 넘김" 
+              valueText={formatAdaptiveTime(pageTurnMetrics.totalSec)} 
+              percentage={pageTurnMetrics.percent} 
+              color="bg-emerald-500" 
+              description={`학습 중 페이지 넘김 감지: 총 ${pageTurnMetrics.count}회`} 
+            />
+            <DistractionItem 
+              label="펜 만지작거림" 
+              valueText={formatAdaptiveTime(penFidgetMetrics.totalSec)} 
+              percentage={penFidgetMetrics.percent} 
               color="bg-purple-500" 
-              description={`불안정한 움직임 또는 카메라 앵글 이탈(엎드림 등): 총 ${fidgetingMetrics.count}회`} 
+              description={`작고 반복적인 펜/손 움직임 감지: 총 ${penFidgetMetrics.count}회`} 
             />
           </div>
+        </div>
+      </div>
+
+      {/* Exact production-state breakdown for post-session validation */}
+      <div className="bg-white rounded-2xl border border-border p-6 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2 mb-5">
+          <div>
+            <h3 className="text-xl font-semibold">감지 상태 원본 집계</h3>
+            <p className="text-sm text-muted-foreground mt-1">
+              저장된 {`{t, state}`} 타임라인을 그대로 집계합니다. 모델/카메라 동작 확인용으로 각 상태의 실제 기록 시간을 확인할 수 있습니다.
+            </p>
+          </div>
+          <div className="text-xs text-muted-foreground">페이지 넘김 {formatAdaptiveTime(pageTurnMetrics.totalSec)} · 책/필기 시선 {formatAdaptiveTime(readingMetrics.totalSec)} · 불확실 {formatAdaptiveTime(unknownMetrics.totalSec)}</div>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+          {stateBreakdown.map((item) => (
+            <div key={item.state} className="rounded-xl border border-border p-3 bg-accent/10">
+              <div className="text-xs text-muted-foreground truncate" title={item.state}>{item.label}</div>
+              <div className="text-lg font-bold font-mono mt-1">{formatAdaptiveTime(item.seconds)}</div>
+              <div className="text-[11px] text-muted-foreground mt-1">
+                {item.percent}% · 가중치 {item.weight}
+              </div>
+              <div className="text-[10px] font-mono text-muted-foreground/80 mt-1 truncate" title={item.state}>{item.state}</div>
+            </div>
+          ))}
         </div>
       </div>
 
@@ -441,16 +682,16 @@ export function SessionDetail() {
             </p>
           </div>
           
-          {report.personal_feedback.worst_segments && report.personal_feedback.worst_segments.length > 0 && (
+          {attentionDipSegments.length > 0 && (
             <div className="mt-5 space-y-3">
               <h4 className="font-semibold text-sm text-foreground">⚠️ 집중력 저하 주요 구간</h4>
-              {report.personal_feedback.worst_segments.map((segment, idx) => (
-                <div key={idx} className="flex items-start gap-3 bg-white p-3 rounded-lg border border-border">
-                  <div className="text-xs font-mono font-bold text-orange-500 bg-orange-50 px-2 py-1 rounded">
+              {attentionDipSegments.map((segment, idx) => (
+                <div key={`${segment.start_sec}-${segment.end_sec}-${idx}`} className="flex items-start gap-3 bg-white p-3 rounded-lg border border-border">
+                  <div className="text-xs font-mono font-bold text-orange-500 bg-orange-50 px-2 py-1 rounded whitespace-nowrap">
                     {formatAdaptiveTime(segment.start_sec)} - {formatAdaptiveTime(segment.end_sec)}
                   </div>
                   <div>
-                    <p className="text-sm font-medium">{segment.problem}</p>
+                    <p className="text-sm font-medium">{segment.dominant_label}</p>
                     <p className="text-xs text-muted-foreground mt-0.5">{segment.feedback}</p>
                   </div>
                 </div>

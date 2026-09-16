@@ -18,10 +18,22 @@ import {
 
 // FIX: Bumped gaze_down to 100 so reading a book is recorded as focused studying!
 const STATE_WEIGHTS: Record<string, number> = {
-  "focus": 100, "bad_posture": 60, "gaze_away": 40, "gaze_side": 40,
-  "gaze_down": 100, "unknown": 50, "present_unknown": 50,
-  "drowsy": 20, "sleep_suspect": 20, "absent": 0,
+  focus: 100,
+  gaze_down: 100,
+  page_turn: 100,
+  bad_posture: 60,
+  pen_fidget: 80,
+  unknown: 75,
+  present_unknown: 75,
+  gaze_away: 40,
+  gaze_side: 40,
+  restless_hand: 100,
+  drowsy: 20,
+  sleep_suspect: 20,
+  absent: 0,
 };
+
+const NON_DISTRACTING_STATES = new Set(["focus", "gaze_down", "page_turn", "pen_fidget", "restless_hand", "idle"]);
 
 export function StudySession() {
   const [isRunning, setIsRunning] = useState(false);
@@ -64,7 +76,7 @@ export function StudySession() {
   };
 
   useEffect(() => {
-    if (isRunning && alarmEnabledRef.current && currentState !== "focus" && currentState !== "idle" && currentState !== "gaze_down") {
+    if (isRunning && alarmEnabledRef.current && !NON_DISTRACTING_STATES.has(currentState)) {
       playBeep();
     }
   }, [currentState, isRunning]);
@@ -76,10 +88,13 @@ export function StudySession() {
   // Production 16-feature inference state
   const decisionRef = useRef(new ProductionDecision());
   const temporalBufferRef = useRef<any[]>([]);
+  const lastDeskWristRef = useRef<{ x: number; y: number; t: number } | null>(null);
+  const deskWristMovingUntilRef = useRef(0);
   const inferenceBusy = useRef(false);
   const lastFrontFrameTime = useRef(-1);
   const [calibrating, setCalibrating] = useState(true);
   const [modelWarning, setModelWarning] = useState("");
+  const [usingDeskFallback, setUsingDeskFallback] = useState(false);
   
   const faceVideoRef = useRef<HTMLVideoElement>(null);
   const deskVideoRef = useRef<HTMLVideoElement>(null);
@@ -105,7 +120,7 @@ export function StudySession() {
     const bucketedData = [];
     for (let i = 0; i < totalSecs; i += bucketSize) {
       const chunk = timelineRef.current.slice(i, i + bucketSize);
-      const avgScore = chunk.reduce((sum, val) => sum + (STATE_WEIGHTS[val.state] ?? 100), 0) / chunk.length;
+      const avgScore = chunk.reduce((sum, val) => sum + (STATE_WEIGHTS[val.state] ?? 50), 0) / chunk.length;
       const tIndex = chunk[chunk.length - 1].t; 
       const mins = Math.floor(tIndex / 60);
       const secs = tIndex % 60;
@@ -300,6 +315,38 @@ export function StudySession() {
         // Desk camera is preferred for hand activity; front pose is fallback only.
         const bestWristLm = deskPoseRes.landmarks?.[0] ?? frontPoseRes.landmarks?.[0] ?? null;
 
+        // Fast desk-activity fallback for periods where the front camera loses the face.
+        // The normal hand-state rules below use a ~10-second window; this lightweight
+        // check reacts within one analysis sample so writing can still count as active
+        // study while the user's head is low/out of the front-camera face detector.
+        let deskWristMoving = false;
+        const deskRightWrist = deskPoseRes.landmarks?.[0]?.[16] ?? null;
+        if (deskRightWrist) {
+          const previousDeskWrist = lastDeskWristRef.current;
+          if (previousDeskWrist) {
+            const wristDisplacement = Math.hypot(
+              deskRightWrist.x - previousDeskWrist.x,
+              deskRightWrist.y - previousDeskWrist.y
+            );
+            if (wristDisplacement >= 0.01) {
+              deskWristMoving = true;
+              // Keep a short grace period because browser inference runs ~1 Hz.
+              deskWristMovingUntilRef.current = nowMs + 2500;
+            }
+          }
+          lastDeskWristRef.current = {
+            x: deskRightWrist.x,
+            y: deskRightWrist.y,
+            t: nowMs,
+          };
+        } else {
+          lastDeskWristRef.current = null;
+        }
+
+        if (nowMs < deskWristMovingUntilRef.current) {
+          deskWristMoving = true;
+        }
+
         if (bestFaceLm) {
           faceSeen = 1;
           const distance = (a: number, b: number) =>
@@ -466,7 +513,7 @@ export function StudySession() {
           }
         }
 
-        const decision = decisionRef.current.step(
+        const rawDecision = decisionRef.current.step(
           nowMs,
           {
             faceSeen: Boolean(faceSeen),
@@ -487,6 +534,58 @@ export function StudySession() {
           probabilities
         );
 
+        // Exhibition guard: preserve the teammate's ProductionDecision output for
+        // debugging, but treat visible desk activity as evidence that the user is
+        // actively studying rather than sleeping. If drowsy is returned while a
+        // hand event is present, record that hand event instead. Otherwise, only
+        // keep drowsy after approximately 10 consecutive one-second eye-closed
+        // samples; normal downward reading becomes gaze_down/focus.
+        let adjustedState = rawDecision.final_state;
+        const deskFallbackActive = !faceSeen && Boolean(deskRightWrist) && deskWristMoving;
+        setUsingDeskFallback(deskFallbackActive);
+
+        // A confirmed long eye closure always wins. The previous guard allowed
+        // wrist jitter to overwrite genuine drowsiness as restless_hand.
+        if (longEyeClosure === 1) {
+          adjustedState = "drowsy";
+        } else if (deskFallbackActive) {
+          // Face is missing but the overhead camera currently sees an active wrist:
+          // treat this as poor posture while the user is still working at the desk.
+          adjustedState = "bad_posture";
+        } else if (!faceSeen) {
+          // Without a front face signal there is no valid EAR/iris/head evidence.
+          // If there is no currently visible moving wrist either, UNKNOWN is safer
+          // than carrying forward posture or drowsiness assumptions.
+          adjustedState = "unknown";
+        } else if (adjustedState === "drowsy") {
+          // Without sustained eye closure, suppress likely reading-related false
+          // drowsiness while preserving the teammate's raw decision in debug data.
+          if (pageTurn) {
+            adjustedState = "page_turn";
+          } else if (penFidget) {
+            adjustedState = "pen_fidget";
+          } else if (restlessHand || deskWristMoving) {
+            adjustedState = "restless_hand";
+          } else {
+            adjustedState = (gazeDown || headDown) ? "gaze_down" : "focus";
+          }
+        }
+
+        // A stale inference warning should disappear once the face signal is back
+        // and the ONNX session is still available.
+        if (faceSeen && onnxSessionRef.current && modelWarning) {
+          setModelWarning("");
+        }
+
+        const decision = {
+          ...rawDecision,
+          final_state: adjustedState,
+          decision_source:
+            adjustedState === rawDecision.final_state
+              ? rawDecision.decision_source
+              : `frontend_guard:${rawDecision.final_state}`,
+        };
+
         const currentT = startTimeRef.current
           ? Math.floor((nowMs - startTimeRef.current) / 1000)
           : timelineRef.current.length + 1;
@@ -503,6 +602,9 @@ export function StudySession() {
             desk_faces: deskFaceRes.faceLandmarks?.length ?? 0,
             front_poses: frontPoseRes.landmarks?.length ?? 0,
             desk_poses: deskPoseRes.landmarks?.length ?? 0,
+            desk_wrist_moving: deskWristMoving,
+            desk_fallback_active: deskFallbackActive,
+            front_logic_active: Boolean(faceSeen),
           },
           timeline_length: timelineRef.current.length,
           latest_payload: timelineRef.current[timelineRef.current.length - 1] ?? null,
@@ -541,9 +643,13 @@ export function StudySession() {
       
       timelineRef.current = [];
       temporalBufferRef.current = [];
+      lastDeskWristRef.current = null;
+      deskWristMovingUntilRef.current = 0;
       decisionRef.current.reset();
       lastFrontFrameTime.current = -1;
       setCalibrating(true);
+      setUsingDeskFallback(false);
+      setModelWarning("");
       setCurrentState("unknown");
 
       const { faceStream, deskStream } = await setupDualCameras();
@@ -607,6 +713,8 @@ export function StudySession() {
       });
 
       setIsRunning(false);
+      setUsingDeskFallback(false);
+      setModelWarning("");
       setSeconds(0);
       setSessionId(null);
       alert("세션 종료 및 데이터 저장 성공!");
@@ -616,7 +724,7 @@ export function StudySession() {
     }
   };
 
-  const isDistracted = isRunning && alarmEnabledRef.current && currentState !== "focus" && currentState !== "idle" && currentState !== "gaze_down";
+  const isDistracted = isRunning && alarmEnabledRef.current && !NON_DISTRACTING_STATES.has(currentState);
 
   return (
     <div className={`min-h-screen p-8 transition-colors duration-700 ${isDistracted ? 'bg-red-50 border-8 border-red-500/30' : 'bg-gradient-to-br from-accent/20 to-white border-8 border-transparent'}`}>
@@ -659,9 +767,9 @@ export function StudySession() {
       <div className="max-w-4xl mx-auto">
         <h1 className="text-3xl font-bold text-foreground mb-8">학습 세션</h1>
 
-        {modelWarning && (
-          <div role="status" className="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            {modelWarning}
+        {isRunning && usingDeskFallback && (
+          <div role="status" className="mb-4 rounded-lg border border-sky-300 bg-sky-50 px-4 py-3 text-sm text-sky-900">
+            얼굴 신호가 일시적으로 보이지 않아 책상 손 움직임과 자세 정보로 보조 판정 중입니다.
           </div>
         )}
         {isRunning && calibrating && (

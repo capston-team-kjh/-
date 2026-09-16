@@ -50,6 +50,65 @@ def _analysis_feedback_table() -> str:
     )
 
 
+
+
+# Frontend-aligned scoring for the browser production timeline.
+# Keep this in the reporting layer so Dashboard/Reports/Session Detail all
+# interpret the same saved {t, state} data without changing model logic.
+TIMELINE_STATE_WEIGHTS = {
+    "focus": 100,
+    "gaze_down": 100,
+    "page_turn": 100,
+    "restless_hand": 100,
+    "pen_fidget": 80,
+    "bad_posture": 60,
+    "unknown": 75,
+    "present_unknown": 75,
+    "gaze_away": 40,
+    "gaze_side": 40,
+    "drowsy": 20,
+    "sleep_suspect": 20,
+    "absent": 0,
+}
+
+
+def _timeline_rows(db: Session, session_id: int):
+    return db.execute(
+        text(
+            """
+            SELECT t, state
+            FROM analysis_timeline
+            WHERE session_id = :session_id
+            ORDER BY t ASC
+            """
+        ),
+        {"session_id": str(session_id)},
+    ).mappings().all()
+
+
+def _timeline_focus_score(rows) -> int:
+    if not rows:
+        return 0
+    scores = [TIMELINE_STATE_WEIGHTS.get(str(row.get("state")), 50) for row in rows]
+    return round(sum(scores) / len(scores))
+
+
+def _timeline_event_seconds(rows) -> dict:
+    counts = {"gaze": 0, "posture": 0, "absent": 0, "fidget": 0, "page_turn": 0}
+    for row in rows:
+        state = str(row.get("state"))
+        if state in {"gaze_side", "gaze_away"}:
+            counts["gaze"] += 1
+        elif state == "bad_posture":
+            counts["posture"] += 1
+        elif state == "absent":
+            counts["absent"] += 1
+        elif state == "pen_fidget":
+            counts["fidget"] += 1
+        elif state == "page_turn":
+            counts["page_turn"] += 1
+    return counts
+
 def _parse_json_value(value: Any) -> Any:
     if value is None or isinstance(value, (dict, list)):
         return value
@@ -103,14 +162,10 @@ def get_dashboard_summary(
         weekly_breakdown[day_str] += (dur / 3600.0)
         unique_days.add(s.start_time.strftime("%Y-%m-%d"))
         
-        # Pull the AI focus score from the edge database tables
-        summary_row = db.execute(
-            text("SELECT focus_ratio FROM analysis_summary WHERE session_id = :sid"),
-            {"sid": str(s.id)}
-        ).mappings().first()
-        
-        f_ratio = summary_row.get("focus_ratio", 0) if summary_row else 0
-        f_score = f_ratio * 100
+        # Recompute from the saved browser timeline using the same state weights
+        # as session-detail.tsx. This replaces the legacy analysis_summary score.
+        timeline_rows = _timeline_rows(db, s.id)
+        f_score = _timeline_focus_score(timeline_rows)
         total_score_weight += (f_score * dur)
 
     total_hours = round(total_seconds / 3600, 1)
@@ -160,16 +215,20 @@ def get_all_sessions_list(
         
         # 4. Default values to prevent React from crashing
         focus_score = 0
-        event_secs = {"gaze": 0, "posture": 0, "absent": 0, "fidget": 0}
+        event_secs = {"gaze": 0, "posture": 0, "absent": 0, "fidget": 0, "page_turn": 0}
         personal_feedback = None
         
-        # 5. Map the edge AI data to the React expected format
-        if summary:
+        # 5. Recompute score/event seconds from the saved production timeline so
+        # Dashboard, Reports and Session Detail use one interpretation.
+        timeline_rows = _timeline_rows(db, s.id)
+        if timeline_rows:
+            focus_score = _timeline_focus_score(timeline_rows)
+            event_secs = _timeline_event_seconds(timeline_rows)
+        elif summary:
+            # Legacy fallback for older sessions with no saved production timeline.
             focus_score = summary.get("focus_ratio", 0) * 100
             event_secs["gaze"] = summary.get("away_total_sec", 0)
             event_secs["absent"] = summary.get("absent_total_sec", 0)
-            
-            # Convert the posture ratio back into seconds for the frontend
             posture_ratio = summary.get("bad_posture_ratio", 0)
             event_secs["posture"] = int(posture_ratio * duration_sec)
             
@@ -222,17 +281,7 @@ def get_session_analysis_result(
         {"session_id": session_key},
     ).mappings().first()
 
-    timeline_rows = db.execute(
-        text(
-            """
-            SELECT t, state
-            FROM analysis_timeline
-            WHERE session_id = :session_id
-            ORDER BY t ASC
-            """
-        ),
-        {"session_id": session_key},
-    ).mappings().all()
+    timeline_rows = _timeline_rows(db, session_id)
 
     event_rows = db.execute(
         text(
@@ -275,9 +324,9 @@ def get_session_analysis_result(
             feedback_row = None
 
     duration_sec = _session_duration_sec(session)
-    # --- FIX: Calculate focus score from the Edge AI summary, NOT FocusLog ---
-    focus_score = 0.0
-    if summary_row and summary_row.get("focus_ratio") is not None:
+    # Use the same saved-timeline scoring mechanic as the frontend.
+    focus_score = _timeline_focus_score(timeline_rows)
+    if not timeline_rows and summary_row and summary_row.get("focus_ratio") is not None:
         focus_score = round(float(summary_row.get("focus_ratio")) * 100, 1)
 
     personal_feedback = None
