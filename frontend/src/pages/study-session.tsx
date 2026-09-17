@@ -544,9 +544,12 @@ export function StudySession() {
         const deskFallbackActive = !faceSeen && Boolean(deskRightWrist) && deskWristMoving;
         setUsingDeskFallback(deskFallbackActive);
 
-        // A confirmed long eye closure always wins. The previous guard allowed
-        // wrist jitter to overwrite genuine drowsiness as restless_hand.
-        if (longEyeClosure === 1) {
+        // Preserve confirmed absence before applying guards for a present user.
+        // A missing face alone must not overwrite an empty-seat decision.
+        if (rawDecision.final_state === "absent") {
+          adjustedState = "absent";
+        } else if (longEyeClosure === 1) {
+          // With a person present, confirmed long eye closure wins over wrist jitter.
           adjustedState = "drowsy";
         } else if (deskFallbackActive) {
           // Face is missing but the overhead camera currently sees an active wrist:
