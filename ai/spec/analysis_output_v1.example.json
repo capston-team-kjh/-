@@ -1,0 +1,17 @@
+{
+  "schema_version": "v1",
+  "session_id": "S002",
+  "sampling_fps": 5,
+  "timeline": [
+    { "t": 0.0, "gaze_state": "on", "score": 100 },
+    { "t": 0.2, "gaze_state": "off", "score": 98 },
+    { "t": 0.4, "gaze_state": "off", "score": 96 },
+    { "t": 0.6, "gaze_state": "on", "score": 97 }
+  ],
+  "summary": {
+    "avg_score": 87.3,
+    "focused_sec": 1200,
+    "off_gaze_count": 12,
+    "missing_sec": 35
+  }
+}

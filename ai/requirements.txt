@@ -1,0 +1,10 @@
+boto3
+requests
+python-dotenv
+PyYAML
+numpy<2
+pandas
+opencv-python-headless
+imageio-ffmpeg
+mediapipe
+pymysql

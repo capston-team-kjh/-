@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Analysis Output Schema v1",
+  "type": "object",
+  "required": ["schema_version", "session_id", "sampling_fps", "timeline", "summary"],
+  "properties": {
+    "schema_version": { "type": "string", "enum": ["v1"] },
+    "session_id": { "type": "string" },
+    "sampling_fps": { "type": "integer", "minimum": 1, "maximum": 60 },
+    "timeline": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["t", "gaze_state", "score"],
+        "properties": {
+          "t": { "type": "number", "minimum": 0 },
+          "gaze_state": { "type": "string", "enum": ["on", "off", "missing"] },
+          "score": { "type": "integer", "minimum": 0, "maximum": 100 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": ["avg_score", "focused_sec", "off_gaze_count", "missing_sec"],
+      "properties": {
+        "avg_score": { "type": "number", "minimum": 0, "maximum": 100 },
+        "focused_sec": { "type": "integer", "minimum": 0 },
+        "off_gaze_count": { "type": "integer", "minimum": 0 },
+        "missing_sec": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

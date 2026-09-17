@@ -1,0 +1,26 @@
+{
+  "schema_version": "evaluation-label-v1",
+  "session_id": "session_001",
+  "video_duration_sec": 30,
+  "states": ["focus", "absent", "drowsy", "gaze_side", "gaze_down", "bad_posture", "unknown"],
+  "event_states": ["absent", "drowsy", "gaze_side", "gaze_down", "bad_posture"],
+  "timeline": [
+    { "start_sec": 0, "end_sec": 10, "state": "focus" },
+    { "start_sec": 10, "end_sec": 15, "state": "absent" },
+    { "start_sec": 15, "end_sec": 20, "state": "drowsy" },
+    { "start_sec": 20, "end_sec": 24, "state": "gaze_side" },
+    { "start_sec": 24, "end_sec": 27, "state": "gaze_down" },
+    { "start_sec": 27, "end_sec": 29, "state": "bad_posture" },
+    { "start_sec": 29, "end_sec": 30, "state": "unknown" }
+  ],
+  "events": [
+    { "state": "absent", "start_sec": 10, "end_sec": 15 },
+    { "state": "drowsy", "start_sec": 15, "end_sec": 20 },
+    { "state": "gaze_side", "start_sec": 20, "end_sec": 24 },
+    { "state": "gaze_down", "start_sec": 24, "end_sec": 27 },
+    { "state": "bad_posture", "start_sec": 27, "end_sec": 29 }
+  ],
+  "human_focus_score": 82,
+  "annotator": "sample_annotator",
+  "notes": "평가 모듈 사용법을 위한 30초 샘플 라벨"
+}

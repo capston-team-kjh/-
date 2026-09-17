@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FocusAI Manual Evaluation Label v1",
+  "type": "object",
+  "required": ["schema_version", "session_id", "video_duration_sec", "timeline", "events", "human_focus_score"],
+  "properties": {
+    "schema_version": { "const": "evaluation-label-v1" },
+    "session_id": { "type": "string", "minLength": 1 },
+    "video_duration_sec": { "type": "number", "exclusiveMinimum": 0 },
+    "states": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "event_states": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "timeline": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": ["start_sec", "end_sec", "state"],
+            "properties": {
+              "start_sec": { "type": "number", "minimum": 0 },
+              "end_sec": { "type": "number", "exclusiveMinimum": 0 },
+              "state": { "type": "string", "minLength": 1 }
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "required": ["t", "state"],
+            "properties": {
+              "t": { "type": "number", "minimum": 0 },
+              "state": { "type": "string", "minLength": 1 }
+            },
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
+    "events": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["state", "start_sec", "end_sec"],
+        "properties": {
+          "state": { "type": "string", "minLength": 1 },
+          "start_sec": { "type": "number", "minimum": 0 },
+          "end_sec": { "type": "number", "exclusiveMinimum": 0 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "human_focus_score": { "type": "number", "minimum": 0, "maximum": 100 },
+    "annotator": { "type": "string" },
+    "notes": { "type": "string" }
+  },
+  "additionalProperties": false
+}

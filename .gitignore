@@ -1,0 +1,41 @@
+﻿# Python virtual environment
+.venv/
+venv/
+
+# Node.js modules
+node_modules/
+
+# Python cache
+**/__pycache__/
+*.pyc
+
+# Local outputs
+output.json
+.env
+tmp/
+ai/output/
+ai/downloads/
+ai/outputs/
+ai/local_outputs/
+ai/manual_review_queue/
+
+# Environment variables
+.env.local
+.env.production
+.env.development
+
+# test videos
+/upload
+
+# Local runtime and diagnostic artifacts
+*.log
+*.pid
+run_local_analysis.txt
+local_outputs/
+logs/
+
+# Reproducible AI training intermediates
+ai/state_classifier_training/analysis_results/
+
+# Android distribrution
+android/
