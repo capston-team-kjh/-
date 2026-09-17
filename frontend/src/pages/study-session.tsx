@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { Play, Square, Activity, TrendingUp, Camera, Settings2 } from "lucide-react";
 import { setupDualCameras } from "@/utils/dualCamManager"; 
+import { Link } from "react-router";
 import { FaceLandmarker, PoseLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
 import * as ort from "onnxruntime-web";
 import {
@@ -812,6 +813,12 @@ export function StudySession() {
               >
                 세션 시작
               </button>
+              <Link
+                to="/app/recording-guide"
+                className="block w-fit mx-auto text-sm font-medium text-primary underline-offset-4 hover:underline"
+              >
+                촬영 가이드를 먼저 확인하기
+              </Link>
             </div>
           ) : (
             <div className="space-y-8">

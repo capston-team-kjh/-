@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Outlet, Link, useLocation } from "react-router";
-import { LayoutDashboard, Play, BarChart3, Settings, LogOut, Menu, X } from "lucide-react";
+import { LayoutDashboard, Play, BarChart3, Settings, LogOut, Menu, X, BookOpen } from "lucide-react";
 import logo from "../assets/joljak_logo.png";
 
 export function DashboardLayout() {
@@ -56,6 +56,13 @@ export function DashboardLayout() {
               />
             )}
             <NavLink
+              to="/app/recording-guide"
+              icon={<BookOpen className="w-5 h-5" />}
+              label="촬영 가이드"
+              active={isActive("/app/recording-guide")}
+              onClick={() => setMobileMenuOpen(false)}
+            />
+            <NavLink
               to="/app/reports"
               icon={<BarChart3 className="w-5 h-5" />}
               label="리포트"
@@ -108,6 +115,12 @@ export function DashboardLayout() {
               active={isActive("/app/session")}
             />
           )}
+          <NavLink
+            to="/app/recording-guide"
+            icon={<BookOpen className="w-5 h-5" />}
+            label="촬영 가이드"
+            active={isActive("/app/recording-guide")}
+          />
           <NavLink
             to="/app/reports"
             icon={<BarChart3 className="w-5 h-5" />}

@@ -7,6 +7,7 @@ import { Settings } from "./pages/settings";
 import { Reports } from "./pages/reports";
 import { StudySession } from "./pages/study-session";
 import { SessionDetail } from "./pages/session-detail";
+import { RecordingGuidePage } from "./pages/recording-guide";
 import { DashboardLayout } from "./components/dashboard-layout";
 
 export const router = createBrowserRouter([
@@ -33,6 +34,10 @@ export const router = createBrowserRouter([
       {
         path: "session",
         Component: StudySession,
+      },
+      {
+        path: "recording-guide",
+        Component: RecordingGuidePage,
       },
       {
         path: "reports",
