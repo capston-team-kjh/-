@@ -155,7 +155,7 @@ export function SessionDetail() {
     gaze_side: "측면 시선",
     bad_posture: "자세 불량",
     pen_fidget: "펜 만지작거림",
-    restless_hand: "불안정한 손 움직임",
+    restless_hand: "필기 / 읽는 상태",
     drowsy: "졸음",
     absent: "자리 이탈",
     unknown: "판정 불확실",
@@ -373,6 +373,7 @@ export function SessionDetail() {
   const penFidgetMetrics = getTimelineMetrics(["pen_fidget"]);
   const drowsyMetrics = getTimelineMetrics(["drowsy", "sleep_suspect"]);
   const pageTurnMetrics = getTimelineMetrics(["page_turn"]);
+  const writingMetrics = getTimelineMetrics(["restless_hand"]);
 
   const radarData = [
     { metric: "자리 이탈", value: absentMetrics.score, baseMark: 1, timeLabel: formatAdaptiveTime(absentMetrics.totalSec), fullMark: 5 },
@@ -573,6 +574,13 @@ export function SessionDetail() {
               percentage={pageTurnMetrics.percent} 
               color="bg-emerald-500" 
               description={`학습 중 페이지 넘김 감지: 총 ${pageTurnMetrics.count}회`} 
+            />
+            <DistractionItem 
+              label="필기 / 읽는 상태" 
+              valueText={formatAdaptiveTime(writingMetrics.totalSec)} 
+              percentage={writingMetrics.percent} 
+              color="bg-sky-500" 
+              description={`학습 중 지속적인 손 움직임 감지: 총 ${writingMetrics.count}회`} 
             />
             <DistractionItem 
               label="펜 만지작거림" 
